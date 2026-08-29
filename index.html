@@ -1,0 +1,1224 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Build your commons</title>
+<style>
+html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%}
+:root{color-scheme:light only;
+ --paper:#EAEDE8; --ink:#131E1B; --pine:#22423A; --glacier:#35748A; --madder:#7C2E3E;
+ --gold:#8A6A2F; --rule:rgba(19,30,27,.16); --rule2:rgba(19,30,27,.07);
+ --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+ --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+ --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.5}
+#app{max-width:620px;margin:0 auto;padding:20px 16px 60px}
+h1{font-family:var(--serif);font-weight:500;font-size:30px;line-height:1.08;margin:0 0 6px;letter-spacing:-.015em}
+h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;margin:0 0 4px}
+.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.7;margin-bottom:14px}
+.lede{font-size:16px;color:var(--pine);margin:0 0 20px}
+.hint{font-size:13.5px;color:var(--pine);opacity:.8;margin:0 0 16px}
+.note{background:rgba(53,116,138,.09);border-left:2px solid var(--glacier);padding:12px 14px;
+ font-size:13.5px;line-height:1.5;margin:0 0 18px;border-radius:0 3px 3px 0}
+.note b{font-weight:600}
+button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
+.btn{display:block;width:100%;padding:14px 16px;font-size:16px;background:var(--pine);color:var(--paper);border:none;margin-top:10px}
+.btn:hover{background:#1a352e}
+.btn.ghost{background:none;color:var(--pine);border:1px solid var(--rule)}
+.btn.ghost:hover{border-color:var(--pine)}
+.opt{display:block;width:100%;text-align:left;padding:13px 15px;margin-bottom:8px;background:rgba(255,255,255,.5);
+ border:1px solid var(--rule);color:var(--ink);font-size:15.5px;line-height:1.35}
+.opt:hover{border-color:var(--pine)}
+.opt.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
+.opt small{display:block;font-size:12.5px;opacity:.75;margin-top:2px}
+.tok{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule2)}
+.tok .lb{flex:1;font-size:15px}
+.tok .lb small{display:block;font-size:12px;color:var(--pine);opacity:.7}
+.tok .pips{font-family:var(--mono);font-size:13px;color:var(--glacier);min-width:60px;text-align:right;letter-spacing:1px}
+.tok button{width:36px;height:36px;font-size:18px;background:none;border:1px solid var(--rule);color:var(--pine);line-height:1}
+.tok button:disabled{opacity:.22;cursor:default}
+.bank{position:sticky;top:0;background:var(--paper);padding:11px 0;font-family:var(--mono);font-size:12.5px;
+ letter-spacing:.06em;color:var(--pine);border-bottom:1px solid var(--rule);z-index:5}
+.bank b{color:var(--madder);font-size:15px}
+.grp{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--pine);
+ opacity:.65;margin:18px 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{padding:9px 13px;font-size:14px;border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--ink)}
+.chip.nice{background:rgba(53,116,138,.16);border-color:var(--glacier)}
+.chip.must{background:var(--glacier);border-color:var(--glacier);color:#fff}
+.chip.no{opacity:.45;border-style:dashed;border-color:var(--madder);text-decoration:line-through}
+.key{display:flex;gap:12px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--pine);opacity:.8;margin:14px 0 0}
+.sl{margin:16px 0 20px}
+.sl label{display:block;font-size:15px;margin-bottom:2px}
+.sl .ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--pine);opacity:.7;margin-top:3px}
+input[type=range]{width:100%;accent-color:var(--pine)}
+input[type=text],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
+ border:1px solid var(--rule);border-radius:3px;color:var(--ink)}
+textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical}
+.dots{display:flex;gap:5px;margin-bottom:18px}
+.dots i{height:3px;flex:1;background:var(--rule);border-radius:2px}
+.dots i.on{background:var(--pine)}
+.code{font-family:var(--mono);font-size:14px;word-break:break-all;background:rgba(255,255,255,.8);
+ border:1px solid var(--glacier);padding:14px;border-radius:3px;margin:14px 0;line-height:1.6;
+ user-select:all;-webkit-user-select:all}
+.bar{height:8px;background:var(--rule2);border-radius:4px;overflow:hidden;display:flex;margin-top:5px}
+.bar span{display:block;height:8px}
+.res{padding:13px 0;border-bottom:1px solid var(--rule2)}
+.res .t{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.res .t b{font-weight:500;font-size:15.5px}
+.res .t em{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--pine);opacity:.75}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+ padding:2px 7px;border-radius:2px;margin-left:6px}
+.tag.agree{background:rgba(34,66,58,.14);color:var(--pine)}
+.tag.split{background:rgba(124,46,62,.14);color:var(--madder)}
+.sec{margin:30px 0 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+ color:var(--pine);opacity:.7;padding-bottom:6px;border-bottom:1px solid var(--rule)}
+.who{font-family:var(--mono);font-size:11.5px;color:var(--pine);opacity:.8;margin-bottom:16px}
+.err{color:var(--madder);font-size:13.5px;margin-top:8px}
+.ok{color:var(--pine);font-size:13.5px;margin-top:8px}
+.foot{margin-top:26px;font-size:12.5px;color:var(--pine);opacity:.75;line-height:1.5}
+
+.card{border-left:2px solid var(--pine);background:rgba(255,255,255,.55);padding:11px 13px;margin:0 0 9px;border-radius:0 3px 3px 0}
+.card.split{border-left-color:var(--madder)}
+.card.agree{border-left-color:var(--glacier)}
+.card .ct{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;opacity:.7;margin-bottom:3px}
+.card p{margin:0;font-size:14.5px;line-height:1.45}
+.board{border:1px solid var(--rule);border-radius:3px;background:rgba(255,255,255,.5);margin:0 0 14px;overflow:hidden}
+.brow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--rule2)}
+.brow:last-child{border-bottom:none}
+.bn{flex:1;font-size:15px}
+.brow .x{width:30px;height:30px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
+.chartwrap{border:1px solid var(--rule);background:rgba(255,255,255,.45);border-radius:3px;padding:6px;margin:0 0 16px}
+.chart{display:block;width:100%;height:auto}
+.insp{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--pine);
+ box-shadow:0 -6px 24px rgba(19,30,27,.14);padding:12px 16px 20px;max-height:52vh;overflow:auto;z-index:60;
+ transform:translateY(110%);transition:transform .18s ease}
+.insp.open{transform:translateY(0)}
+.insp .ihead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.insp .ihead b{font-family:var(--serif);font-size:18px;font-weight:500}
+.insp #iclose{background:none;border:1px solid var(--rule);color:var(--pine);width:32px;height:32px;font-size:18px;line-height:1}
+.irow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--rule2)}
+.irow:last-child{border-bottom:none}
+.idot{width:11px;height:11px;border-radius:50%;flex:none}
+.iname{flex:1;font-size:15px}
+.ival{font-family:var(--mono);font-size:12px;color:var(--pine)}
+.res[data-items]:active{background:rgba(53,116,138,.08)}
+.poster{display:block;width:100%;max-width:420px;margin:10px auto 12px;border:1px solid var(--rule);border-radius:3px}
+.qcap{font-size:13px;color:var(--pine);background:rgba(255,255,255,.5);border:1px solid var(--rule);
+ border-radius:3px;padding:9px 11px;margin:-10px 0 16px;min-height:38px}
+.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.pchip{padding:7px 12px;font-size:13px;border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--pine);border-radius:20px}
+.pchip.on{background:var(--pc,var(--pine));border-color:var(--pc,var(--pine));color:#fff}
+.pchip.alt{--pc:#131E1B}
+.qkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px}
+.qk{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.qn{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;
+ color:#fff;font-family:var(--mono);font-size:9.5px}
+@media print{
+ .noprint,.pchips{display:none!important}
+ #cm{max-width:none;padding:0}
+ .res,.card,.chartwrap{break-inside:avoid}
+ body{background:#fff}
+}
+.diffs{margin-top:8px;padding-left:10px;border-left:2px solid var(--rule)}
+.dl{display:block;margin:5px 0;font-size:12.5px;line-height:1.4}
+.dl .dk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--pine);opacity:.65}
+.dl .dv{color:var(--ink);opacity:.9}
+.dl.agreeln{opacity:.75}
+.stack{display:flex;height:9px;margin-top:6px;background:var(--rule2);border-radius:5px;overflow:hidden}
+.stack span{display:block;height:9px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+@media (prefers-color-scheme: dark){
+  html,body{background:#EAEDE8 !important;color:#131E1B !important}
+  input,textarea,select,button{color-scheme:light}
+}
+</style>
+<div id="app"></div>
+<script>
+/* ---------- content ---------- */
+const ACTS=[
+ ["Land & food",[["garden","Vegetable growing"],["berry","Berries & orchard"],["green","Greenhouse or polytunnel"],
+  ["herb","Herbs & medicinal plants"],["mush","Mushroom growing"],["forage","Foraging"],["bees","Beekeeping"],
+  ["hens","Chickens"],["sheep","Sheep or goats"],["cellar","Root cellar & food storage"],
+  ["ferment","Cider, brewing & preserving"]]],
+ ["Making",[["carp","Carpentry workshop"],["pot","Pottery & kiln"],["forge","Blacksmithing & metalwork"],
+  ["text","Textiles, wool & dyeing"],["studio","Art or writing studio"],["music","Music & gathering space"],
+  ["oven","Wood-fired oven & baking"],["table","Cooking & eating together"]]],
+ ["Outdoors",[["fril","Friluftsliv on the doorstep"],["fish","Fishing"],["hunt","Hunting"],
+  ["climb","Climbing & bouldering"],["ski","Skiing & ski touring"],["cycle","Cycling"],
+  ["swim","Cold-water swimming & sauna"],["dark","Dark skies"]]],
+ ["Living together",[["wood","Logging & firewood"],["guest","Hosting guests"],["income","Guest cabins as income"],
+  ["kids","Room for children & school"],["work","Remote work, fast internet"],["offgrid","Off-grid energy & water"],
+  ["quiet","Quiet & solitude"]]]
+];
+const ALLACTS=ACTS.flatMap(g=>g[1]);
+const SPEND=[["land","Land area","Room to grow, graze, wander"],
+ ["build","Buildings","Size, quality, warmth"],
+ ["wild","Remoteness","Far from everything"],
+ ["city","Near a city","Work, hospital, trains"],
+ ["central","Easy for everyone","Short journeys for the whole group"],
+ ["known","Somewhere we know","A place that already means something"],
+ ["cheap","Low cost","Keeping the price down"],
+ ["sun","Sun & growing climate","Dry, bright, long season"]];
+const BANK=20;
+const STYLES=[["sep","Separate houses","Each household its own place, loosely grouped"],
+ ["clus","Cluster + common house","Small private homes around one shared building"],
+ ["big","One large building","Private rooms, everything else shared"],
+ ["mix","A few homes + guest space","Some live there, others come and stay"],
+ ["grow","Start with one house","Begin small, add as people commit"]];
+const USES=[["full","Live there full time"],["part","Part of the year"],["often","Visit often"],["rare","Occasionally"]];
+const HOUSE=[["solo","Just me"],["pair","Me and a partner"],["kids","With children"],["later","Children later, maybe"]];
+const SKILLS=[["build","Building & renovation"],["wood","Woodwork & joinery"],["grow","Growing & land"],
+ ["animal","Animals"],["cook","Cooking & feeding people"],["fix","Fixing & machines"],["money","Money & accounts"],
+ ["legal","Legal & paperwork"],["lang","Local language"],["org","Organising people"],["teach","Teaching"],
+ ["care","Childcare"],["make","Making & craft"],["web","Tech & admin"]];
+const HORIZON=[["soon","Within two years"],["mid","Two to five years"],["long","Five to ten years"],["some","Someday, no timeline"]];
+const CAP=["Under \u20ac10k","\u20ac10\u201330k","\u20ac30\u201375k","\u20ac75\u2013150k","Over \u20ac150k","Rather not say"];
+const RUN=["Under \u20ac50","\u20ac50\u2013150","\u20ac150\u2013400","Over \u20ac400","Not sure yet"];
+const REGIONS=["Vestland, Norway \u2014 the fjords","German & Austrian northern Alps","French Alps & Vercors",
+ "Vosges & Alsace","Ardennes & Eifel","Pyrenees","Northern Germany & Denmark","Somewhere not on this list"];
+const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
+ ["dk","Winter darkness","I need light","I can take a dark winter"],
+ ["lang","New language","Prefer to get by","Happy to learn properly"],
+ ["far","Distance to hospital & school","Want them close","Far is acceptable"],
+ ["rough","Unfinished for years","Want it liveable now","Happy to build slowly"]];
+
+/* ---------- state & storage ---------- */
+let S=blank(), step=0, codes=[], mode="home", msg="";
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:""};
+ SKILLS.forEach(([k])=>o.sk[k]=0);
+ SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
+const MEM={};
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){MEM[k]=v;}}
+function lsGet(k){try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
+function lsKeys(){try{return Object.keys(localStorage).filter(k=>k.startsWith("commons:"));}
+ catch(e){return Object.keys(MEM).filter(k=>k.startsWith("commons:"));}}
+const slug=n=>"commons:"+String(n||"").trim().toLowerCase().replace(/\s+/g," ");
+function autosave(){ if(S.n) lsSet(slug(S.n),JSON.stringify(S)); }
+
+const BOARD="commons:board";
+function compact(o){const a={};Object.entries(o.a||{}).forEach(([k,v])=>{if(v)a[k]=v;});return Object.assign({},o,{a});}
+function packBoard(){return encode(boardGet());}
+function boardGet(){try{const v=lsGet(BOARD);const a=v?JSON.parse(v):[];return Array.isArray(a)?a:[];}catch(e){return [];}}
+function boardSet(a){lsSet(BOARD,JSON.stringify(a));}
+function boardAdd(list){
+ const b=boardGet(); let added=0,updated=0;
+ list.forEach(o=>{
+  const key=String(o.n||"").toLowerCase().trim();
+  const i=b.findIndex(x=>String(x.n||"").toLowerCase().trim()===key&&key!=="");
+  if(i>=0){b[i]=o;updated++;} else {b.push(o);added++;}
+ });
+ boardSet(b); return {added,updated,total:b.length};
+}
+const app=document.getElementById("app");
+const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A","#8A4A2F",
+ "#3E5C7A","#6B2F4A","#7A6B2F","#2F4A6B","#5A7C2E","#7C5A2E","#2E5A7C"];
+const nameOf=i=>((codes[i]&&codes[i].n)||("#"+(i+1)));
+const grp=s=>String(s).replace(/(.{20})(?=.)/g,"$1 ");
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const spent=()=>SPEND.reduce((a,[k])=>a+S.sp[k],0);
+const B36="0123456789abcdefghijklmnopqrstuvwxyz";
+function packOne(o){
+ const idx=(list,v)=>{const i=list.findIndex(x=>x[0]===v);return i<0?0:i;};
+ const sp=SPEND.map(([k])=>B36[Math.min(35,(o.sp&&o.sp[k])||0)]).join("");
+ const ac=ALLACTS.map(([k])=>String(((o.a&&o.a[k])||0))).join("");
+ const to=TOL.map(([k])=>String((o.t&&o.t[k]!==undefined)?o.t[k]:2)).join("");
+ const sk=SKILLS.map(([k])=>((o.sk&&o.sk[k])?"1":"0")).join("");
+ const rg=(o.rg||[]).map(r=>B36[Math.max(0,REGIONS.indexOf(r))]).join("");
+ return ["C1",o.n||"",idx(STYLES,o.s),sp,ac,to,idx(USES,o.u),idx(HOUSE,o.hh),idx(HORIZON,o.hz),sk,
+  typeof o.cp==="number"?o.cp:5,typeof o.rn==="number"?o.rn:4,["Yes","Maybe","No"].indexOf(o.d),
+  rg,(o.st||"").replace(/[|~]/g," "),(o.wy||"").replace(/[|~]/g," "),(o.ow||[]).join("|").replace(/~/g," ")].join("~");
+}
+function unpackOne(str){
+ const f=str.split("~");if(f[0]!=="C1")throw new Error("not C1");
+ const o={n:f[1],s:(STYLES[+f[2]]||STYLES[0])[0],sp:{},a:{},t:{},sk:{},
+  u:(USES[+f[6]]||USES[0])[0],hh:(HOUSE[+f[7]]||HOUSE[0])[0],hz:(HORIZON[+f[8]]||HORIZON[0])[0],
+  cp:+f[10],rn:+f[11],d:["Yes","Maybe","No"][+f[12]]||"",rg:[],st:f[14]||"",wy:f[15]||"",
+  ow:(f[16]||"").split("|").filter(Boolean)};
+ SPEND.forEach(([k],i)=>o.sp[k]=B36.indexOf((f[3]||"")[i]||"0"));
+ ALLACTS.forEach(([k],i)=>o.a[k]=+((f[4]||"")[i]||0));
+ TOL.forEach(([k],i)=>o.t[k]=+((f[5]||"")[i]||2));
+ SKILLS.forEach(([k],i)=>o.sk[k]=+((f[9]||"")[i]||0));
+ (f[13]||"").split("").forEach(ch=>{const r=REGIONS[B36.indexOf(ch)];if(r)o.rg.push(r);});
+ return o;
+}
+function enc(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+function dec(c){c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
+ while(c.length%4)c+="="; return JSON.parse(decodeURIComponent(escape(atob(c))));}
+const ownList=()=>String(S.ow||"").split(/[\n;]+/).map(x=>x.trim()).filter(Boolean).slice(0,6);
+/* ---- C2: bit-packed records. Every fixed field costs only the bits it needs. ---- */
+function BW(){this.b=[];this.c=0;this.n=0;}
+BW.prototype.w=function(v,bits){v=v<0?0:v;
+ for(let i=bits-1;i>=0;i--){this.c=(this.c<<1)|((v>>i)&1);this.n++;
+  if(this.n===8){this.b.push(this.c);this.c=0;this.n=0;}}};
+BW.prototype.done=function(){if(this.n){this.b.push(this.c<<(8-this.n));this.c=0;this.n=0;}return this.b;};
+function BR(b){this.b=b;this.i=0;this.n=0;}
+BR.prototype.r=function(bits){let v=0;
+ for(let k=0;k<bits;k++){const bit=((this.b[this.i]||0)>>(7-this.n))&1;v=(v<<1)|bit;
+  this.n++;if(this.n===8){this.n=0;this.i++;}}return v;};
+const U8=t=>unescape(encodeURIComponent(String(t==null?"":t)));
+const uU8=t=>{try{return decodeURIComponent(escape(t));}catch(e){return t;}};
+const IDX=(list,v)=>{const i=list.findIndex(x=>x[0]===v);return i<0?0:i;};
+function recBin(o){
+ const w=new BW();
+ w.w(IDX(STYLES,o.s),3); w.w(IDX(USES,o.u),2); w.w(IDX(HOUSE,o.hh),2); w.w(IDX(HORIZON,o.hz),2);
+ w.w(typeof o.cp==="number"?o.cp:5,3); w.w(typeof o.rn==="number"?o.rn:4,3);
+ w.w(Math.max(0,["Yes","Maybe","No"].indexOf(o.d)),2);
+ SPEND.forEach(([k])=>w.w(Math.min(15,(o.sp&&o.sp[k])||0),4));
+ ALLACTS.forEach(([k])=>w.w(Math.min(3,(o.a&&o.a[k])||0),2));
+ TOL.forEach(([k])=>w.w(Math.min(7,(o.t&&o.t[k]!==undefined)?o.t[k]:2),3));
+ SKILLS.forEach(([k])=>w.w((o.sk&&o.sk[k])?1:0,1));
+ let mask=0;(o.rg||[]).forEach(r=>{const i=REGIONS.indexOf(r);if(i>=0)mask|=(1<<i);});
+ w.w(mask,8);
+ const bytes=w.done();
+ const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e")].join("\u001f"));
+ return bytes.map(b=>String.fromCharCode(b)).join("")+tail;
+}
+function recRead(str){
+ const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
+ const bytes=[];for(let i=0;i<N_FIX;i++)bytes.push(str.charCodeAt(i)&255);
+ const r=new BR(bytes),o={sp:{},a:{},t:{},sk:{},rg:[]};
+ o.s=(STYLES[r.r(3)]||STYLES[0])[0]; o.u=(USES[r.r(2)]||USES[0])[0];
+ o.hh=(HOUSE[r.r(2)]||HOUSE[0])[0]; o.hz=(HORIZON[r.r(2)]||HORIZON[0])[0];
+ o.cp=r.r(3); o.rn=r.r(3); o.d=["Yes","Maybe","No"][r.r(2)]||"";
+ SPEND.forEach(([k])=>o.sp[k]=r.r(4));
+ ALLACTS.forEach(([k])=>o.a[k]=r.r(2));
+ TOL.forEach(([k])=>o.t[k]=r.r(3));
+ SKILLS.forEach(([k])=>o.sk[k]=r.r(1));
+ const mask=r.r(8);REGIONS.forEach((rg,i)=>{if(mask&(1<<i))o.rg.push(rg);});
+ const parts=uU8(str.slice(N_FIX)).split("\u001f");
+ o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
+ o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
+ return o;
+}
+function packC2(list){
+ let out=String.fromCharCode(2)+String.fromCharCode(Math.min(255,list.length));
+ list.forEach(o=>{const b=recBin(o);
+  out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
+ return out;
+}
+function unpackC2(str){
+ const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
+ const n=str.charCodeAt(1)&255;
+ if(!n||str.length<3)throw new Error("empty pack");
+ let i=2;const out=[];
+ for(let k=0;k<n;k++){
+  if(i+2>str.length)throw new Error("truncated");
+  const len=((str.charCodeAt(i)&255)<<8)|(str.charCodeAt(i+1)&255);i+=2;
+  if(len<N_FIX||i+len>str.length)throw new Error("bad record length");
+  out.push(recRead(str.slice(i,i+len)));i+=len;}
+ if(i!==str.length)throw new Error("trailing bytes");
+ return out;
+}
+const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
+const unbin64=c=>{
+ c=String(c).trim().replace(/\s+/g,"");
+ c=c.replace(/-/g,"");     /* our alphabet never produces a hyphen, so any "-" here came from
+                               WhatsApp's line-wrap hyphenation and is safe to drop */
+ c=c.replace(/\./g,"+").replace(/_/g,"/");
+ while(c.length%4)c+="="; return atob(c);};
+const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
+ while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
+const encode=o=>bin64(packC2(Array.isArray(o)?o:[o]));
+const decode=c=>{
+ let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===2){const rows=unpackC2(bin);return rows.length===1?rows[0]:rows;}
+ let raw=null; try{raw=unb64(c);}catch(e){}
+ if(raw&&raw.indexOf("C1~")===0){const rows=raw.split("\n").filter(Boolean).map(unpackOne);
+  return rows.length===1?rows[0]:rows;}
+ const v=dec(c);
+ if(Array.isArray(v))return v.map(x=>typeof x==="string"?unpackOne(x):x);
+ if(typeof v==="string")return unpackOne(v);
+ return v;};
+const insAttr=(title,items)=>` data-title="${esc(title)}" data-items="${esc(JSON.stringify(items))}" style="cursor:pointer"`;
+function showInspector(title,items){
+ let el=document.getElementById("inspector");
+ if(!el){el=document.createElement("div");el.id="inspector";el.className="insp";document.body.appendChild(el);}
+ el.innerHTML=`<div class="ihead"><b>${esc(title)}</b><button id="iclose" aria-label="Close">&times;</button></div>
+  <div class="ibody">${items.length?items.map(([n,c,t])=>`<div class="irow">
+    <span class="idot" style="background:${esc(c)}"></span><span class="iname">${esc(n)}</span>
+    <span class="ival">${esc(t)}</span></div>`).join(""):`<p class="hint" style="margin:6px 0">Nobody.</p>`}</div>`;
+ el.classList.add("open");
+ document.getElementById("iclose").onclick=()=>el.classList.remove("open");
+}
+function wireInspector(){
+ document.querySelectorAll("[data-items]").forEach(el=>{
+  el.onclick=ev=>{ev.stopPropagation();
+   let items=[];try{items=JSON.parse(el.dataset.items);}catch(e){}
+   showInspector(el.dataset.title||"",items);};});
+}
+const payload=()=>({n:S.n,s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,st:String(S.stop||"").slice(0,240),
+ sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList()});
+function grabOwn(){const t=document.getElementById("own"); if(t)S.ow=t.value.slice(0,400);
+ const q=document.getElementById("stop"); if(q)S.stop=q.value.slice(0,240);
+ const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);}
+
+/* ---------- steps ---------- */
+const STEPS=[
+{t:"Who's this?",k:"A first name, so the group can see whose is whose \u2014 and so you can come back and edit later.",
+ r:()=>`<input type="text" id="nm" value="${esc(S.n)}" placeholder="First name" autocomplete="given-name">
+  <p class="hint" style="margin-top:14px">Your answers save on this device under this name. Nothing is uploaded anywhere.</p>`,
+ save:()=>{S.n=(document.getElementById("nm").value||"").trim().slice(0,24); return S.n?null:"A name would help.";}},
+
+{t:"What shape is it?",k:"Not where \u2014 what kind of place. Pick the one closest to how you picture it.",
+ r:()=>STYLES.map(([k,a,b])=>`<button class="opt ${S.style===k?"on":""}" data-style="${k}">${a}<small>${b}</small></button>`).join(""),
+ save:()=>S.style?null:"Pick one."},
+
+{t:"Spend your twenty",k:"Twenty tokens, eight things worth having. You cannot have them all \u2014 that's the point.",
+ r:()=>`<div class="bank">Tokens left: <b id="left">${BANK-spent()}</b> of ${BANK}</div>`+
+  SPEND.map(([k,a,b])=>`<div class="tok">
+   <button data-sp="${k}" data-d="-1" ${S.sp[k]<=0?"disabled":""}>&minus;</button>
+   <div class="lb">${a}<small>${b}</small></div>
+   <span class="pips">${"\u25CF".repeat(S.sp[k])||"\u00B7"}</span>
+   <button data-sp="${k}" data-d="1" ${spent()>=BANK?"disabled":""}>+</button></div>`).join(""),
+ save:()=>spent()===0?"Spend at least a few.":null},
+
+{t:"What has to be possible?",k:"Tap once for nice to have, twice for essential. A third tap rules it out \u2014 only if you really mean it.",
+ r:()=>ACTS.map(([g,items])=>`<div class="grp">${g}</div><div class="chips">`+
+   items.map(([k,a])=>{const v=S.act[k];const c=v===1?"nice":v===2?"must":v===3?"no":"";
+     return `<button class="chip ${c}" data-act="${k}">${a}</button>`;}).join("")+`</div>`).join("")+
+  `<div class="key"><span>\u00b7 neutral</span><span>\u25e6 nice to have</span><span>\u25cf essential</span><span>\u2715 ruled out</span></div>
+   <p class="hint" style="margin-top:12px">Leaving something neutral is fine. Most people rule out very little.</p>
+   <div class="grp">Something we've missed?</div>
+   <textarea id="own" placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
+   <p class="hint" style="margin-top:8px">These travel inside your code and show up in the group picture,
+   so anything several of you add can go on the list properly next time.</p>`,
+ save:()=>{grabOwn();return null;}},
+
+{t:"How much can you take?",k:"Slide toward whichever end feels true.",
+ r:()=>TOL.map(([k,a,lo,hi])=>`<div class="sl"><label>${a}</label>
+   <input type="range" min="0" max="4" value="${S.tol[k]}" data-tol="${k}">
+   <div class="ends"><span>${lo}</span><span>${hi}</span></div></div>`).join(""),
+ save:()=>null},
+
+{t:"How would you use it?",k:"Be honest rather than aspirational.",
+ r:()=>USES.map(([k,a])=>`<button class="opt ${S.use===k?"on":""}" data-use="${k}">${a}</button>`).join("")+
+  `<p class="hint" style="margin-top:20px"><b>Who would be coming with you?</b></p>`+
+  HOUSE.map(([k,a])=>`<button class="opt ${S.hh===k?"on":""}" data-hh="${k}">${a}</button>`).join(""),
+ save:()=>S.use?(S.hh?null:"And who is coming with you?"):"Pick one."},
+
+{t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
+ r:()=>`<p class="hint"><b>Realistically, when?</b></p>`+
+  HORIZON.map(([k,a])=>`<button class="opt ${S.hz===k?"on":""}" data-hz="${k}">${a}</button>`).join("")+
+  `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
+   a place you cannot leave, a number you cannot reach. Deal-breakers are worth more than preferences.</p>
+   <textarea id="stop" placeholder="Nothing yet, or... ">${esc(S.stop||"")}</textarea>`,
+ save:()=>{const q=document.getElementById("stop");if(q)S.stop=q.value.slice(0,240);
+  return S.hz?null:"Pick a rough timeframe.";}},
+
+{t:"Money, roughly",k:"Two different things, often confused. Both are bands, not commitments.",
+ r:()=>`<div class="note"><b>What the numbers mean.</b> Rough all-in cost of a house with some land,
+   before renovation. Orders of magnitude for calibration, not quotes:<br><br>
+   Pyrenees &middot; &euro;120&ndash;300k<br>
+   Ardennes &amp; Eifel &middot; &euro;150&ndash;350k<br>
+   French Alps &amp; Vercors &middot; &euro;200&ndash;450k<br>
+   Vestland, Norway &middot; &euro;215&ndash;520k<br>
+   Vosges &amp; Alsace &middot; &euro;250&ndash;500k<br>
+   German &amp; Austrian Alps &middot; &euro;600k&ndash;1.2M<br><br>
+   Renovation typically adds 30&ndash;100% on top &mdash; cheapest in France, dearest in Norway, where building
+   costs are among Europe's highest. Take a mid-range example at &euro;500k all-in: five households means
+   &euro;100k each, fifteen means &euro;33k each.</div>
+  <p class="hint"><b>1. Up-front capital</b> \u2014 a one-time contribution toward buying and fixing the place.</p>`+
+  CAP.map((m,i)=>`<button class="opt ${S.cap===i?"on":""}" data-cap="${i}">${m}</button>`).join("")+
+  `<p class="hint" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of insurance, heating,
+   maintenance, tax, repairs. This continues forever, and it is what usually breaks these projects.</p>`+
+  RUN.map((m,i)=>`<button class="opt ${S.run===i?"on":""}" data-run="${i}">${m}</button>`).join("")+
+  `<p class="hint" style="margin-top:18px"><b>3.</b> Would you borrow to take part?</p>`+
+  ["Yes","Maybe","No"].map(d=>`<button class="opt ${S.debt===d?"on":""}" data-debt="${d}">${d}</button>`).join(""),
+ save:()=>S.debt?null:"Answer the borrowing question too."},
+
+{t:"What could you bring?",k:"Not what you own \u2014 what you can do. A commons runs on skills more than money.",
+ r:()=>`<div class="chips">`+SKILLS.map(([k,a])=>
+   `<button class="chip ${S.sk[k]?"must":""}" data-sk="${k}">${a}</button>`).join("")+`</div>
+  `,
+ save:()=>null},
+
+{t:"Gut feeling on where",k:"Almost done. Pick up to two regions, without thinking too hard.",
+ r:()=>REGIONS.map(p=>`<button class="opt ${S.rg.includes(p)?"on":""}" data-rg="${esc(p)}">${p}</button>`).join(""),
+ save:()=>null},
+
+{t:"Last one, and it's optional",k:"Nothing to do with the questions above \u2014 this one is about the whole idea.",
+ r:()=>`<p class="hint"><b>In one line: why do you want this at all?</b><br><br>
+   Skip it if you'd rather; nothing depends on it. If you do write something it gets quoted back to the group,
+   and it tends to be the part people actually remember.</p>
+   <textarea id="why" placeholder="Because...">${esc(S.why||"")}</textarea>`,
+ save:()=>{const w=document.getElementById("why");if(w)S.why=w.value.slice(0,180);return null;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+ if(mode==="home")return home();
+ if(mode==="done")return done();
+ if(mode==="combine")return combine();
+ if(mode==="result")return result();
+ if(mode==="resume")return resume();
+ if(mode==="incoming")return incoming();
+ const st=STEPS[step];
+ app.innerHTML=`<div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
+  <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
+  <button class="btn" id="next">${step===STEPS.length-1?"Get my code":"Next"}</button>
+  ${step>0?`<button class="btn ghost" id="back">Back</button>`:""}
+  <div class="err" id="err"></div>`;
+ wire();
+}
+function wire(){
+ const q=(s,f)=>document.querySelectorAll(s).forEach(f);
+ q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
+q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
+ q("[data-hh]",b=>b.onclick=()=>{S.hh=b.dataset.hh;autosave();render();});
+ q("[data-sk]",b=>b.onclick=()=>{S.sk[b.dataset.sk]=S.sk[b.dataset.sk]?0:1;autosave();render();});
+ q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=t.value.slice(0,240);
+   S.hz=b.dataset.hz;autosave();render();});
+ q("[data-cap]",b=>b.onclick=()=>{S.cap=+b.dataset.cap;autosave();render();});
+ q("[data-run]",b=>b.onclick=()=>{S.run=+b.dataset.run;autosave();render();});
+ q("[data-debt]",b=>b.onclick=()=>{S.debt=b.dataset.debt;autosave();render();});
+ q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();render();});
+ q("[data-tol]",r=>r.oninput=()=>{S.tol[r.dataset.tol]=+r.value;autosave();});
+ q("[data-rg]",b=>b.onclick=()=>{const p=b.dataset.rg;
+   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(S.rg.length<2)S.rg.push(p);
+   autosave();render();});
+ q("[data-sp]",b=>b.onclick=()=>{const k=b.dataset.sp,d=+b.dataset.d;
+   const v=S.sp[k]+d; if(v<0||v>10||(d>0&&spent()>=BANK))return; S.sp[k]=v; autosave(); render();});
+ const nx=document.getElementById("next");
+ if(nx)nx.onclick=()=>{const e=STEPS[step].save&&STEPS[step].save();
+   if(e){document.getElementById("err").textContent=e;return;}
+   autosave();
+   if(step===STEPS.length-1)mode="done"; else step++;
+   window.scrollTo(0,0);render();};
+ const bk=document.getElementById("back");
+ if(bk)bk.onclick=()=>{grabOwn();autosave();step--;window.scrollTo(0,0);render();};
+}
+function home(){
+ const saved=lsKeys();
+ app.innerHTML=`<div class="kicker">A commons, in the making</div>
+ <h1>Build your version</h1>
+ <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
+ countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
+ <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
+ <p class="lede">So: five minutes, on your own, no right answers. You build your own version \u2014 what shape it
+ takes, what has to be possible there, what you could put in, when. At the end you get a short code.
+ Send it back and we can see where we already agree and where we quietly don't.</p>
+ <p class="lede">Answering does not commit you to anything. Saying "someday, no timeline" or naming a
+ deal-breaker is just as useful as saying yes.</p>
+ ${msg?`<div class="ok">${esc(msg)}</div>`:""}
+ <button class="btn" id="start">Start building</button>
+ ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
+ <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
+ <p class="foot">No account, no sign-in, nothing installed, nothing uploaded. Your answers are saved on this
+ device under your name, so you can close the page and come back for your code later.</p>`;
+ msg="";
+ document.getElementById("start").onclick=()=>{S=blank();mode="build";step=0;render();};
+ const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
+ document.getElementById("comb").onclick=()=>{mode="combine";render();};
+}
+function incoming(){
+ const o=window.__incoming||{}; const b=boardGet();
+ app.innerHTML=`<div class="kicker">Someone shared their answers</div>
+ <h2>${esc(o.n||"Anonymous")}${(o.n||"").slice(-1)==="s"?"'":"'s"} version</h2>
+ <p class="lede">This link holds one person's answers. What do you want to do with it?</p>
+ <button class="btn" id="addb">Add ${esc(o.n||"them")} to the board${b.length?` (${b.length} there already)`:""}</button>
+ <button class="btn ghost" id="mine">Open it as mine, and edit</button>
+ <button class="btn ghost" id="hmx">Ignore it, start fresh</button>`;
+ const clean=()=>{try{history.replaceState(null,"",location.pathname);}catch(e){}};
+ document.getElementById("addb").onclick=()=>{const r=boardAdd([o]);
+  msg=`${esc(o.n||"They")} ${r.updated?"updated":"added"}. ${r.total} on the board.`;
+  clean();mode="combine";render();};
+ document.getElementById("mine").onclick=()=>{clean();mode="done";render();};
+ document.getElementById("hmx").onclick=()=>{S=blank();clean();mode="home";render();};
+}
+function resume(){
+ const names=lsKeys().map(k=>{try{return JSON.parse(lsGet(k)).n;}catch(e){return null;}}).filter(Boolean);
+ app.innerHTML=`<div class="kicker">Saved on this device</div><h2>Open your answers</h2>
+ <p class="lede">Pick your name to see your code again, or to change anything.</p>
+ ${names.map(n=>`<button class="opt" data-nm="${esc(n)}">${esc(n)}</button>`).join("")||`<p class="hint">Nothing saved here yet.</p>`}
+ <button class="btn ghost" id="hm">Back</button>`;
+ document.getElementById("hm").onclick=()=>{mode="home";render();};
+ document.querySelectorAll("[data-nm]").forEach(b=>b.onclick=()=>{
+   try{S=Object.assign(blank(),JSON.parse(lsGet(slug(b.dataset.nm))));}catch(e){return;}
+   mode="done";window.scrollTo(0,0);render();});
+}
+function done(){
+ const code=encode(payload());
+ try{history.replaceState(null,"","#c="+code);}catch(e){}
+ app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>Here is your code</h2>
+ <p class="lede">Copy it and send it to the group chat. That's the whole thing.</p>
+ <button class="btn" id="cl">Copy my link \u2014 easiest</button>
+ <p class="hint" style="margin-top:8px">A link stays on one line in a chat and whoever is collecting just taps it.</p>
+ <div class="code" id="cd">${grp(code)}</div>
+ <button class="btn ghost" id="cp">Copy the raw code instead</button>
+ <button class="btn ghost" id="again">Change my answers</button>
+ <button class="btn ghost" id="comb">Combine codes</button>
+ <div class="ok" id="st"></div>
+ <p class="foot">Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
+ from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.</p>`;
+ const flash=t=>{document.getElementById("st").textContent=t;};
+ async function copy(txt,label,forChat){
+  if(forChat)txt=grp(txt);
+  try{await navigator.clipboard.writeText(txt);flash(label+" copied.");return;}catch(e){}
+  try{const ta=document.createElement("textarea");ta.value=txt;ta.setAttribute("readonly","");
+   ta.style.position="fixed";ta.style.top="-1000px";document.body.appendChild(ta);
+   ta.select();ta.setSelectionRange(0,txt.length);
+   const ok=document.execCommand("copy");document.body.removeChild(ta);
+   if(ok){flash(label+" copied.");return;}}catch(e){}
+  try{const r=document.createRange();r.selectNodeContents(document.getElementById("cd"));
+   getSelection().removeAllRanges();getSelection().addRange(r);
+   flash("Selected above \u2014 press and hold, then Copy.");return;}catch(e){}
+  flash("Press and hold the code above to copy it.");
+ }
+ document.getElementById("cp").onclick=()=>copy(code,"Code",true);
+ document.getElementById("cl").onclick=()=>copy(location.href,"Link");
+ document.getElementById("again").onclick=()=>{mode="build";step=0;window.scrollTo(0,0);render();};
+ document.getElementById("comb").onclick=()=>{mode="combine";render();};
+}
+function combine(){
+ const b=boardGet();
+ app.innerHTML=`<div class="kicker">The board</div><h2>${b.length?`${b.length} submission${b.length===1?"":"s"} collected`:"Paste the codes"}</h2>
+ <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
+ ${b.length?`<div class="board">${b.map((o,i)=>`<div class="brow">
+   <span class="bn">${esc(o.n||"anon")}</span>
+   <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>`:""}
+ <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
+ <button class="btn" id="add">Add to the board</button>
+ ${b.length>=2?`<button class="btn" id="go" style="background:var(--glacier)">See where we stand (${b.length})</button>
+   <button class="btn ghost" id="share">Share the picture</button>`:
+   `<p class="hint" style="margin-top:12px">Two submissions are needed before the picture will draw.</p>`}
+ <button class="btn ghost" id="hm">Back</button>
+ ${b.length?`<button class="btn ghost" id="clr">Clear the board</button>`:""}
+ <div class="err" id="err"></div><div class="ok" id="ok"></div>
+ <p class="foot">The board is saved on this device, so you can collect codes over days and only ever paste the new ones.</p>`;
+ document.getElementById("hm").onclick=()=>{mode="home";render();};
+ document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
+  const a=boardGet(); a.splice(+x.dataset.rm,1); boardSet(a); render();});
+ const clr=document.getElementById("clr");
+ if(clr)clr.onclick=()=>{if(clr.dataset.sure){boardSet([]);render();}
+  else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
+ const go=document.getElementById("go");
+ if(go)go.onclick=()=>{codes=boardGet();mode="result";window.scrollTo(0,0);render();};
+ const shr=document.getElementById("share");
+ if(shr)shr.onclick=async()=>{const pk=packBoard();
+  try{await navigator.clipboard.writeText(pk);document.getElementById("ok").textContent=
+   `Copied a single code holding all ${boardGet().length}. Anyone can paste it here to see the same picture.`;}
+  catch(e){const ta=document.createElement("textarea");ta.value=pk;ta.style.position="fixed";ta.style.top="-1000px";
+   document.body.appendChild(ta);ta.select();try{document.execCommand("copy");
+   document.getElementById("ok").textContent="Copied a single code holding everyone's answers.";}
+   catch(e2){document.getElementById("ok").textContent="Could not copy automatically.";}document.body.removeChild(ta);}};
+ document.getElementById("add").onclick=()=>{
+  const raw=document.getElementById("tx").value;
+  if(!raw.trim()){document.getElementById("err").textContent="Nothing pasted yet.";return;}
+  const out=[],bad=[];
+  const tryOne=t=>{const c=String(t).replace(/^.*#c=/,"").replace(/\s+/g,"");
+   if(!c)return null;
+   try{const o=decode(c);const arr=Array.isArray(o)?o:[o];
+    return (arr.length&&arr.every(x=>x&&x.sp))?arr:null;}catch(e){return null;}};
+  /* whole paste as ONE code first \u2014 grouped codes contain spaces by design */
+  const whole=tryOne(raw);
+  if(whole){whole.forEach(x=>out.push(x));}
+  else{
+   raw.split(/[\r\n]+/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
+    const r=tryOne(l); if(r)r.forEach(x=>out.push(x)); else bad.push(l);});
+   if(!out.length){
+    raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).forEach(tok=>{
+     const r=tryOne(tok); if(r)r.forEach(x=>out.push(x));});
+   }
+  }
+  if(!out.length){document.getElementById("err").textContent="None of those could be read as a code.";return;}
+  const r=boardAdd(out);
+  msg=`${r.added?`${r.added} added`:""}${r.added&&r.updated?", ":""}${r.updated?`${r.updated} updated`:""}. ${r.total} on the board.`;
+  render();
+  document.getElementById("ok").textContent=msg; msg="";
+ };
+}
+
+/* ================= Europe map ================= */
+const MAPWIN={la0:34,la1:71,lo0:-11,lo1:32};
+const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"German & Austrian northern Alps":[47.4,10.8],
+ "French Alps & Vercors":[45.0,5.8],"Vosges & Alsace":[48.1,7.1],"Ardennes & Eifel":[50.4,6.1],
+ "Pyrenees":[42.7,1.5],"Northern Germany & Denmark":[54.6,9.4]};
+const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","German & Austrian northern Alps":"N. Alps",
+ "French Alps & Vercors":"French Alps","Vosges & Alsace":"Vosges","Ardennes & Eifel":"Ardennes",
+ "Pyrenees":"Pyrenees","Northern Germany & Denmark":"N. Germany"};
+const D2R=Math.PI/180, tt=p=>Math.tan(Math.PI/4+p/2);
+const MP1=42*D2R, MP2=64*D2R, MP0=53*D2R, ML0=10*D2R;
+const mn=Math.log(Math.cos(MP1)/Math.cos(MP2))/Math.log(tt(MP2)/tt(MP1));
+const mF=Math.cos(MP1)*Math.pow(tt(MP1),mn)/mn, mR0=mF/Math.pow(tt(MP0),mn);
+const mproj=(la,lo)=>{const r=mF/Math.pow(tt(la*D2R),mn),th=mn*(lo*D2R-ML0);return [r*Math.sin(th),mR0-r*Math.cos(th)];};
+const MW=340,MH=380;
+let mSC=1,mOX=0,mOY=0;
+(function mfit(){const xs=[],ys=[];
+ for(let la=MAPWIN.la0;la<=MAPWIN.la1;la+=1)for(const lo of [MAPWIN.lo0,MAPWIN.lo1]){const q=mproj(la,lo);xs.push(q[0]);ys.push(q[1]);}
+ for(let lo=MAPWIN.lo0;lo<=MAPWIN.lo1;lo+=1)for(const la of [MAPWIN.la0,MAPWIN.la1]){const q=mproj(la,lo);xs.push(q[0]);ys.push(q[1]);}
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+ mSC=Math.min((MW-10)/(x1-x0),(MH-10)/(y1-y0));
+ mOX=5+((MW-10)-(x1-x0)*mSC)/2-x0*mSC; mOY=5+((MH-10)-(y1-y0)*mSC)/2+y1*mSC;})();
+const MPX=(la,lo)=>{const q=mproj(la,lo);return [q[0]*mSC+mOX,mOY-q[1]*mSC];};
+
+const FALLBACK=[
+ [[71.1,25.8],[70.5,23.5],[70.0,21.0],[69.6,18.9],[68.8,17.5],[68.0,15.0],[67.3,14.4],[66.3,13.0],
+  [65.3,12.2],[64.5,11.4],[63.6,9.8],[63.1,7.7],[62.5,6.1],[62.0,5.2],[61.0,4.9],[60.3,5.0],[59.3,5.2],
+  [58.6,5.7],[58.1,7.0],[58.0,8.1],[58.4,9.0],[59.0,10.0],[59.3,10.6],[59.1,11.0],[58.3,11.4],[57.7,11.9],
+  [56.9,12.4],[56.2,12.6],[55.4,13.0],[55.6,14.3],[56.2,15.6],[57.3,16.5],[58.7,17.1],[59.4,18.3],
+  [60.6,17.5],[62.0,17.6],[63.3,19.1],[64.9,21.1],[65.7,22.3],[65.8,24.2],[64.8,25.4],[63.8,22.7],
+  [62.6,21.3],[60.9,21.4],[60.1,22.8],[60.3,25.0],[60.5,27.2],[61.5,29.5],[62.6,31.4],[64.0,30.1],
+  [65.6,29.6],[66.5,29.1],[68.0,28.5],[69.0,27.0],[70.0,27.9],[70.9,28.0],[71.1,25.8]],
+ [[54.8,9.4],[55.1,8.6],[55.5,8.1],[56.4,8.15],[57.1,8.6],[57.75,10.6],[57.0,10.3],[56.6,10.7],[56.0,10.2],
+  [55.3,9.9],[54.8,9.4]],
+ [[54.4,8.6],[53.9,8.4],[53.6,7.2],[53.4,6.2],[53.3,5.4],[52.9,4.75],[52.4,4.55],[51.6,3.7],[51.2,2.9],
+  [50.7,1.6],[50.1,1.4],[49.4,0.2],[49.35,-1.2],[48.6,-1.6],[47.5,-2.5],[46.5,-1.2],[45.5,-1.1],
+  [44.6,-1.2],[43.4,-1.6],[43.5,-3.0],[43.6,-5.7],[43.8,-7.9],[43.4,-8.9],[42.2,-8.9],[41.1,-8.6],
+  [39.4,-9.4],[38.7,-9.5],[37.0,-8.9],[36.8,-6.4],[36.1,-5.3],[36.7,-4.4],[37.5,-2.0],[38.9,-0.1],
+  [40.4,0.5],[41.3,2.1],[42.4,3.2],[43.0,3.0],[43.4,4.4],[43.3,5.4],[43.4,6.7],[43.8,7.6],[44.4,8.9],
+  [44.05,9.85],[43.5,10.3],[42.4,11.2],[41.2,13.0],[40.6,14.3],[39.9,15.8],[38.2,15.6],[37.9,16.1],
+  [38.9,16.6],[39.8,18.4],[40.5,18.5],[41.9,16.1],[42.0,14.6],[43.6,13.5],[44.8,12.3],[45.7,13.6],
+  [44.9,14.5],[44.1,15.2],[43.0,17.2],[42.1,18.6],[41.3,19.4],[40.0,19.4],[38.9,20.7],[37.9,21.1],
+  [38.3,22.1],[38.0,23.6],[37.0,23.1],[36.7,24.0],[38.0,24.6],[39.0,26.2],[40.4,26.2],[40.9,27.9],
+  [41.2,29.1],[41.7,31.5]],
+ [[58.6,-3.1],[58.5,-5.0],[57.5,-6.0],[56.5,-6.0],[55.4,-5.6],[54.8,-5.0],[54.1,-3.0],[53.4,-3.1],
+  [52.8,-4.7],[51.6,-5.3],[51.2,-4.2],[50.2,-5.7],[50.6,-2.5],[50.8,0.3],[51.4,1.4],[52.0,1.7],
+  [52.9,0.4],[53.6,0.1],[54.6,-1.2],[56.0,-2.6],[57.5,-1.8],[58.6,-3.1]],
+ [[55.2,-6.5],[54.0,-6.0],[52.9,-6.0],[52.2,-6.4],[51.5,-9.4],[52.9,-9.9],[54.3,-8.8],[55.2,-7.3],[55.2,-6.5]],
+ [[59.5,24.8],[59.4,28.1],[58.4,27.5],[57.9,26.0],[57.0,24.0],[56.0,21.0],[55.3,21.0],[54.7,19.7],
+  [54.4,18.6],[54.1,16.2],[54.0,14.2],[54.5,13.4],[54.1,12.1],[54.4,11.0],[54.5,9.9]],
+ [[43.0,9.35],[42.8,9.55],[42.3,9.55],[41.9,9.35],[41.4,9.25],[41.4,8.75],[42.4,8.55],[42.8,8.75],[43.0,9.35]],
+ [[41.2,9.2],[40.9,9.7],[39.2,9.6],[38.9,8.9],[40.5,8.2],[41.0,8.2],[41.2,9.2]],
+ [[38.3,15.6],[38.0,15.6],[36.7,15.1],[37.0,14.0],[37.8,12.4],[38.1,13.4],[38.3,15.6]]
+];
+let MAPGEO=FALLBACK, MAPSRC="outline";
+function mapSVG(rgT){
+ const maxv=Math.max(1,...Object.values(rgT).filter((v,i)=>true),1);
+ const vals=Object.entries(RCPOS).map(([nm])=>rgT[nm]||0);
+ const mx=Math.max(1,...vals);
+ let o=`<svg viewBox="0 0 ${MW} ${MH}" class="chart" role="img" aria-label="Regions chosen, mapped across Europe">`;
+ o+=`<defs><clipPath id="mc"><rect x="0" y="0" width="${MW}" height="${MH}"/></clipPath></defs><g clip-path="url(#mc)">`;
+ for(let la=40;la<=70;la+=10){const p=[];for(let lo=MAPWIN.lo0;lo<=MAPWIN.lo1;lo+=2)p.push(MPX(la,lo));
+  o+=`<polyline points="${p.map(q=>q[0].toFixed(1)+","+q[1].toFixed(1)).join(" ")}" fill="none" stroke="#131E1B" stroke-opacity=".05"/>`;}
+ MAPGEO.forEach(ln=>{if(ln.length<2)return;
+  o+=`<polyline points="${ln.map(([la,lo])=>{const q=MPX(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ")}"
+   fill="rgba(34,66,58,.05)" stroke="#131E1B" stroke-opacity=".33" stroke-width=".85" stroke-linejoin="round"/>`;});
+ Object.entries(RCPOS).forEach(([nm,[la,lo]])=>{const q=MPX(la,lo),v=rgT[nm]||0;
+  const r=v?7+11*(v/mx):3.5;
+  const voters=codes.map((c,i)=>((c.rg||[]).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
+  o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${Math.max(r,9).toFixed(1)}"
+    fill="${v?"#7C2E3E":"#9AA5A0"}" fill-opacity="${v?.3+.45*(v/mx):.14}" stroke="${v?"#7C2E3E":"#9AA5A0"}"
+    stroke-width="${v?1.3:.7}"${insAttr(nm,voters)}><title>${esc(nm)}</title></circle>`;
+  if(v)o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]+3.3).toFixed(1)}" text-anchor="middle"
+    font-family="ui-monospace,monospace" font-size="10" font-weight="600" fill="#fff">${v}</text>`;
+  o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]-r-4).toFixed(1)}" text-anchor="middle"
+    font-family="ui-monospace,monospace" font-size="7" fill="#22423A" opacity="${v?.95:.4}">${esc(SHORT[nm]||nm)}</text>`;});
+ o+=`</g></svg>`;
+ return o;
+}
+let POSTER=null;
+function posterSVG(){
+ const W=1080,H=1620,P=70;let y=0,o="";
+ const MONO="ui-monospace,Menlo,Consolas,monospace";
+ const T=(x,yy,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${yy}" font-size="${sz}" fill="${col}"
+   font-family="${fam||"Georgia,serif"}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t).slice(0,72))}</text>`;
+ o+=`<rect width="${W}" height="${H}" fill="#EAEDE8"/>`;
+ y=P+52; o+=T(P,y,"Where we stand",54,"#131E1B");
+ y+=38; o+=T(P,y,POSTER.names.join("  \u00B7  ").toUpperCase(),19,"#22423A",MONO);
+ y+=26; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
+ y+=100; o+=T(P,y,POSTER.score,108,"#131E1B");
+ o+=T(P+200,y-52,"ALIGNED",20,"#22423A",MONO);
+ o+=T(P+200,y-16,POSTER.verdict,24,"#22423A");
+ y+=44;
+ POSTER.sections.forEach(([lab,v])=>{
+  o+=T(P,y+14,lab,23,"#131E1B");
+  o+=`<rect x="${W-P-320}" y="${y}" width="300" height="14" rx="7" fill="#131E1B" fill-opacity=".1"/>`;
+  o+=`<rect x="${W-P-320}" y="${y}" width="${(300*v/100).toFixed(0)}" height="14" rx="7"
+    fill="${v>=70?"#35748A":v>=45?"#8A6A2F":"#7C2E3E"}"/>`;
+  o+=T(W-P,y+13,v,20,"#22423A",MONO,"end");
+  y+=40;});
+ y+=22; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
+ const block=(title,col,items)=>{
+  y+=50; o+=T(P,y,title.toUpperCase(),20,col,MONO,"start","bold");
+  (items.length?items.slice(0,5):["none yet"]).forEach(t=>{y+=34;o+=T(P,y,"\u2014 "+t,25,"#131E1B");});};
+ block("Locked in","#35748A",POSTER.locked);
+ block("The fight","#7C2E3E",POSTER.fight);
+ block("Where","#22423A",POSTER.regions);
+ if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
+ o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
+}
+function svgDataURL(){return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(posterSVG());}
+function makePoster(cb){
+ /* cb(kind, src) \u2014 kind is "png" or "svg". Never throws, never needs a download. */
+ let settled=false; const finish=(k,v)=>{if(!settled){settled=true;cb(k,v);}};
+ const svgURL=svgDataURL();
+ const t=setTimeout(()=>finish("svg",svgURL),2500);
+ try{
+  const img=new Image();
+  img.onload=()=>{
+   try{
+    const cv=document.createElement("canvas");cv.width=1080;cv.height=1620;
+    const cx=cv.getContext("2d");cx.fillStyle="#EAEDE8";cx.fillRect(0,0,1080,1620);
+    cx.drawImage(img,0,0);
+    const png=cv.toDataURL("image/png");
+    clearTimeout(t);finish(png.length>2000?"png":"svg",png.length>2000?png:svgURL);
+   }catch(e){clearTimeout(t);finish("svg",svgURL);}
+  };
+  img.onerror=()=>{clearTimeout(t);finish("svg",svgURL);};
+  img.src=svgURL;
+ }catch(e){clearTimeout(t);finish("svg",svgURL);}
+}
+function decodeTopo(topo,name){
+ const {scale:[sx,sy],translate:[tx,ty]}=topo.transform;
+ const arcs=topo.arcs.map(a=>{let x=0,y=0;return a.map(([dx,dy])=>{x+=dx;y+=dy;return [y*sy+ty,x*sx+tx];});});
+ const ring=idx=>{const out=[];idx.forEach(i=>{const a=i<0?arcs[~i].slice().reverse():arcs[i];
+  out.push(...(out.length?a.slice(1):a));});return out;};
+ const lines=[],o=topo.objects[name];if(!o)return null;
+ (o.geometries||[]).forEach(g=>{
+  if(g.type==="Polygon")g.arcs.forEach(r=>lines.push(ring(r)));
+  else if(g.type==="MultiPolygon")g.arcs.forEach(pp=>pp.forEach(r=>lines.push(ring(r))));});
+ return lines;
+}
+async function upgradeMap(rgT){
+ const srcs=["https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json",
+  "https://unpkg.com/world-atlas@2/countries-50m.json",
+  "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"];
+ for(const u of srcs){
+  try{
+   const r=await fetch(u,{mode:"cors"});if(!r.ok)continue;
+   const topo=await r.json();const polys=decodeTopo(topo,"countries");if(!polys||!polys.length)continue;
+   const keep=polys.filter(ln=>ln.some(([la,lo])=>la>MAPWIN.la0-6&&la<MAPWIN.la1+6&&lo>MAPWIN.lo0-8&&lo<MAPWIN.lo1+8));
+   if(!keep.length)continue;
+   MAPGEO=keep;MAPSRC="natural earth";
+   const box=document.getElementById("mapbox");if(box){box.innerHTML=mapSVG(rgT);wireInspector();}
+   return;
+  }catch(e){}
+ }
+}
+
+function result(){
+ const N=codes.length,avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
+ const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(x=>(x-m)**2)));};
+ const who=i=>codes[i].n||("#"+(i+1));
+ const spv=(c,k)=>(c.sp&&c.sp[k])||0, tov=(c,k)=>(c.t&&c.t[k]!==undefined)?c.t[k]:2;
+
+ /* ---------- headline findings ---------- */
+ const rows=[];
+ SPEND.forEach(([k,a])=>rows.push({label:a,m:avg(codes.map(c=>spv(c,k))),s:sd(codes.map(c=>spv(c,k))),max:8}));
+ TOL.forEach(([k,a])=>rows.push({label:a,m:avg(codes.map(c=>tov(c,k))),s:sd(codes.map(c=>tov(c,k))),max:4}));
+ const bySplit=[...rows].sort((x,y)=>y.s-x.s);
+ const styleTop=STYLES.map(([k,a])=>({a,n:codes.filter(c=>c.s===k).length})).sort((x,y)=>y.n-x.n)[0];
+ const useTop=USES.map(([k,a])=>({a,n:codes.filter(c=>c.u===k).length})).sort((x,y)=>y.n-x.n)[0];
+
+ const cards=[];
+ const settled=bySplit[bySplit.length-1];
+ if(settled.s===0) cards.push(["Complete agreement",`<b>${esc(settled.label)}</b> \u2014 every one of you gave the same answer. This is settled; build on it.`,"agree"]);
+ else cards.push(["Most settled",`<b>${esc(settled.label)}</b> \u2014 you are close to agreed here.`,"agree"]);
+ cards.push(["Most divided",`<b>${esc(bySplit[0].label)}</b> \u2014 the widest spread of any answer. Start the conversation here.`,"split"]);
+ if(useTop.n===N) cards.push(["Everyone agrees on this",`All ${N} of you said <b>${esc(useTop.a.toLowerCase())}</b>. That is a much bigger commitment than a holiday place, and it changes what you should be looking for.`,"agree"]);
+ const cityM=avg(codes.map(c=>spv(c,"city"))), wildM=avg(codes.map(c=>spv(c,"wild")));
+ if(cityM>=3&&wildM>=2) cards.push(["A tension to name",`You spent on <b>near a city</b> (${cityM.toFixed(1)}) and on <b>remoteness</b> (${wildM.toFixed(1)}) at the same time. Somebody has to give.`,"split"]);
+ const knownM=avg(codes.map(c=>spv(c,"known")));
+ if(knownM<2) cards.push(["Stated versus revealed",`<b>Somewhere we know</b> scored only ${knownM.toFixed(1)} of 20. Sentiment about a place tends to rank high in conversation and low when it costs something. Worth being honest about.`,"split"]);
+
+ let h=`<div class="kicker">${N} of you</div><h2>Where you stand</h2>
+  <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
+  <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>`;
+ h+=cards.map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
+
+ /* ---------- alignment score ---------- */
+ const agr=(vals,range)=>{if(N<2)return 1;let t=0,c=0;
+  for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){t+=Math.abs(vals[i]-vals[j]);c++;}
+  return Math.max(0,Math.min(1,1-(t/c)/range));};
+ const catAgr=vals=>{if(N<2)return 1;const t={};vals.forEach(v=>t[v]=(t[v]||0)+1);
+  return (Math.max(...Object.values(t))-1)/(N-1);};
+ const desire=v=>v===2?1:v===1?.5:v===3?-.5:0;
+ const secScores=[
+  ["Shape of the place",catAgr(codes.map(c=>c.s||""))],
+  ["Land & buildings",avg(SPEND.map(([k])=>agr(codes.map(c=>spv(c,k)),8)))],
+  ["What's possible",avg(ACTS.flatMap(([g,it])=>it.map(([k])=>agr(codes.map(c=>desire((c.a&&c.a[k])||0)),1.5))))],
+  ["Tolerances",avg(TOL.map(([k])=>agr(codes.map(c=>tov(c,k)),4)))],
+  ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
+  ["Money & commitment",avg([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
+    agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u||"")),catAgr(codes.map(c=>c.d||""))])],
+  ["Where",(()=>{let t=0,c2=0;for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
+    const a=new Set(codes[i].rg||[]),b=new Set(codes[j].rg||[]);
+    const inter=[...a].filter(x=>b.has(x)).length,uni=new Set([...a,...b]).size;
+    t+=uni?inter/uni:1;c2++;}return c2?t/c2:1;})()]
+ ];
+ const SCORE=Math.round(avg(secScores.map(x=>x[1]))*100);
+ const verdict=SCORE>=75?"You are largely of one mind.":SCORE>=55?"Broadly aligned, with real gaps.":
+   SCORE>=40?"Genuinely divided \u2014 plenty to talk about.":"You are picturing different things.";
+ const GW=280,GH=152,gcx=140,gcy=126,gr=96;
+ const ap=(a)=>[gcx+gr*Math.cos(a),gcy+gr*Math.sin(a)];
+ const arcp=(a0,a1)=>{const s0=ap(a0),e0=ap(a1);
+  return `M${s0[0].toFixed(1)} ${s0[1].toFixed(1)} A${gr} ${gr} 0 ${(a1-a0)>Math.PI?1:0} 1 ${e0[0].toFixed(1)} ${e0[1].toFixed(1)}`;};
+ const gEnd=Math.PI+(SCORE/100)*Math.PI;
+ let gauge=`<svg viewBox="0 0 ${GW} ${GH}" class="chart" role="img" aria-label="Alignment score ${SCORE} out of 100">
+  <path d="${arcp(Math.PI,Math.PI*2)}" fill="none" stroke="#131E1B" stroke-opacity=".1" stroke-width="13" stroke-linecap="round"/>
+  <path d="${arcp(Math.PI,Math.max(Math.PI+0.02,gEnd))}" fill="none" stroke="${SCORE>=55?"#35748A":"#7C2E3E"}" stroke-width="13" stroke-linecap="round"/>
+  <text x="${gcx}" y="${gcy-16}" text-anchor="middle" font-family="Iowan Old Style,Palatino,Georgia,serif" font-size="46" fill="#131E1B">${SCORE}</text>
+  <text x="${gcx}" y="${gcy+4}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" letter-spacing="1.6" fill="#22423A" opacity=".7">ALIGNED</text>
+  <text x="${(gcx-gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">0</text>
+  <text x="${(gcx+gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">100</text></svg>`;
+ h+=`<div class="sec">How aligned are you</div><div class="chartwrap">${gauge}</div>
+  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>`;
+ secScores.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
+  h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
+   <div class="bar"><span style="width:${(v*100).toFixed(0)}%;background:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}"></span></div></div>`;});
+
+ /* ---------- radar of the token spend ---------- */
+ const MX=Math.max(4,...codes.flatMap(c=>SPEND.map(([k])=>spv(c,k))));
+ window.__radar=(active)=>{
+  const RR=104,CX=205,CY=158,A=SPEND.length;
+  const pt=(i,v,mx)=>{const ang=-Math.PI/2+i*2*Math.PI/A,r=RR*Math.min(1,v/mx);
+    return [(CX+r*Math.cos(ang)).toFixed(1),(CY+r*Math.sin(ang)).toFixed(1)];};
+  let o=`<svg viewBox="0 0 410 330" class="chart" role="img" aria-label="Token spend by person">`;
+  [.25,.5,.75,1].forEach(f=>{o+=`<polygon points="${SPEND.map((_,i)=>pt(i,MX*f,MX).join(",")).join(" ")}"
+    fill="none" stroke="#131E1B" stroke-opacity=".1"/>`;});
+  SPEND.forEach((_,i)=>{const e=pt(i,MX,MX);o+=`<line x1="${CX}" y1="${CY}" x2="${e[0]}" y2="${e[1]}" stroke="#131E1B" stroke-opacity=".1"/>`;});
+  const shown=codes.map((_,i)=>i).filter(i=>!active||active.has(i));
+  if(shown.length>1){const ga=SPEND.map(([k])=>avg(shown.map(i=>spv(codes[i],k))));
+   o+=`<polygon points="${ga.map((v,i)=>pt(i,v,MX).join(",")).join(" ")}" fill="#22423A" fill-opacity=".13"/>`;}
+  shown.forEach(i=>{const c=codes[i],col=PAL[i%PAL.length];
+   o+=`<polygon points="${SPEND.map(([k],j)=>pt(j,spv(c,k),MX).join(",")).join(" ")}"
+     fill="${col}" fill-opacity=".08" stroke="${col}" stroke-width="1.9" stroke-linejoin="round"/>`;});
+  SPEND.forEach(([k,a],i)=>{
+   const ang=-Math.PI/2+i*2*Math.PI/A;
+   const lx=CX+(RR+16)*Math.cos(ang), ly=CY+(RR+16)*Math.sin(ang);
+   const anch=Math.abs(Math.cos(ang))<.25?"middle":(Math.cos(ang)>0?"start":"end");
+   let l1=a,l2="";
+   if(a.length>11){const m=a.lastIndexOf(" ",Math.ceil(a.length/2)+3);
+    if(m>2){l1=a.slice(0,m);l2=a.slice(m+1);}}
+   const cx2=Math.max(4,Math.min(406,lx));
+   o+=`<text x="${cx2.toFixed(1)}" y="${(ly+(l2?-2:3)).toFixed(1)}" text-anchor="${anch}"
+     font-family="ui-monospace,monospace" font-size="8.5" fill="#22423A">${esc(l1)}`;
+   o+=l2?`<tspan x="${cx2.toFixed(1)}" dy="10">${esc(l2)}</tspan>`:``;
+   o+=`</text>`;
+   const val=shown.length===1?spv(codes[shown[0]],k):null;
+   if(val!==null)o+=`<text x="${cx2.toFixed(1)}" y="${(ly+(l2?20:13)).toFixed(1)}" text-anchor="${anch}"
+     font-family="ui-monospace,monospace" font-size="8" fill="${PAL[shown[0]%PAL.length]}">${val}</text>`;});
+  o+=`</svg>`;return o;};
+ h+=`<div class="sec">What you would trade for what</div>
+  <p class="hint">Each outline is one of you; the shaded shape is the group average. Tap a name to see just
+  that person, with their numbers.</p>
+  <div class="pchips" id="pchips">${codes.map((c,i)=>`<button class="pchip on" data-pp="${i}"
+    style="--pc:${PAL[i%PAL.length]}">${esc(who(i))}</button>`).join("")}
+    <button class="pchip alt" data-pp="all">All</button></div>
+  <div class="chartwrap"><div id="radarbox">${"__RADAR__"}</div></div>`;
+ h+=SPEND.map(([k,a])=>({a,m:avg(codes.map(c=>spv(c,k))),s:sd(codes.map(c=>spv(c,k))),v:codes.map(c=>spv(c,k))}))
+   .sort((x,y)=>y.m-x.m).map(o=>`<div class="res"${insAttr(o.a,o.v.map((v,i)=>[nameOf(i),PAL[i%PAL.length],v+(v===1?" token":" tokens")]))}><div class="t"><b>${o.a}</b>
+     <em>${o.m.toFixed(1)} avg${o.s>1.4?` <span class="tag split">split</span>`:o.s<.6?` <span class="tag agree">agreed</span>`:""}</em></div>
+     <div class="stack">${o.v.map((v,i)=>`<span style="width:${v/MX/N*100}%;background:${PAL[i%PAL.length]}"></span>`).join("")}</div></div>`).join("");
+
+ /* ---------- agreement / appetite quadrant ---------- */
+ const QP=[];
+ ACTS.forEach(([g,it])=>it.forEach(([k,a])=>{
+  const d=codes.map(c=>desire((c.a&&c.a[k])||0));
+  QP.push({label:a,key:k,kind:"act",x:(avg(d)+.5)/1.5,y:agr(d,1.5)});}));
+ SPEND.forEach(([k,a])=>{const v=codes.map(c=>spv(c,k));
+  QP.push({label:a,key:k,kind:"sp",x:Math.min(1,avg(v)/8),y:agr(v,8)});});
+ const med=arr=>{const b=[...arr].sort((p,q)=>p-q);const m=b.length>>1;
+  return b.length%2?b[m]:(b[m-1]+b[m])/2;};
+ const MX2=med(QP.map(p=>p.x)), MY2=med(QP.map(p=>p.y));
+ const QW=330,QH=310,ql=34,qr=12,qt=24,qb=34;
+ const QX=v=>ql+v*(QW-ql-qr), QY=v=>QH-qb-v*(QH-qt-qb);
+ let quad=`<svg viewBox="0 0 ${QW} ${QH}" class="chart" role="img" aria-label="Agreement against appetite">`;
+ quad+=`<rect x="${QX(MX2).toFixed(1)}" y="${qt}" width="${(QW-qr-QX(MX2)).toFixed(1)}" height="${(QY(MY2)-qt).toFixed(1)}" fill="#35748A" fill-opacity=".07"/>`;
+ quad+=`<rect x="${QX(MX2).toFixed(1)}" y="${QY(MY2).toFixed(1)}" width="${(QW-qr-QX(MX2)).toFixed(1)}" height="${(QH-qb-QY(MY2)).toFixed(1)}" fill="#7C2E3E" fill-opacity=".07"/>`;
+ quad+=`<line x1="${QX(MX2).toFixed(1)}" y1="${qt}" x2="${QX(MX2).toFixed(1)}" y2="${QH-qb}" stroke="#131E1B" stroke-opacity=".18" stroke-dasharray="3 3"/>`;
+ quad+=`<line x1="${ql}" y1="${QY(MY2).toFixed(1)}" x2="${QW-qr}" y2="${QY(MY2).toFixed(1)}" stroke="#131E1B" stroke-opacity=".18" stroke-dasharray="3 3"/>`;
+ const qlab=(x,y,t,col,anch)=>`<text x="${x}" y="${y}" text-anchor="${anch}" font-family="ui-monospace,monospace" font-size="8.5" letter-spacing=".1em" fill="${col}" opacity=".85">${t}</text>`;
+ quad+=qlab(QW-qr-2,qt+11,"LOCKED IN","#35748A","end");
+ quad+=qlab(QW-qr-2,QH-qb-5,"THE FIGHT","#7C2E3E","end");
+ quad+=qlab(ql+2,qt+11,"QUIET NO","#22423A","start");
+ quad+=qlab(ql+2,QH-qb-5,"UNDECIDED","#22423A","start");
+ const fight=QP.filter(p=>p.x>MX2&&p.y<MY2).sort((a,b)=>(b.x-a.x)+(a.y-b.y));
+ const locked=QP.filter(p=>p.x>MX2&&p.y>=MY2).sort((a,b)=>b.x-a.x);
+ const keyPts=[...fight.slice(0,5),...locked.slice(0,4)];
+ const numOf=new Map();keyPts.forEach((p,i)=>numOf.set(p,i+1));
+ QP.forEach(p=>{p.px=QX(p.x);p.py=QY(p.y);});
+ for(let pass=0;pass<220;pass++){let moved=false;
+  for(let i=0;i<QP.length;i++)for(let j=i+1;j<QP.length;j++){
+   const a=QP[i],b=QP[j];let dx=b.px-a.px,dy=b.py-a.py;
+   let d=Math.hypot(dx,dy);const min=(numOf.get(a)||numOf.get(b))?18:11;
+   if(d<min){if(d<0.01){dx=Math.random()-.5;dy=Math.random()-.5;d=1;}
+    const push=(min-d)/2/d;a.px-=dx*push;a.py-=dy*push;b.px+=dx*push;b.py+=dy*push;moved=true;}}
+  QP.forEach(p=>{p.px=Math.max(ql+8,Math.min(QW-qr-8,p.px));p.py=Math.max(qt+10,Math.min(QH-qb-8,p.py));});
+  if(!moved)break;}
+ QP.forEach((p,qi)=>{const x=p.px,y=p.py,hot=p.x>MX2&&p.y<MY2,num=numOf.get(p);
+  quad+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${num?7.5:(p.kind==="sp"?5:3.6)}"
+   fill="${hot?"#7C2E3E":p.x>MX2?"#35748A":"#9AA5A0"}" fill-opacity="${num?.95:(p.kind==="sp"?.8:.55)}"
+   stroke="${num?"#EAEDE8":(p.kind==="sp"?"#131E1B":"none")}" stroke-opacity="${num?1:.25}" stroke-width="${num?1.3:.8}"/>`;
+  if(num)quad+=`<text x="${x.toFixed(1)}" y="${(y+2.8).toFixed(1)}" text-anchor="middle"
+   font-family="ui-monospace,monospace" font-size="8" font-weight="600" fill="#fff" pointer-events="none">${num}</text>`;
+  const qitems=(p.kind==="act")
+   ? codes.map((c,i)=>{const raw=(c.a&&c.a[p.key])||0;return [nameOf(i),PAL[i%PAL.length],
+      raw===2?"essential":raw===1?"nice to have":raw===3?"ruled out":"neutral"];})
+   : codes.map((c,i)=>[nameOf(i),PAL[i%PAL.length],((c.sp&&c.sp[p.key])||0)+" tokens"]);
+  quad+=`<circle class="qdot" data-qi="${qi}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12"
+   fill="transparent"${insAttr(p.label,qitems)}><title>${esc(p.label)}</title></circle>`;});
+ quad+=`<text x="${(ql+(QW-ql-qr)/2).toFixed(0)}" y="${QH-8}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".6">how much you want it &#8594;</text>`;
+ quad+=`<text transform="translate(11,${(qt+(QH-qt-qb)/2).toFixed(0)}) rotate(-90)" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".6">how much you agree &#8594;</text>`;
+ quad+=`</svg>`;
+ h+=`<div class="sec">The whole picture in one chart</div>
+  <p class="hint">Every activity and every token category placed by how much you want it and how much you agree.
+  Larger dots are the token categories.</p><div class="chartwrap">${quad}</div>
+  <div class="qcap" id="qcap">Tap any dot to name it, and again to see who said what.</div>`;
+ window.__qp=QP.map(p=>({label:p.label,want:Math.round(p.x*100),agree:Math.round(p.y*100),
+  zone:p.x>MX2?(p.y<MY2?"the fight":"locked in"):(p.y<MY2?"undecided":"quiet no")}));
+ if(keyPts.length) h+=`<div class="qkey">${keyPts.map((p,i)=>`<div class="qk">
+   <span class="qn" style="background:${i<fight.slice(0,5).length?"#7C2E3E":"#35748A"}">${i+1}</span>
+   <span>${esc(p.label)}</span></div>`).join("")}</div>`;
+ if(fight.length) h+=`<div class="card split"><div class="ct">The fight \u2014 your agenda</div>
+   <p>Wanted, but not agreed: <b>${fight.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>.</p></div>`;
+ if(locked.length) h+=`<div class="card agree"><div class="ct">Locked in</div>
+   <p>Wanted and agreed: <b>${locked.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>. Treat these as settled.</p></div>`;
+
+ /* ---------- region map ---------- */
+ const RC={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"German & Austrian northern Alps":[47.4,10.8],
+  "French Alps & Vercors":[45.0,5.8],"Vosges & Alsace":[48.1,7.1],"Ardennes & Eifel":[50.4,6.1],
+  "Pyrenees":[42.7,1.5],"Northern Germany & Denmark":[54.6,9.4]};
+ const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
+ const rgT=tally(c=>c.rg);
+ h+=`<div class="sec">Gut feeling, mapped</div>
+  <p class="hint">Bubble size is votes. Grey rings are regions nobody chose.</p>
+  <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
+ const off=(rgT["Somewhere not on this list"]||0);
+ if(off) h+=`<p class="hint"><b>${off}</b> of you picked <b>somewhere not on this list</b> \u2014 worth asking where.</p>`;
+
+ /* ---------- activities gradient ---------- */
+ h+=`<div class="sec">What has to be possible</div>
+  <p class="hint">Sorted by appetite. Solid is essential, pale is nice, red is ruled out.</p>`;
+ const scored=[];
+ ACTS.forEach(([g,items])=>items.forEach(([k,a])=>{
+   const v=codes.map(c=>(c.a&&c.a[k])||0);
+   const must=v.filter(x=>x===2).length,nice=v.filter(x=>x===1).length,no=v.filter(x=>x===3).length;
+   scored.push({g,a,k,v,must,nice,no,score:must*2+nice-no});}));
+ scored.sort((x,y)=>y.score-x.score||y.must-x.must);
+ const live=scored.filter(o=>o.score>0||o.no);
+ live.forEach(o=>{
+  const tag=o.must===N?` <span class="tag agree">unanimous</span>`:(o.must&&o.no)?` <span class="tag split">contested</span>`:"";
+  h+=`<div class="res"${insAttr(o.a,o.v.map((v,i)=>[nameOf(i),PAL[i%PAL.length],
+    v===2?"essential":v===1?"nice to have":v===3?"ruled out":"neutral"]))}><div class="t"><b>${o.a}</b><em>${o.g}${tag}</em></div>
+   <div class="stack">${o.v.map((v,i)=>`<span style="width:${(v===2?100:v===1?50:v===3?100:0)/N}%;
+     background:${v===3?"rgba(124,46,62,.65)":PAL[i%PAL.length]};opacity:${v===1?.42:1}"></span>`).join("")}</div></div>`;});
+ const dead=scored.filter(o=>o.score<=0&&!o.no);
+ if(dead.length) h+=`<p class="hint" style="margin-top:12px"><b>Nobody asked for:</b> ${dead.map(o=>esc(o.a.toLowerCase())).join(", ")}.</p>`;
+
+ /* ---------- tolerance strips ---------- */
+ h+=`<div class="sec">How much you can each take</div>
+  <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising.</p>`;
+ const bigN=N>6, dotR=N<=6?6.5:N<=10?5:4, perRow=N<=6?1:N<=10?2:3;
+ TOL.forEach(([k,a,lo,hi])=>{
+  const v=codes.map(c=>tov(c,k)), sp2=Math.max(...v)-Math.min(...v);
+  const counts={};v.forEach(x=>counts[x]=(counts[x]||0)+1);
+  const stackH=Math.ceil(Math.max(...Object.values(counts))/perRow);
+  const SW=320,SH=26+stackH*(dotR*2+1.5)+16, base=SH-24;
+  let st=`<svg viewBox="0 0 ${SW} ${SH}" class="chart" style="max-height:${SH*1.6}px" role="img" aria-label="${esc(a)}">`;
+  st+=`<line x1="14" y1="${base}" x2="${SW-14}" y2="${base}" stroke="#131E1B" stroke-opacity=".14" stroke-width="2.5" stroke-linecap="round"/>`;
+  for(let i=0;i<=4;i++){const x=14+(SW-28)*i/4;
+   st+=`<circle cx="${x.toFixed(1)}" cy="${base}" r="1.6" fill="#131E1B" fill-opacity=".18"/>`;}
+  const mean=v.reduce((p,q)=>p+q,0)/N, mx2=14+(SW-28)*mean/4;
+  if(bigN)st+=`<line x1="${mx2.toFixed(1)}" y1="${base-6}" x2="${mx2.toFixed(1)}" y2="${base+6}"
+   stroke="#131E1B" stroke-opacity=".4" stroke-width="1.5"/>`;
+  const seen={};
+  v.forEach((val,i)=>{const n=(seen[val]=(seen[val]||0)+1)-1;
+   const row=Math.floor(n/perRow), col=n%perRow;
+   const spread=perRow>1?(col-(perRow-1)/2)*(dotR*2+1):0;
+   const x=14+(SW-28)*val/4+spread, y=base-row*(dotR*2+1.5);
+   st+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(dotR,8)}" fill="${PAL[i%PAL.length]}"
+     fill-opacity=".9" stroke="#EAEDE8" stroke-width="1.2"${insAttr(a,v.map((vv,j)=>[nameOf(j),PAL[j%PAL.length],
+      vv<=1?lo.toLowerCase():vv>=3?hi.toLowerCase():"middling"]))}><title>${esc(who(i))}</title></circle>`;
+   if(!bigN)st+=`<text x="${x.toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="7" fill="#fff">${esc((who(i)[0]||"?").toUpperCase())}</text>`;});
+  st+=`<text x="14" y="${SH-4}" font-family="ui-monospace,monospace" font-size="7.5" fill="#22423A" opacity=".65">${esc(lo)}</text>`;
+  st+=`<text x="${SW-14}" y="${SH-4}" text-anchor="end" font-family="ui-monospace,monospace" font-size="7.5" fill="#22423A" opacity=".65">${esc(hi)}</text>`;
+  st+=`</svg>`;
+  h+=`<div class="res"><div class="t"><b>${a}</b><em>${sp2===0?`<span class="tag agree">identical</span>`:sp2>=3?`<span class="tag split">far apart</span>`:""}</em></div>${st}</div>`;});
+
+ /* ---------- who is closest to whom ---------- */
+ const TOLW={};TOL.forEach(([k,a,lo,hi])=>TOLW[k]=[lo,hi]);
+ const feats=c=>{
+  const f=[];
+  SPEND.forEach(([k,a])=>f.push({k:"sp:"+k,label:a,raw:spv(c,k),norm:spv(c,k)/8,
+    say:spv(c,k)+" token"+(spv(c,k)===1?"":"s")}));
+  TOL.forEach(([k,a,lo,hi])=>{const v=tov(c,k);
+    f.push({k:"to:"+k,label:a,raw:v,norm:v/4,say:v<=1?lo.toLowerCase():v>=3?hi.toLowerCase():"middling"});});
+  ACTS.forEach(([g,items])=>items.forEach(([k,a])=>{const v=(c.a&&c.a[k])||0;
+    f.push({k:"ac:"+k,label:a,raw:v,norm:v===2?1:v===1?.5:v===3?-.4:0,
+      say:v===2?"essential":v===1?"nice":v===3?"ruled out":"neutral"});}));
+  return f;};
+ const FV=codes.map(feats);
+ const dist=(i,j)=>Math.sqrt(FV[i].reduce((s,f,n)=>s+(f.norm-FV[j][n].norm)**2,0));
+ if(N>=3){
+  const pairs=[];
+  for(let i=0;i<N;i++)for(let j=i+1;j<N;j++)pairs.push({i,j,d:dist(i,j)});
+  pairs.sort((a,b)=>a.d-b.d);
+  const mxd=pairs[pairs.length-1].d||1;
+  h+=`<div class="sec">Who is closest to whom</div>
+   <p class="hint">Shorter bar means more alike. Underneath each pair: the sharpest disagreements, ready-made
+   for the conversation.</p>`;
+  pairs.forEach((p,idx)=>{
+   const diffs=FV[p.i].map((f,n)=>({label:f.label,a:f.say,b:FV[p.j][n].say,gap:Math.abs(f.norm-FV[p.j][n].norm)}))
+     .filter(d=>d.gap>0.001).sort((x,y)=>y.gap-x.gap).slice(0,3);
+   const same=FV[p.i].map((f,n)=>({label:f.label,say:f.say,both:f.norm===FV[p.j][n].norm,strength:f.norm}))
+     .filter(d=>d.both&&d.strength>=.5).sort((x,y)=>y.strength-x.strength).slice(0,2);
+   h+=`<div class="res"><div class="t"><b>${esc(who(p.i))} &amp; ${esc(who(p.j))}</b>
+     <em>${idx===0?"most alike":idx===pairs.length-1?"furthest apart":""}</em></div>
+     <div class="bar"><span style="width:${(p.d/mxd*100).toFixed(0)}%;background:var(--gold)"></span></div>
+     ${diffs.length?`<div class="diffs">${diffs.map(d=>`<div class="dl"><span class="dk">${esc(d.label)}</span>
+       <span class="dv"><b style="color:${PAL[p.i%PAL.length]}">${esc(who(p.i))}</b> ${esc(d.a)}
+       &nbsp;\u00b7&nbsp; <b style="color:${PAL[p.j%PAL.length]}">${esc(who(p.j))}</b> ${esc(d.b)}</span></div>`).join("")}
+       ${same.length?`<div class="dl agreeln"><span class="dk">Both</span><span class="dv">${same.map(x=>esc(x.label.toLowerCase())+" \u2014 "+esc(x.say)).join("; ")}</span></div>`:""}
+     </div>`:""}</div>`;});
+
+  /* lone voices: where one person sits apart from everyone else */
+  const lone=[];
+  FV[0].forEach((_,n)=>{
+   const v=FV.map(f=>f[n].norm);
+   for(let i=0;i<N;i++){
+    const others=v.filter((_,j)=>j!==i);
+    if(others.every(o=>o===others[0]) && v[i]!==others[0]){
+     lone.push({i,label:FV[i][n].label,mine:FV[i][n].say,
+       theirs:FV[(i+1)%N][n].say,gap:Math.abs(v[i]-others[0])});}
+   }});
+  lone.sort((a,b)=>b.gap-a.gap);
+  const top=lone.filter(x=>x.gap>=.25).slice(0,6);
+  if(top.length){
+   h+=`<div class="sec">Lone voices</div>
+    <p class="hint">One person apart from everyone else. Not a problem \u2014 usually the most interesting thing on the page.</p>`;
+   top.forEach(x=>h+=`<div class="res"><div class="t"><b>${esc(x.label)}</b>
+     <em><b style="color:${PAL[x.i%PAL.length]}">${esc(who(x.i))}</b> alone</em></div>
+     <p class="hint" style="margin:3px 0 0">${esc(who(x.i))} says <b>${esc(x.mine)}</b>; everyone else says ${esc(x.theirs)}.</p></div>`);
+  }
+ }
+
+ /* ---------- shape, commitment, money ---------- */
+ h+=`<div class="sec">Shape &amp; commitment</div>`;
+ STYLES.forEach(([k,a])=>{const n=codes.filter(c=>c.s===k).length;if(!n)return;
+  h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.s===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
+   <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
+ USES.forEach(([k,a])=>{const n=codes.filter(c=>c.u===k).length;if(!n)return;
+  h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.u===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}${n===N?` <span class="tag agree">all of you</span>`:""}</em></div>
+   <div class="bar"><span style="width:${n/N*100}%;background:var(--glacier)"></span></div></div>`;});
+ const hzs=codes.filter(c=>c.hz).length;
+ if(hzs){h+=`<div class="sec">When</div>`;
+  const spanIdx=codes.filter(c=>c.hz).map(c=>HORIZON.findIndex(x=>x[0]===c.hz));
+  const gap=Math.max(...spanIdx)-Math.min(...spanIdx);
+  if(gap>=2)h+=`<div class="card split"><div class="ct">A gap worth naming</div>
+   <p>Your timeframes are ${gap===3?"as far apart as they get":"a long way apart"}. Two people who agree on
+   everything but disagree by five years are not building the same thing yet.</p></div>`;
+  HORIZON.forEach(([k,a])=>{const n=codes.filter(c=>c.hz===k).length;if(!n)return;
+   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hz===k?[nameOf(i),PAL[i%PAL.length],"this timeframe"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${codes.filter(c=>c.hz===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
+    <div class="bar"><span style="width:${n/N*100}%;background:var(--gold)"></span></div></div>`;});}
+ const hhs=codes.filter(c=>c.hh).length;
+ if(hhs){h+=`<div class="sec">Who is coming</div>`;
+  HOUSE.forEach(([k,a])=>{const n=codes.filter(c=>c.hh===k).length;if(!n)return;
+   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hh===k?[nameOf(i),PAL[i%PAL.length],"yes"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
+    <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
+  const kid=codes.filter(c=>c.hh==="kids").length;
+  if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children \u2014 which is why school
+   and hospital distance matters, and it should weigh heavily on where you look.</p>`;}
+ const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
+   who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
+ if(skT.some(x=>x.n)){h+=`<div class="sec">What you bring</div>
+  <p class="hint">Covered ground and gaps. A gap is not a problem until you buy something that needs it.</p>`;
+  skT.filter(x=>x.n).forEach(o=>h+=`<div class="res"${insAttr(o.a,o.who.map(nm=>{
+    const i=codes.findIndex(c=>(c.n||"")===nm);return [nm,PAL[(i<0?0:i)%PAL.length],"can do this"];}))}><div class="t"><b>${o.a}</b>
+    <em>${esc(o.who.join(", "))}</em></div>
+    <div class="bar"><span style="width:${o.n/N*100}%;background:var(--pine)"></span></div></div>`);
+  const gaps=skT.filter(x=>!x.n).map(x=>esc(x.a.toLowerCase()));
+  if(gaps.length)h+=`<div class="card split"><div class="ct">Nobody has this yet</div>
+    <p>${gaps.join(", ")}. Worth knowing before you need it.</p></div>`;}
+ const whys=codes.filter(c=>c.wy&&c.wy.trim());
+ if(whys.length){h+=`<div class="sec">Why, in your own words</div>`;
+  whys.forEach(c=>h+=`<div class="card"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.wy)}</p></div>`);}
+ const stops=codes.filter(c=>c.st&&c.st.trim());
+ if(stops.length){h+=`<div class="sec">What would stop you</div>
+  <p class="hint">Deal-breakers, in their own words. These outrank every preference on this page.</p>`;
+  stops.forEach(c=>h+=`<div class="card split"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.st)}</p></div>`);}
+ const lows=[0,10,30,75,150],highs=[10,30,75,150,300];
+ const said=codes.filter(c=>typeof c.cp==="number"&&c.cp<5);
+ if(said.length){const lo=said.reduce((a,c)=>a+lows[c.cp],0),hi=said.reduce((a,c)=>a+highs[c.cp],0);
+  h+=`<div class="res"><div class="t"><b>Pooled up-front capital</b><em>${said.length}/${N} answered</em></div>
+   <p class="hint" style="margin:4px 0 0">Roughly &euro;${lo}k&ndash;${hi}k before borrowing. A house with land runs
+   &euro;120k&ndash;1.2M depending on region, so this is ${hi<150?"early days":"a real start"}.</p></div>`;}
+ const rl=[0,50,150,400],rh=[50,150,400,800];
+ const rs=codes.filter(c=>typeof c.rn==="number"&&c.rn<4);
+ if(rs.length){const lo=rs.reduce((a,c)=>a+rl[c.rn],0),hi=rs.reduce((a,c)=>a+rh[c.rn],0);
+  h+=`<div class="res"><div class="t"><b>Pooled monthly</b><em>${rs.length}/${N} answered</em></div>
+   <p class="hint" style="margin:4px 0 0">About &euro;${lo}&ndash;${hi} a month between you.</p></div>`;}
+ const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length;
+ h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${N-yes-mb} no</em></div></div>`;
+
+ /* ---------- write-ins ---------- */
+ const own={};
+ codes.forEach(c=>(c.ow||[]).forEach(x=>{const k=String(x).toLowerCase().trim();if(!k)return;
+  if(!own[k])own[k]={label:x,n:0,who:[]};own[k].n++;own[k].who.push(c.n||"anon");}));
+ const ow=Object.values(own).sort((a,b)=>b.n-a.n);
+ if(ow.length){h+=`<div class="sec">Added by hand</div>`;
+  ow.forEach(o=>h+=`<div class="res"><div class="t"><b>${esc(o.label)}</b><em>${esc(o.who.join(", "))}${o.n>1?` <span class="tag agree">${o.n} of you</span>`:""}</em></div></div>`);}
+
+ h+=`<p class="foot">A picture of where you are, not a decision. With only ${N} of you, read the labels as
+  prompts rather than findings.</p>
+  <button class="btn noprint" id="png">Make a shareable image</button>
+  <button class="btn ghost noprint" id="more">Add more codes</button>
+  <button class="btn ghost noprint" id="shr2">Show the shared code</button>
+  <button class="btn ghost noprint" id="hm">Home</button>
+  <div id="sharebox" class="noprint"></div>`;
+ app.innerHTML=h.replace("__RADAR__",window.__radar(null));
+ (function(){let act=null;
+  document.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{
+   const v=b.dataset.pp;
+   act=(v==="all")?null:(act&&act.size===1&&act.has(+v))?null:new Set([+v]);
+   document.getElementById("radarbox").innerHTML=window.__radar(act);wireInspector();
+   document.querySelectorAll("[data-pp]").forEach(x=>{
+    if(x.dataset.pp==="all")x.classList.toggle("on",act===null);
+    else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
+ document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
+ POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
+  sections:secScores.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
+  locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
+  regions:Object.entries(tally(c=>c.rg)).sort((a,b)=>b[1]-a[1]).map(([r,n])=>r+" \u2014 "+n),
+  stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
+ wireInspector();
+ document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
+  d.onclick=ev=>{const q=window.__qp[+d.dataset.qi];
+   if(q)document.getElementById("qcap").innerHTML=`<b>${esc(q.label)}</b> &mdash; ${q.want}% wanted, ${q.agree}% agreed
+    &middot; <span style="color:${q.zone==="the fight"?"#7C2E3E":q.zone==="locked in"?"#35748A":"#22423A"}">${q.zone}</span>`;
+   if(prev)prev.call(d,ev);};});
+ document.getElementById("png").onclick=()=>{const b=document.getElementById("png");
+  b.textContent="Drawing\u2026";
+  makePoster((kind,src)=>{
+   b.textContent="Make a shareable image";
+   const box=document.getElementById("sharebox");
+   box.innerHTML=`<p class="hint" style="margin:16px 0 8px"><b>Press and hold the image</b> to save it or send
+    it straight to WhatsApp. On a laptop, right-click and Save image.</p>
+    <img class="poster" src="${src}" alt="Where we stand \u2014 summary">
+    <a class="btn ghost" href="${src}" download="where-we-stand.${kind}" target="_blank" rel="noopener">Open it full size</a>`;
+   box.scrollIntoView({behavior:"smooth",block:"start"});});};
+ document.getElementById("shr2").onclick=()=>{const pk=encode(codes);
+  const box=document.getElementById("sharebox");
+  box.innerHTML=`<p class="hint" style="margin:14px 0 6px">One code holding all ${N} answers. Anyone who pastes
+   it into <b>Combine</b> sees this exact page. Sending it through a chat app is fine \u2014 the spaces below
+   are ignored when it's pasted back in.</p>
+   <div class="code" id="pk">${esc(grp(pk))}</div><button class="btn ghost" id="pkcp">Copy it</button>`;
+  document.getElementById("pkcp").onclick=()=>{
+   const el=document.getElementById("pk");
+   try{navigator.clipboard.writeText(grp(pk)).then(()=>{document.getElementById("pkcp").textContent="Copied";},()=>{});}catch(e){}
+   try{const r=document.createRange();r.selectNodeContents(el);
+    getSelection().removeAllRanges();getSelection().addRange(r);}catch(e){}};
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});};
+ upgradeMap(tally(c=>c.rg));
+ document.getElementById("hm").onclick=()=>{mode="home";render();};
+}
+/* open a shared link straight into that person's answers */
+(function boot(){
+ const m=location.hash.match(/#c=(.+)$/);
+ if(m){try{const o0=decode(m[1]);
+  if(Array.isArray(o0)&&o0.length>1){codes=o0;mode="result";render();return;}
+  const o=Array.isArray(o0)?o0[0]:o0;
+  S=Object.assign(blank(),{n:o.n||"",style:o.s||"",sp:o.sp||S.sp,act:o.a||S.act,tol:o.t||S.tol,
+   use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
+   hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},blank().sk,o.sk||{}),
+   debt:o.d||"",rg:o.rg||[],ow:(o.ow||[]).join("\n")});
+  window.__incoming=o; autosave(); mode="incoming"; render(); return;}catch(e){}}
+ render();
+})();
+</script>
