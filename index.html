@@ -4,7 +4,7 @@
 <meta name="supported-color-schemes" content="light">
 <title>Build your commons</title>
 <style>
-html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%}
+html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 :root{color-scheme:light only;
  --paper:#EAEDE8; --ink:#131E1B; --pine:#22423A; --glacier:#35748A; --madder:#7C2E3E;
  --gold:#8A6A2F; --rule:rgba(19,30,27,.16); --rule2:rgba(19,30,27,.07);
@@ -74,8 +74,23 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .tag.agree{background:rgba(34,66,58,.14);color:var(--pine)}
 .tag.split{background:rgba(124,46,62,.14);color:var(--madder)}
 .sec{margin:30px 0 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
- color:var(--pine);opacity:.7;padding-bottom:6px;border-bottom:1px solid var(--rule)}
+ color:var(--pine);opacity:.7;padding-bottom:6px;border-bottom:1px solid var(--rule);scroll-margin-top:50px}
 .who{font-family:var(--mono);font-size:11.5px;color:var(--pine);opacity:.8;margin-bottom:16px}
+.secnav{position:sticky;top:0;z-index:4;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+ white-space:nowrap;background:var(--paper);padding:9px 0;margin:16px 0 6px;border-bottom:1px solid var(--rule)}
+.secnav a{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--pine);
+ text-decoration:none;padding:6px 11px;border:1px solid var(--rule);border-radius:20px;background:rgba(255,255,255,.6)}
+.secnav a:active,.secnav a:hover{border-color:var(--pine)}
+#totop{position:fixed;right:14px;bottom:18px;width:42px;height:42px;border-radius:50%;background:var(--pine);
+ color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50}
+.res[data-items]::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
+ letter-spacing:.08em;text-transform:uppercase;color:var(--glacier);opacity:.55;margin-top:5px}
+.stepbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
+ letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
+.stepbar .exit:hover{opacity:1;text-decoration:underline}
+.stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+ color:var(--pine);opacity:.6}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
 .ok{color:var(--pine);font-size:13.5px;margin-top:8px}
 .foot{margin-top:26px;font-size:12.5px;color:var(--pine);opacity:.75;line-height:1.5}
@@ -129,7 +144,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .dl.agreeln{opacity:.75}
 .stack{display:flex;height:9px;margin-top:6px;background:var(--rule2);border-radius:5px;overflow:hidden}
 .stack span{display:block;height:9px}
-@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
 
 @media (prefers-color-scheme: dark){
   html,body{background:#EAEDE8 !important;color:#131E1B !important}
@@ -215,7 +230,8 @@ function boardAdd(list){
 }
 const app=document.getElementById("app");
 const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A","#8A4A2F",
- "#3E5C7A","#6B2F4A","#7A6B2F","#2F4A6B","#5A7C2E","#7C5A2E","#2E5A7C"];
+ "#3E5C7A","#6B2F4A","#7A6B2F","#2F4A6B","#5A7C2E","#7C5A2E","#2E5A7C",
+ "#4A2F8A","#7A2F6B","#8A2F3E","#2F3E8A","#6B7A2F","#2F8A4A","#2F5C8A","#2F8A7A","#5C8A2F"];
 const nameOf=i=>((codes[i]&&codes[i].n)||("#"+(i+1)));
 const grp=s=>String(s).replace(/(.{20})(?=.)/g,"$1 ");
 const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -458,7 +474,9 @@ function render(){
  if(mode==="resume")return resume();
  if(mode==="incoming")return incoming();
  const st=STEPS[step];
- app.innerHTML=`<div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
+ app.innerHTML=`<div class="stepbar"><button class="exit" id="exit">&larr; Home</button>
+   <span class="stepno">Step ${step+1} of ${STEPS.length}</span></div>
+  <div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
   <button class="btn" id="next">${step===STEPS.length-1?"Get my code":"Next"}</button>
   ${step>0?`<button class="btn ghost" id="back">Back</button>`:""}
@@ -491,11 +509,13 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
    window.scrollTo(0,0);render();};
  const bk=document.getElementById("back");
  if(bk)bk.onclick=()=>{grabOwn();autosave();step--;window.scrollTo(0,0);render();};
+ const ex=document.getElementById("exit");
+ if(ex)ex.onclick=()=>{grabOwn();autosave();mode="home";window.scrollTo(0,0);render();};
 }
 function home(){
  const saved=lsKeys();
  app.innerHTML=`<div class="kicker">A commons, in the making</div>
- <h1>Build your version</h1>
+ <h1>A life with friends</h1>
  <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
  countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
  <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
@@ -737,7 +757,7 @@ function posterSVG(){
   y+=50; o+=T(P,y,title.toUpperCase(),20,col,MONO,"start","bold");
   (items.length?items.slice(0,5):["none yet"]).forEach(t=>{y+=34;o+=T(P,y,"\u2014 "+t,25,"#131E1B");});};
  block("Locked in","#35748A",POSTER.locked);
- block("The fight","#7C2E3E",POSTER.fight);
+ block("Could be's","#7C2E3E",POSTER.fight);
  block("Where","#22423A",POSTER.regions);
  if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
  o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
@@ -797,6 +817,9 @@ function result(){
  const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(x=>(x-m)**2)));};
  const who=i=>codes[i].n||("#"+(i+1));
  const spv=(c,k)=>(c.sp&&c.sp[k])||0, tov=(c,k)=>(c.t&&c.t[k]!==undefined)?c.t[k]:2;
+ try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
+ let secList=[];
+ const sec=label=>{const id="sec"+secList.length;secList.push({id,label});return `<div class="sec" id="${id}">${label}</div>`;};
 
  /* ---------- headline findings ---------- */
  const rows=[];
@@ -819,8 +842,10 @@ function result(){
 
  let h=`<div class="kicker">${N} of you</div><h2>Where you stand</h2>
   <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
-  <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>`;
+  <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>
+  ${N>PAL.length?`<p class="hint">With more than ${PAL.length} of you, a couple of colors repeat above &mdash; go by the names, not just the dots.</p>`:""}`;
  h+=cards.map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
+ h+="__SECNAV__";
 
  /* ---------- alignment score ---------- */
  const agr=(vals,range)=>{if(N<2)return 1;let t=0,c=0;
@@ -857,7 +882,7 @@ function result(){
   <text x="${gcx}" y="${gcy+4}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" letter-spacing="1.6" fill="#22423A" opacity=".7">ALIGNED</text>
   <text x="${(gcx-gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">0</text>
   <text x="${(gcx+gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">100</text></svg>`;
- h+=`<div class="sec">How aligned are you</div><div class="chartwrap">${gauge}</div>
+ h+=`${sec("How aligned are you")}<div class="chartwrap">${gauge}</div>
   <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>`;
  secScores.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
   h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
@@ -895,7 +920,7 @@ function result(){
    if(val!==null)o+=`<text x="${cx2.toFixed(1)}" y="${(ly+(l2?20:13)).toFixed(1)}" text-anchor="${anch}"
      font-family="ui-monospace,monospace" font-size="8" fill="${PAL[shown[0]%PAL.length]}">${val}</text>`;});
   o+=`</svg>`;return o;};
- h+=`<div class="sec">What you would trade for what</div>
+ h+=`${sec("What you would trade for what")}
   <p class="hint">Each outline is one of you; the shaded shape is the group average. Tap a name to see just
   that person, with their numbers.</p>
   <div class="pchips" id="pchips">${codes.map((c,i)=>`<button class="pchip on" data-pp="${i}"
@@ -926,7 +951,7 @@ function result(){
  quad+=`<line x1="${ql}" y1="${QY(MY2).toFixed(1)}" x2="${QW-qr}" y2="${QY(MY2).toFixed(1)}" stroke="#131E1B" stroke-opacity=".18" stroke-dasharray="3 3"/>`;
  const qlab=(x,y,t,col,anch)=>`<text x="${x}" y="${y}" text-anchor="${anch}" font-family="ui-monospace,monospace" font-size="8.5" letter-spacing=".1em" fill="${col}" opacity=".85">${t}</text>`;
  quad+=qlab(QW-qr-2,qt+11,"LOCKED IN","#35748A","end");
- quad+=qlab(QW-qr-2,QH-qb-5,"THE FIGHT","#7C2E3E","end");
+ quad+=qlab(QW-qr-2,QH-qb-5,"COULD BE&#39;S","#7C2E3E","end");
  quad+=qlab(ql+2,qt+11,"QUIET NO","#22423A","start");
  quad+=qlab(ql+2,QH-qb-5,"UNDECIDED","#22423A","start");
  const fight=QP.filter(p=>p.x>MX2&&p.y<MY2).sort((a,b)=>(b.x-a.x)+(a.y-b.y));
@@ -957,16 +982,16 @@ function result(){
  quad+=`<text x="${(ql+(QW-ql-qr)/2).toFixed(0)}" y="${QH-8}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".6">how much you want it &#8594;</text>`;
  quad+=`<text transform="translate(11,${(qt+(QH-qt-qb)/2).toFixed(0)}) rotate(-90)" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".6">how much you agree &#8594;</text>`;
  quad+=`</svg>`;
- h+=`<div class="sec">The whole picture in one chart</div>
+ h+=`${sec("The whole picture in one chart")}
   <p class="hint">Every activity and every token category placed by how much you want it and how much you agree.
   Larger dots are the token categories.</p><div class="chartwrap">${quad}</div>
   <div class="qcap" id="qcap">Tap any dot to name it, and again to see who said what.</div>`;
  window.__qp=QP.map(p=>({label:p.label,want:Math.round(p.x*100),agree:Math.round(p.y*100),
-  zone:p.x>MX2?(p.y<MY2?"the fight":"locked in"):(p.y<MY2?"undecided":"quiet no")}));
+  zone:p.x>MX2?(p.y<MY2?"could be's":"locked in"):(p.y<MY2?"undecided":"quiet no")}));
  if(keyPts.length) h+=`<div class="qkey">${keyPts.map((p,i)=>`<div class="qk">
    <span class="qn" style="background:${i<fight.slice(0,5).length?"#7C2E3E":"#35748A"}">${i+1}</span>
    <span>${esc(p.label)}</span></div>`).join("")}</div>`;
- if(fight.length) h+=`<div class="card split"><div class="ct">The fight \u2014 your agenda</div>
+ if(fight.length) h+=`<div class="card split"><div class="ct">Could be's \u2014 your agenda</div>
    <p>Wanted, but not agreed: <b>${fight.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>.</p></div>`;
  if(locked.length) h+=`<div class="card agree"><div class="ct">Locked in</div>
    <p>Wanted and agreed: <b>${locked.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>. Treat these as settled.</p></div>`;
@@ -977,14 +1002,14 @@ function result(){
   "Pyrenees":[42.7,1.5],"Northern Germany & Denmark":[54.6,9.4]};
  const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
  const rgT=tally(c=>c.rg);
- h+=`<div class="sec">Gut feeling, mapped</div>
-  <p class="hint">Bubble size is votes. Grey rings are regions nobody chose.</p>
+ h+=`${sec("Gut feeling, mapped")}
+  <p class="hint">Bubble size is votes. Grey rings are regions nobody chose. Tap a bubble to see who picked it.</p>
   <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
  const off=(rgT["Somewhere not on this list"]||0);
  if(off) h+=`<p class="hint"><b>${off}</b> of you picked <b>somewhere not on this list</b> \u2014 worth asking where.</p>`;
 
  /* ---------- activities gradient ---------- */
- h+=`<div class="sec">What has to be possible</div>
+ h+=`${sec("What has to be possible")}
   <p class="hint">Sorted by appetite. Solid is essential, pale is nice, red is ruled out.</p>`;
  const scored=[];
  ACTS.forEach(([g,items])=>items.forEach(([k,a])=>{
@@ -1003,8 +1028,8 @@ function result(){
  if(dead.length) h+=`<p class="hint" style="margin-top:12px"><b>Nobody asked for:</b> ${dead.map(o=>esc(o.a.toLowerCase())).join(", ")}.</p>`;
 
  /* ---------- tolerance strips ---------- */
- h+=`<div class="sec">How much you can each take</div>
-  <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising.</p>`;
+ h+=`${sec("How much you can each take")}
+  <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising. Tap a dot to see who.</p>`;
  const bigN=N>6, dotR=N<=6?6.5:N<=10?5:4, perRow=N<=6?1:N<=10?2:3;
  TOL.forEach(([k,a,lo,hi])=>{
   const v=codes.map(c=>tov(c,k)), sp2=Math.max(...v)-Math.min(...v);
@@ -1046,27 +1071,34 @@ function result(){
   return f;};
  const FV=codes.map(feats);
  const dist=(i,j)=>Math.sqrt(FV[i].reduce((s,f,n)=>s+(f.norm-FV[j][n].norm)**2,0));
+ let pairs=[],pairRow=null;
  if(N>=3){
-  const pairs=[];
+  pairs=[];
   for(let i=0;i<N;i++)for(let j=i+1;j<N;j++)pairs.push({i,j,d:dist(i,j)});
   pairs.sort((a,b)=>a.d-b.d);
+  pairs.forEach((p,i)=>p.rank=i);
   const mxd=pairs[pairs.length-1].d||1;
-  h+=`<div class="sec">Who is closest to whom</div>
-   <p class="hint">Shorter bar means more alike. Underneath each pair: the sharpest disagreements, ready-made
-   for the conversation.</p>`;
-  pairs.forEach((p,idx)=>{
+  pairRow=p=>{
    const diffs=FV[p.i].map((f,n)=>({label:f.label,a:f.say,b:FV[p.j][n].say,gap:Math.abs(f.norm-FV[p.j][n].norm)}))
      .filter(d=>d.gap>0.001).sort((x,y)=>y.gap-x.gap).slice(0,3);
    const same=FV[p.i].map((f,n)=>({label:f.label,say:f.say,both:f.norm===FV[p.j][n].norm,strength:f.norm}))
      .filter(d=>d.both&&d.strength>=.5).sort((x,y)=>y.strength-x.strength).slice(0,2);
-   h+=`<div class="res"><div class="t"><b>${esc(who(p.i))} &amp; ${esc(who(p.j))}</b>
-     <em>${idx===0?"most alike":idx===pairs.length-1?"furthest apart":""}</em></div>
+   return `<div class="res"><div class="t"><b>${esc(who(p.i))} &amp; ${esc(who(p.j))}</b>
+     <em>${p.rank===0?"most alike":p.rank===pairs.length-1?"furthest apart":""}</em></div>
      <div class="bar"><span style="width:${(p.d/mxd*100).toFixed(0)}%;background:var(--gold)"></span></div>
      ${diffs.length?`<div class="diffs">${diffs.map(d=>`<div class="dl"><span class="dk">${esc(d.label)}</span>
        <span class="dv"><b style="color:${PAL[p.i%PAL.length]}">${esc(who(p.i))}</b> ${esc(d.a)}
        &nbsp;\u00b7&nbsp; <b style="color:${PAL[p.j%PAL.length]}">${esc(who(p.j))}</b> ${esc(d.b)}</span></div>`).join("")}
        ${same.length?`<div class="dl agreeln"><span class="dk">Both</span><span class="dv">${same.map(x=>esc(x.label.toLowerCase())+" \u2014 "+esc(x.say)).join("; ")}</span></div>`:""}
-     </div>`:""}</div>`;});
+     </div>`:""}</div>`;};
+  const PAIRCAP=8;
+  const bigPairs=pairs.length>PAIRCAP*2;
+  const shownPairs=bigPairs?[...pairs.slice(0,PAIRCAP),...pairs.slice(-PAIRCAP)]:pairs;
+  h+=`${sec("Who is closest to whom")}
+   <p class="hint">Shorter bar means more alike. Underneath each pair: the sharpest disagreements, ready-made
+   for the conversation.${bigPairs?` ${pairs.length} pairs from ${N} people \u2014 showing the ${PAIRCAP} most alike and ${PAIRCAP} furthest apart.`:""}</p>`;
+  h+=`<div id="pairsBox">${shownPairs.map(pairRow).join("")}</div>`;
+  if(bigPairs)h+=`<button class="btn ghost noprint" id="pairsAll">Show all ${pairs.length} pairs</button>`;
 
   /* lone voices: where one person sits apart from everyone else */
   const lone=[];
@@ -1081,7 +1113,7 @@ function result(){
   lone.sort((a,b)=>b.gap-a.gap);
   const top=lone.filter(x=>x.gap>=.25).slice(0,6);
   if(top.length){
-   h+=`<div class="sec">Lone voices</div>
+   h+=`${sec("Lone voices")}
     <p class="hint">One person apart from everyone else. Not a problem \u2014 usually the most interesting thing on the page.</p>`;
    top.forEach(x=>h+=`<div class="res"><div class="t"><b>${esc(x.label)}</b>
      <em><b style="color:${PAL[x.i%PAL.length]}">${esc(who(x.i))}</b> alone</em></div>
@@ -1090,7 +1122,7 @@ function result(){
  }
 
  /* ---------- shape, commitment, money ---------- */
- h+=`<div class="sec">Shape &amp; commitment</div>`;
+ h+=sec("Shape &amp; commitment");
  STYLES.forEach(([k,a])=>{const n=codes.filter(c=>c.s===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.s===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
@@ -1098,7 +1130,7 @@ function result(){
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.u===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}${n===N?` <span class="tag agree">all of you</span>`:""}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--glacier)"></span></div></div>`;});
  const hzs=codes.filter(c=>c.hz).length;
- if(hzs){h+=`<div class="sec">When</div>`;
+ if(hzs){h+=sec("When");
   const spanIdx=codes.filter(c=>c.hz).map(c=>HORIZON.findIndex(x=>x[0]===c.hz));
   const gap=Math.max(...spanIdx)-Math.min(...spanIdx);
   if(gap>=2)h+=`<div class="card split"><div class="ct">A gap worth naming</div>
@@ -1108,7 +1140,7 @@ function result(){
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hz===k?[nameOf(i),PAL[i%PAL.length],"this timeframe"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${codes.filter(c=>c.hz===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
     <div class="bar"><span style="width:${n/N*100}%;background:var(--gold)"></span></div></div>`;});}
  const hhs=codes.filter(c=>c.hh).length;
- if(hhs){h+=`<div class="sec">Who is coming</div>`;
+ if(hhs){h+=sec("Who is coming");
   HOUSE.forEach(([k,a])=>{const n=codes.filter(c=>c.hh===k).length;if(!n)return;
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hh===k?[nameOf(i),PAL[i%PAL.length],"yes"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
     <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
@@ -1117,7 +1149,7 @@ function result(){
    and hospital distance matters, and it should weigh heavily on where you look.</p>`;}
  const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
    who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
- if(skT.some(x=>x.n)){h+=`<div class="sec">What you bring</div>
+ if(skT.some(x=>x.n)){h+=`${sec("What you bring")}
   <p class="hint">Covered ground and gaps. A gap is not a problem until you buy something that needs it.</p>`;
   skT.filter(x=>x.n).forEach(o=>h+=`<div class="res"${insAttr(o.a,o.who.map(nm=>{
     const i=codes.findIndex(c=>(c.n||"")===nm);return [nm,PAL[(i<0?0:i)%PAL.length],"can do this"];}))}><div class="t"><b>${o.a}</b>
@@ -1127,10 +1159,10 @@ function result(){
   if(gaps.length)h+=`<div class="card split"><div class="ct">Nobody has this yet</div>
     <p>${gaps.join(", ")}. Worth knowing before you need it.</p></div>`;}
  const whys=codes.filter(c=>c.wy&&c.wy.trim());
- if(whys.length){h+=`<div class="sec">Why, in your own words</div>`;
+ if(whys.length){h+=sec("Why, in your own words");
   whys.forEach(c=>h+=`<div class="card"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.wy)}</p></div>`);}
  const stops=codes.filter(c=>c.st&&c.st.trim());
- if(stops.length){h+=`<div class="sec">What would stop you</div>
+ if(stops.length){h+=`${sec("What would stop you")}
   <p class="hint">Deal-breakers, in their own words. These outrank every preference on this page.</p>`;
   stops.forEach(c=>h+=`<div class="card split"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.st)}</p></div>`);}
  const lows=[0,10,30,75,150],highs=[10,30,75,150,300];
@@ -1152,7 +1184,7 @@ function result(){
  codes.forEach(c=>(c.ow||[]).forEach(x=>{const k=String(x).toLowerCase().trim();if(!k)return;
   if(!own[k])own[k]={label:x,n:0,who:[]};own[k].n++;own[k].who.push(c.n||"anon");}));
  const ow=Object.values(own).sort((a,b)=>b.n-a.n);
- if(ow.length){h+=`<div class="sec">Added by hand</div>`;
+ if(ow.length){h+=sec("Added by hand");
   ow.forEach(o=>h+=`<div class="res"><div class="t"><b>${esc(o.label)}</b><em>${esc(o.who.join(", "))}${o.n>1?` <span class="tag agree">${o.n} of you</span>`:""}</em></div></div>`);}
 
  h+=`<p class="foot">A picture of where you are, not a decision. With only ${N} of you, read the labels as
@@ -1161,8 +1193,14 @@ function result(){
   <button class="btn ghost noprint" id="more">Add more codes</button>
   <button class="btn ghost noprint" id="shr2">Show the shared code</button>
   <button class="btn ghost noprint" id="hm">Home</button>
-  <div id="sharebox" class="noprint"></div>`;
- app.innerHTML=h.replace("__RADAR__",window.__radar(null));
+  <div id="sharebox" class="noprint"></div>
+  <button id="totop" class="noprint" aria-label="Back to top">&uarr;</button>`;
+ const navHTML=secList.length?`<div class="secnav noprint">${secList.map(s=>`<a href="#${s.id}">${s.label}</a>`).join("")}</div>`:"";
+ app.innerHTML=h.replace("__RADAR__",window.__radar(null)).replace("__SECNAV__",navHTML);
+ const pairsAllBtn=document.getElementById("pairsAll");
+ if(pairsAllBtn)pairsAllBtn.onclick=()=>{document.getElementById("pairsBox").innerHTML=pairs.map(pairRow).join("");pairsAllBtn.remove();};
+ const totop=document.getElementById("totop");
+ if(totop)totop.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
  (function(){let act=null;
   document.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{
    const v=b.dataset.pp;
@@ -1181,7 +1219,7 @@ function result(){
  document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
   d.onclick=ev=>{const q=window.__qp[+d.dataset.qi];
    if(q)document.getElementById("qcap").innerHTML=`<b>${esc(q.label)}</b> &mdash; ${q.want}% wanted, ${q.agree}% agreed
-    &middot; <span style="color:${q.zone==="the fight"?"#7C2E3E":q.zone==="locked in"?"#35748A":"#22423A"}">${q.zone}</span>`;
+    &middot; <span style="color:${q.zone==="could be's"?"#7C2E3E":q.zone==="locked in"?"#35748A":"#22423A"}">${q.zone}</span>`;
    if(prev)prev.call(d,ev);};});
  document.getElementById("png").onclick=()=>{const b=document.getElementById("png");
   b.textContent="Drawing\u2026";
