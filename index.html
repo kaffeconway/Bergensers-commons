@@ -515,7 +515,7 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
 function home(){
  const saved=lsKeys();
  app.innerHTML=`<div class="kicker">A commons, in the making</div>
- <h1>Build your version</h1>
+ <h1>A life with friends</h1>
  <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
  countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
  <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
@@ -757,7 +757,7 @@ function posterSVG(){
   y+=50; o+=T(P,y,title.toUpperCase(),20,col,MONO,"start","bold");
   (items.length?items.slice(0,5):["none yet"]).forEach(t=>{y+=34;o+=T(P,y,"\u2014 "+t,25,"#131E1B");});};
  block("Locked in","#35748A",POSTER.locked);
- block("The fight","#7C2E3E",POSTER.fight);
+ block("Could be's","#7C2E3E",POSTER.fight);
  block("Where","#22423A",POSTER.regions);
  if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
  o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
@@ -951,7 +951,7 @@ function result(){
  quad+=`<line x1="${ql}" y1="${QY(MY2).toFixed(1)}" x2="${QW-qr}" y2="${QY(MY2).toFixed(1)}" stroke="#131E1B" stroke-opacity=".18" stroke-dasharray="3 3"/>`;
  const qlab=(x,y,t,col,anch)=>`<text x="${x}" y="${y}" text-anchor="${anch}" font-family="ui-monospace,monospace" font-size="8.5" letter-spacing=".1em" fill="${col}" opacity=".85">${t}</text>`;
  quad+=qlab(QW-qr-2,qt+11,"LOCKED IN","#35748A","end");
- quad+=qlab(QW-qr-2,QH-qb-5,"THE FIGHT","#7C2E3E","end");
+ quad+=qlab(QW-qr-2,QH-qb-5,"COULD BE&#39;S","#7C2E3E","end");
  quad+=qlab(ql+2,qt+11,"QUIET NO","#22423A","start");
  quad+=qlab(ql+2,QH-qb-5,"UNDECIDED","#22423A","start");
  const fight=QP.filter(p=>p.x>MX2&&p.y<MY2).sort((a,b)=>(b.x-a.x)+(a.y-b.y));
@@ -987,11 +987,11 @@ function result(){
   Larger dots are the token categories.</p><div class="chartwrap">${quad}</div>
   <div class="qcap" id="qcap">Tap any dot to name it, and again to see who said what.</div>`;
  window.__qp=QP.map(p=>({label:p.label,want:Math.round(p.x*100),agree:Math.round(p.y*100),
-  zone:p.x>MX2?(p.y<MY2?"the fight":"locked in"):(p.y<MY2?"undecided":"quiet no")}));
+  zone:p.x>MX2?(p.y<MY2?"could be's":"locked in"):(p.y<MY2?"undecided":"quiet no")}));
  if(keyPts.length) h+=`<div class="qkey">${keyPts.map((p,i)=>`<div class="qk">
    <span class="qn" style="background:${i<fight.slice(0,5).length?"#7C2E3E":"#35748A"}">${i+1}</span>
    <span>${esc(p.label)}</span></div>`).join("")}</div>`;
- if(fight.length) h+=`<div class="card split"><div class="ct">The fight \u2014 your agenda</div>
+ if(fight.length) h+=`<div class="card split"><div class="ct">Could be's \u2014 your agenda</div>
    <p>Wanted, but not agreed: <b>${fight.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>.</p></div>`;
  if(locked.length) h+=`<div class="card agree"><div class="ct">Locked in</div>
    <p>Wanted and agreed: <b>${locked.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>. Treat these as settled.</p></div>`;
@@ -1219,7 +1219,7 @@ function result(){
  document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
   d.onclick=ev=>{const q=window.__qp[+d.dataset.qi];
    if(q)document.getElementById("qcap").innerHTML=`<b>${esc(q.label)}</b> &mdash; ${q.want}% wanted, ${q.agree}% agreed
-    &middot; <span style="color:${q.zone==="the fight"?"#7C2E3E":q.zone==="locked in"?"#35748A":"#22423A"}">${q.zone}</span>`;
+    &middot; <span style="color:${q.zone==="could be's"?"#7C2E3E":q.zone==="locked in"?"#35748A":"#22423A"}">${q.zone}</span>`;
    if(prev)prev.call(d,ev);};});
  document.getElementById("png").onclick=()=>{const b=document.getElementById("png");
   b.textContent="Drawing\u2026";
