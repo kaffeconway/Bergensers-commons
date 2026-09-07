@@ -67,9 +67,15 @@ over the repo, so don't introduce `{{` or `{%` into any HTML file.
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
-- **Three formats coexist: C1, C2 and C3.** The leading byte of the decoded blob says
-  which. `encode()` always writes **C3**; `decode()` tries C3, then C2, then C1 (a prior
-  JSON-based format), then raw JSON, in that order.
+- **Four formats coexist: C1, C2, C3 and C4.** The leading byte of the decoded blob says
+  which. `encode()` always writes **C4**; `decode()` tries C4, then C3, then C2, then C1 (a
+  prior JSON-based format), then raw JSON, in that order.
+
+  **C4 lengthened the fixed block**, which C3 and the write-in did not. `BITS_CORE` is the
+  original width (C1/C2/C3, 20 bytes); `BITS_C4` adds a 3-bit trial-year answer and two
+  21-bit map pins (25 bytes). `recRead` and `unpackRecs` take an `ext` flag and derive
+  `N_FIX` from the right constant — never share one N_FIX across versions, or an older
+  record's free-text tail is read five bytes late and comes back as garbage.
 
   Region picks are stored **positionally** — C2 as a bit index into the region array
   (`mask |= 1 << i`), C1 as a base36 character. So editing the region list in place does
@@ -91,6 +97,25 @@ over the repo, so don't introduce `{{` or `{%` into any HTML file.
   tail. Old codes simply have fewer separators, so the new `parts[n]` comes back `undefined`
   and defaults to `""`, `N_FIX` doesn't move, and `unpackRecs`'s strict length validation
   still passes. That's how the region write-in (`rw`) was added without a format bump.
+  Adding a **fixed-width** field is the opposite: it moves `N_FIX`, so it needs a new
+  version byte and a new `BITS_*` constant.
+
+- **Map pins (`pn`) are keyed by region name, never by position.** In state and in a decoded
+  record `pn` is `{"Italian Alps": [lat, lon]}`. On the wire they are written in `REGIONS`
+  order, because that is the order the 8-bit region mask decodes in — `rgPicks()` sorts to
+  match, and `recRead` re-keys them by name on the way out. Write them in pick order instead
+  and two pins silently swap regions. Coordinates are quantised to 1023 steps across
+  `MAPWIN` (about 4 km), and `MAPWIN` is declared up with the content because it is the
+  quantisation range as well as the map frame.
+
+  The picker (`insetFit`/`pinSVG`) uses a plain equirectangular fit with a `cos(lat)`
+  correction, not the Lambert conic the Europe map uses: over a few degrees the difference
+  is invisible and it inverts in one line, which is what tap-to-place needs. Inland alpine
+  insets have no coastline to draw, so `RCTOWN` supplies towns to steer by; `SUBAREA` is a
+  first-match-wins list of bounding boxes used only to put a readable name on a pin.
+  Accented names in both live in JS strings as `\uXXXX`, never as HTML entities — they get
+  `esc()`'d into HTML and JSON-encoded into inspector attributes, and an entity survives
+  neither trip.
 
 - **No hyphen in the base64 alphabet.** WhatsApp inserts a literal `-` character when it
   line-wraps a long string with no spaces, which corrupts pasted codes. The custom base64
@@ -135,8 +160,16 @@ This has caught real bugs before (see the strict-validation and hyphen fixes abo
 don't skip it for anything touching
 `packOne`/`packC3`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
 
-Four things worth asserting every time the codec changes: a new answer roundtrips through
-C3 with its regions and write-in intact; a **C2** code still decodes and still reports the
-regions the person actually picked (build one in the test by writing the old bit layout
-with a leading byte 2 and a `REGIONS_V2` mask); a **C1** code still decodes; and a grouped
-code pasted as one blob still imports as a single code.
+Things worth asserting every time the codec changes: a new answer roundtrips through C4
+with its regions, write-in, pins and trial-year answer intact; a **C3** and a **C2** code
+still decode, still report the regions the person actually picked, and still read their
+free-text tail from the *shorter* fixed block (build them in the test by writing the old
+bit layout with a leading byte 2 or 3 and the right region array); a **C1** code still
+decodes; and a grouped code pasted as one blob still imports as a single code.
+
+There is also a Playwright pass worth running for anything touching the pin picker —
+Chromium is preinstalled at `/opt/pw-browsers`. Open `index.html` from `file://`, walk to
+the region step, click the pixel where a known town's dot is drawn, and check the app
+stores that town's coordinates. That is the only way to catch a broken inverse projection;
+the unit tests cannot see the CSS-pixel-to-viewBox scaling. Note that Chromium's
+`innerText` applies `text-transform`, so match `.sec` and `.ct` labels case-insensitively.

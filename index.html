@@ -129,6 +129,21 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  text-transform:uppercase;color:var(--pine);opacity:.5}
 .brow .bedit:hover em{opacity:1;text-decoration:underline}
 .chartwrap{border:1px solid var(--rule);background:rgba(255,255,255,.45);border-radius:3px;padding:6px;margin:0 0 16px}
+.pinbox{border:1px solid var(--rule);background:rgba(255,255,255,.5);border-radius:3px;
+ padding:11px 12px 9px;margin:0 0 10px}
+.pinbox .ph{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px}
+.pinbox .ph b{font-size:14.5px;font-weight:600}
+.pinbox .ph em{font-family:var(--mono);font-style:normal;font-size:9.5px;letter-spacing:.12em;
+ text-transform:uppercase;color:var(--pine);opacity:.55}
+.pinbox p.sub{margin:0 0 8px;font-size:12.5px;color:var(--pine);opacity:.8;line-height:1.45}
+.pinmap{display:block;width:100%;height:auto;cursor:crosshair;touch-action:manipulation;
+ background:rgba(255,255,255,.6);border:1px solid var(--rule2);border-radius:2px}
+.pinbox .pf{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px}
+.pinbox .pf span{font-size:12.5px;color:var(--ink);min-width:0}
+.pinbox .pf span b{font-weight:600}
+.pinbox .pf button{flex:none;background:none;border:1px solid var(--rule);color:var(--pine);
+ font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:5px 9px}
+.pinbox .pf button:hover{border-color:var(--pine)}
 .chart{display:block;width:100%;height:auto}
 .insp{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--pine);
  box-shadow:0 -6px 24px rgba(19,30,27,.14);padding:12px 16px 20px;max-height:52vh;overflow:auto;z-index:60;
@@ -225,6 +240,55 @@ const REGIONS_V2=["Vestland, Norway \u2014 the fjords","German & Austrian northe
 const REGIONS=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
  "Pyrenees","Somewhere not on this list"];
 const OFFLIST="Somewhere not on this list";
+/* The Europe map frame. Doubles as the quantisation range for pins, so it is declared
+   here with the content rather than down in the map section. */
+const MAPWIN={la0:34,la1:71,lo0:-11,lo1:32};
+/* Inset frames for the pin picker, one per region, plus a few towns to steer by:
+   an inland alpine inset drawn from coastline data alone would be an empty box. */
+const RCWIN={
+ "Vestland, Norway \u2014 the fjords":{la0:58.6,la1:62.4,lo0:3.6,lo1:10.2},
+ "French Alps, Vercors & Chartreuse":{la0:43.7,la1:46.4,lo0:4.4,lo1:7.6},
+ "Italian Alps":{la0:44.4,la1:47.2,lo0:6.2,lo1:14.0},
+ "Pyrenees":{la0:41.9,la1:43.6,lo0:-1.8,lo1:3.4}};
+const PINLABEL={"Vestland, Norway \u2014 the fjords":"Vestland",
+ "French Alps, Vercors & Chartreuse":"the French Alps","Italian Alps":"the Italian Alps",
+ "Pyrenees":"the Pyrenees"};
+const RCTOWN={
+ "Vestland, Norway \u2014 the fjords":[["Bergen",60.39,5.32],["Voss",60.63,6.42],
+  ["Sogndal",61.23,7.10],["Odda",60.07,6.55],["F\u00f8rde",61.45,5.86],["Stryn",61.91,6.72]],
+ "French Alps, Vercors & Chartreuse":[["Grenoble",45.19,5.72],["Chamb\u00e9ry",45.57,5.92],
+  ["Die",44.75,5.37],["Gap",44.56,6.08],["Valence",44.93,4.89],["Brian\u00e7on",44.90,6.64]],
+ "Italian Alps":[["Turin",45.07,7.69],["Milan",45.46,9.19],["Sondrio",46.17,9.87],
+  ["Trento",46.07,11.12],["Bolzano",46.50,11.35],["Belluno",46.14,12.22],["Udine",46.06,13.24]],
+ "Pyrenees":[["Pau",43.30,-0.37],["Tarbes",43.23,0.08],["Saint-Girons",42.98,1.15],
+  ["Foix",42.96,1.61],["Andorra",42.51,1.52],["Perpignan",42.70,2.90]]};
+/* Rough sub-areas, first match wins, so the order matters where boxes touch. Only used
+   to put a readable name on a pin - never to move one. */
+const SUBAREA=[
+ ["Hardanger",59.8,60.5,5.6,7.3],["Voss & the Bergen hinterland",60.2,60.95,5.1,7.0],
+ ["Nordfjord & Sunnfjord",61.3,62.4,4.6,7.6],["Sogn & the Sognefjord",60.95,61.6,4.8,7.9],
+ ["Chartreuse",45.24,45.58,5.62,6.02],["Vercors",44.82,45.28,5.15,5.80],
+ ["Belledonne & Oisans",44.90,45.45,5.85,6.55],["the Diois & the Dr\u00f4me",44.45,44.92,4.95,5.75],
+ ["the Piedmont valleys",44.4,46.2,6.2,8.6],["the Lombardy valleys",45.6,46.7,8.6,10.5],
+ ["Trentino",45.7,46.35,10.5,11.9],["South Tyrol & the Dolomites",46.35,47.2,10.3,12.5],
+ ["the Veneto Dolomites",45.9,46.6,11.9,12.6],["Friuli",45.8,46.7,12.6,14.0],
+ ["B\u00e9arn & the western Pyrenees",42.7,43.5,-1.8,-0.35],["Hautes-Pyr\u00e9n\u00e9es",42.65,43.5,-0.35,0.75],
+ ["Comminges & the Couserans",42.7,43.3,0.75,1.25],["Ari\u00e8ge",42.55,43.3,1.25,2.05],
+ ["Cerdanya & the eastern Pyrenees",42.25,42.85,2.05,3.4]];
+const subArea=p=>{if(!p)return "";
+ for(const [nm,a0,a1,o0,o1] of SUBAREA)if(p[0]>=a0&&p[0]<=a1&&p[1]>=o0&&p[1]<=o1)return nm;
+ return "";};
+/* Every pin anyone dropped, flattened: {i, who, rg, p}. Region names are run through
+   rgNow so a renamed region groups with itself. */
+const allPins=list=>{const out=[];
+ (list||[]).forEach((c,i)=>Object.entries(c.pn||{}).forEach(([rg,p])=>{
+  if(p&&typeof p[0]==="number")out.push({i:i,rg:rgNow(rg),p:p});}));
+ return out;};
+/* great-circle kilometres, for reporting how far apart two pins actually are */
+const kmApart=(p,q)=>{const R=6371,d=Math.PI/180;
+ const dla=(q[0]-p[0])*d, dlo=(q[1]-p[1])*d;
+ const h=Math.sin(dla/2)**2+Math.cos(p[0]*d)*Math.cos(q[0]*d)*Math.sin(dlo/2)**2;
+ return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));};
 /* Same region, new label \u2014 applied only when tallying and displaying, never when decoding,
    so an old pick is not misread as retired. */
 const RENAMED={"French Alps & Vercors":"French Alps, Vercors & Chartreuse"};
@@ -232,6 +296,13 @@ const rgNow=r=>RENAMED[r]||r;
 const rgOf=c=>(c.rg||[]).map(rgNow);
 /* Picked by someone, but no longer on the shortlist. Shown, never folded away or dropped. */
 const RETIRED=REGIONS_V2.map(rgNow).filter(r=>REGIONS.indexOf(r)<0);
+/* The trial year. The strongest idea to come out of the September call, and the one
+   thing the group has never actually been asked about. Index 0 is the default. */
+const TRIAL=[["unsure","No view yet","Happy to go with whatever the rest of you decide"],
+ ["must","Essential","I would not put money into land before living together for a year"],
+ ["good","A good idea, if it is practical","Worth doing unless it costs us the right place"],
+ ["skip","Not necessary","I would rather go straight to buying"],
+ ["against","Against it","A year of renting would drain money and momentum"]];
 const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
  ["dk","Winter darkness","I need light","I can take a dark winter"],
  ["lang","New language","Prefer to get by","Happy to learn properly"],
@@ -243,7 +314,7 @@ let S=blank(), step=0, codes=[], mode="home", msg="";
 /* >=0 while editing a row of the board rather than a personal draft. boardEditKey guards
    against the row having moved or been removed underneath us. */
 let boardEdit=-1, boardEditKey="";
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:""};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",tr:TRIAL[0][0],pin:{}};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
@@ -274,7 +345,8 @@ function stateFrom(o){
  return Object.assign(z,{n:o.n||"",style:o.s||"",sp:o.sp||z.sp,act:o.a||z.act,tol:o.t||z.tol,
   use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
   hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},z.sk,o.sk||{}),
-  debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||""});
+  debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||"",
+  tr:o.tr||TRIAL[0][0],pin:Object.assign({},o.pn||{})});
 }
 
 const BOARD="commons:board";
@@ -345,6 +417,34 @@ BR.prototype.r=function(bits){let v=0;
 const U8=t=>unescape(encodeURIComponent(String(t==null?"":t)));
 const uU8=t=>{try{return decodeURIComponent(escape(t));}catch(e){return t;}};
 const IDX=(list,v)=>{const i=list.findIndex(x=>x[0]===v);return i<0?0:i;};
+/* ---- fixed-block widths ----
+   C2 and C3 stop after the region mask. C4 appends the trial-year answer and up to two
+   map pins, so its records are longer and N_FIX moves. Version-specific, never shared. */
+const BITS_CORE=3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8;
+const PIN_BITS=1+10+10;               /* present flag, then latitude and longitude */
+const BITS_C4=BITS_CORE+3+PIN_BITS*2;
+const NFIX=b=>Math.ceil(b/8);
+/* Pins are quantised across the map window: 1023 steps over 37 degrees of latitude is
+   about 4 km, and over 43 degrees of longitude about 3.3 km at 45 N. Ample for telling
+   the western Italian Alps from the eastern ones, and it costs 21 bits. */
+const PIN_STEPS=1023;
+const pinClamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+function wPin(w,p){
+ if(!p||typeof p[0]!=="number"||typeof p[1]!=="number"){w.w(0,1);w.w(0,10);w.w(0,10);return;}
+ w.w(1,1);
+ w.w(Math.round((pinClamp(p[0],MAPWIN.la0,MAPWIN.la1)-MAPWIN.la0)/(MAPWIN.la1-MAPWIN.la0)*PIN_STEPS),10);
+ w.w(Math.round((pinClamp(p[1],MAPWIN.lo0,MAPWIN.lo1)-MAPWIN.lo0)/(MAPWIN.lo1-MAPWIN.lo0)*PIN_STEPS),10);
+}
+function rPin(r){
+ const has=r.r(1),a=r.r(10),b=r.r(10);
+ if(!has)return null;
+ return [MAPWIN.la0+a/PIN_STEPS*(MAPWIN.la1-MAPWIN.la0),
+         MAPWIN.lo0+b/PIN_STEPS*(MAPWIN.lo1-MAPWIN.lo0)];
+}
+/* The region mask decodes in REGIONS order, so pins are written in that same order and
+   re-keyed by region name on the way out. Never positional in state. */
+const rgPicks=o=>(o.rg||[]).filter(r=>REGIONS.indexOf(r)>=0)
+ .sort((a,b)=>REGIONS.indexOf(a)-REGIONS.indexOf(b)).slice(0,2);
 function recBin(o){
  const w=new BW();
  w.w(IDX(STYLES,o.s),3); w.w(IDX(USES,o.u),2); w.w(IDX(HOUSE,o.hh),2); w.w(IDX(HORIZON,o.hz),2);
@@ -354,16 +454,19 @@ function recBin(o){
  ALLACTS.forEach(([k])=>w.w(Math.min(3,(o.a&&o.a[k])||0),2));
  TOL.forEach(([k])=>w.w(Math.min(7,(o.t&&o.t[k]!==undefined)?o.t[k]:2),3));
  SKILLS.forEach(([k])=>w.w((o.sk&&o.sk[k])?1:0,1));
- let mask=0;(o.rg||[]).forEach(r=>{const i=REGIONS.indexOf(r);if(i>=0)mask|=(1<<i);});
+ const picks=rgPicks(o);
+ let mask=0;picks.forEach(r=>{mask|=(1<<REGIONS.indexOf(r));});
  w.w(mask,8);
+ w.w(IDX(TRIAL,o.tr),3);
+ for(let i=0;i<2;i++)wPin(w,(o.pn&&picks[i])?o.pn[picks[i]]:null);
  const bytes=w.done();
  /* Five \u001f-joined free-text fields. Old codes carry four; parts[4] then comes back
     undefined and defaults to "". The fixed block is untouched, so N_FIX does not move. */
  const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e"),o.rw||""].join("\u001f"));
  return bytes.map(b=>String.fromCharCode(b)).join("")+tail;
 }
-function recRead(str,REG){
- const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
+function recRead(str,REG,ext){
+ const N_FIX=NFIX(ext?BITS_C4:BITS_CORE);
  const bytes=[];for(let i=0;i<N_FIX;i++)bytes.push(str.charCodeAt(i)&255);
  const r=new BR(bytes),o={sp:{},a:{},t:{},sk:{},rg:[]};
  o.s=(STYLES[r.r(3)]||STYLES[0])[0]; o.u=(USES[r.r(2)]||USES[0])[0];
@@ -374,23 +477,28 @@ function recRead(str,REG){
  TOL.forEach(([k])=>o.t[k]=r.r(3));
  SKILLS.forEach(([k])=>o.sk[k]=r.r(1));
  const mask=r.r(8);REG.forEach((rg,i)=>{if(mask&(1<<i))o.rg.push(rg);});
+ o.tr=TRIAL[0][0]; o.pn={};
+ if(ext){
+  o.tr=(TRIAL[r.r(3)]||TRIAL[0])[0];
+  for(let i=0;i<2;i++){const p=rPin(r);if(p&&o.rg[i])o.pn[o.rg[i]]=p;}
+ }
  const parts=uU8(str.slice(N_FIX)).split("\u001f");
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
  o.rw=parts[4]||"";
  return o;
 }
-/* C3: identical bit layout to C2, leading byte 3, written against the current REGIONS. */
-function packC3(list){
- let out=String.fromCharCode(3)+String.fromCharCode(Math.min(255,list.length));
+/* C4: the C3 layout plus a trial-year answer and up to two map pins. */
+function packC4(list){
+ let out=String.fromCharCode(4)+String.fromCharCode(Math.min(255,list.length));
  list.forEach(o=>{const b=recBin(o);
   out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
  return out;
 }
 /* Strict on purpose: a wrong record length or a leftover byte throws rather than
    producing garbage or phantom "anon" rows. Do not loosen. */
-function unpackRecs(str,REG){
- const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
+function unpackRecs(str,REG,ext){
+ const N_FIX=NFIX(ext?BITS_C4:BITS_CORE);
  const n=str.charCodeAt(1)&255;
  if(!n||str.length<3)throw new Error("empty pack");
  let i=2;const out=[];
@@ -398,12 +506,13 @@ function unpackRecs(str,REG){
   if(i+2>str.length)throw new Error("truncated");
   const len=((str.charCodeAt(i)&255)<<8)|(str.charCodeAt(i+1)&255);i+=2;
   if(len<N_FIX||i+len>str.length)throw new Error("bad record length");
-  out.push(recRead(str.slice(i,i+len),REG));i+=len;}
+  out.push(recRead(str.slice(i,i+len),REG,ext));i+=len;}
  if(i!==str.length)throw new Error("trailing bytes");
  return out;
 }
-const unpackC2=str=>unpackRecs(str,REGIONS_V2);
-const unpackC3=str=>unpackRecs(str,REGIONS);
+const unpackC2=str=>unpackRecs(str,REGIONS_V2,false);
+const unpackC3=str=>unpackRecs(str,REGIONS,false);
+const unpackC4=str=>unpackRecs(str,REGIONS,true);
 const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
 const unbin64=c=>{
  c=String(c).trim().replace(/\s+/g,"");
@@ -414,10 +523,11 @@ const unbin64=c=>{
 const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
-const encode=o=>bin64(packC3(Array.isArray(o)?o:[o]));
-/* Fallback chain, newest first: C3, then C2 (frozen eight-region list), then C1, then raw JSON. */
+const encode=o=>bin64(packC4(Array.isArray(o)?o:[o]));
+/* Fallback chain, newest first: C4, C3, C2 (frozen eight-region list), C1, then raw JSON. */
 const decode=c=>{
  let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===4){const rows=unpackC4(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===3){const rows=unpackC3(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===2){const rows=unpackC2(bin);return rows.length===1?rows[0]:rows;}
  let raw=null; try{raw=unb64(c);}catch(e){}
@@ -446,11 +556,79 @@ function wireInspector(){
 }
 const payload=()=>({n:S.n,s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,st:String(S.stop||"").slice(0,240),
  sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
- rw:liveRg().indexOf(OFFLIST)>=0?String(S.rw||"").trim().slice(0,60):""});
+ rw:liveRg().indexOf(OFFLIST)>=0?String(S.rw||"").trim().slice(0,60):"",
+ tr:S.tr||TRIAL[0][0],pn:Object.assign({},S.pin||{})});
 function grabOwn(){const t=document.getElementById("own"); if(t)S.ow=t.value.slice(0,400);
  const q=document.getElementById("stop"); if(q)S.stop=q.value.slice(0,240);
  const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);
  const g=document.getElementById("rgw"); if(g)S.rw=g.value.slice(0,60);}
+
+/* ---------- the pin picker ----------
+   A plain equirectangular fit with a cos(lat) correction on longitude. Over a window a
+   few degrees across the difference from the conic used for the Europe map is invisible,
+   and it inverts in one line, which is what a tap-to-place map needs. */
+const PINW=320;
+function insetFit(win){
+ const cx=Math.cos((win.la0+win.la1)/2*Math.PI/180);
+ const dLo=(win.lo1-win.lo0)*cx, dLa=win.la1-win.la0;
+ const H=Math.max(150,Math.min(300,Math.round(PINW*dLa/dLo)));
+ const sc=Math.min(PINW/dLo,H/dLa);
+ const ox=(PINW-dLo*sc)/2, oy=(H-dLa*sc)/2;
+ return {H:H,sc:sc,
+  xy:(la,lo)=>[ox+(lo-win.lo0)*cx*sc, oy+(win.la1-la)*sc],
+  inv:(x,y)=>[win.la1-(y-oy)/sc, win.lo0+(x-ox)/(cx*sc)]};
+}
+function pinSVG(rg){
+ const win=RCWIN[rg]||MAPWIN, f=insetFit(win), H=f.H, p=(S.pin||{})[rg];
+ const P=(la,lo)=>{const q=f.xy(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);};
+ let o=`<svg viewBox="0 0 ${PINW} ${H}" class="pinmap" data-pinrg="${esc(rg)}"
+   role="img" aria-label="Tap to place a pin inside ${esc(rg)}">`;
+ const stepLa=(win.la1-win.la0)>4?2:1, stepLo=(win.lo1-win.lo0)>6?2:1;
+ for(let la=Math.ceil(win.la0);la<=win.la1;la+=stepLa){
+  o+=`<line x1="${f.xy(la,win.lo0)[0].toFixed(1)}" y1="${f.xy(la,win.lo0)[1].toFixed(1)}"
+   x2="${f.xy(la,win.lo1)[0].toFixed(1)}" y2="${f.xy(la,win.lo1)[1].toFixed(1)}"
+   stroke="#131E1B" stroke-opacity=".07"/>`;}
+ for(let lo=Math.ceil(win.lo0);lo<=win.lo1;lo+=stepLo){
+  o+=`<line x1="${f.xy(win.la0,lo)[0].toFixed(1)}" y1="${f.xy(win.la0,lo)[1].toFixed(1)}"
+   x2="${f.xy(win.la1,lo)[0].toFixed(1)}" y2="${f.xy(win.la1,lo)[1].toFixed(1)}"
+   stroke="#131E1B" stroke-opacity=".07"/>`;}
+ MAPGEO.forEach(ln=>{
+  const runs=[];let cur=[];
+  ln.forEach(pt=>{
+   const [la,lo]=pt;
+   const near=la>win.la0-1&&la<win.la1+1&&lo>win.lo0-1&&lo<win.lo1+1;
+   const jump=cur.length&&(Math.abs(la-cur[cur.length-1][0])>1.2||Math.abs(lo-cur[cur.length-1][1])>1.2);
+   if(!near||jump){if(cur.length>2)runs.push(cur);cur=near?[pt]:[];}
+   else cur.push(pt);});
+  if(cur.length>2)runs.push(cur);
+  runs.forEach(seg=>{o+=`<polyline points="${seg.map(([la,lo])=>P(la,lo)).join(" ")}" fill="none"
+   stroke="#131E1B" stroke-opacity=".3" stroke-width="1" stroke-linejoin="round"/>`;});});
+ (RCTOWN[rg]||[]).forEach(([nm,la,lo])=>{
+  if(la<win.la0||la>win.la1||lo<win.lo0||lo>win.lo1)return;
+  const q=f.xy(la,lo), right=q[0]>PINW*0.68;
+  o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="2.2" fill="#131E1B" fill-opacity=".38"/>
+   <text x="${(q[0]+(right?-5:5)).toFixed(1)}" y="${(q[1]+3).toFixed(1)}"
+    text-anchor="${right?"end":"start"}" font-family="ui-monospace,monospace"
+    font-size="8" fill="#22423A" opacity=".65">${esc(nm)}</text>`;});
+ if(p){const q=f.xy(p[0],p[1]);
+  o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="13" fill="#7C2E3E" fill-opacity=".16"/>
+   <circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="5.5" fill="#7C2E3E"
+    stroke="#EAEDE8" stroke-width="1.5"/>`;}
+ return o+`</svg>`;
+}
+function pinPicker(rg){
+ const p=(S.pin||{})[rg], area=subArea(p);
+ const known=!!RCWIN[rg];
+ return `<div class="pinbox">
+  <div class="ph"><b>Roughly where in ${esc(PINLABEL[rg]||"Europe")}?</b><em>optional</em></div>
+  <p class="sub">${known?`Tap the map. It only has to be roughly right &mdash; enough to tell one end
+   of the region from the other, which the name alone cannot.`:`Tap the map if you have somewhere
+   in mind. Towns are there to steer by, not as suggestions.`}</p>
+  ${pinSVG(rg)}
+  <div class="pf"><span>${p?`${area?`<b>${esc(area)}</b> &middot; `:""}${p[0].toFixed(2)}&#176;N,
+    ${p[1].toFixed(2)}&#176;E`:`Nothing placed yet.`}</span>
+   ${p?`<button data-pinclr="${esc(rg)}">Clear</button>`:""}</div></div>`;
+}
 
 /* ---------- steps ---------- */
 const STEPS=[
@@ -497,7 +675,12 @@ const STEPS=[
  save:()=>S.use?(S.hh?null:"And who is coming with you?"):"Pick one."},
 
 {t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
- r:()=>`<p class="hint"><b>Realistically, when?</b></p>`+
+ r:()=>`<div class="note"><b>Renting together first.</b> The idea that came out of the September call:
+   live somewhere together for a year before any money goes into land. It was the strongest
+   proposal in the room and nobody has actually been asked about it, so this is the question
+   doing the most work on this page.</div>`+
+  TRIAL.map(([k,a,b])=>`<button class="opt ${S.tr===k?"on":""}" data-tr="${k}">${a}<small>${b}</small></button>`).join("")+
+  `<p class="hint" style="margin-top:20px"><b>Realistically, when?</b></p>`+
   HORIZON.map(([k,a])=>`<button class="opt ${S.hz===k?"on":""}" data-hz="${k}">${a}</button>`).join("")+
   `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
    a place you cannot leave, a number you cannot reach. Deal-breakers are worth more than preferences.</p>
@@ -569,7 +752,11 @@ const STEPS=[
      <label for="rgw"><b>Where were you thinking?</b></label>
      <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
      <p class="hint" style="margin:7px 0 0">Up to 60 characters. It travels inside your code, so the group
-     can see what you had in mind.</p></div>`:"");},
+     can see what you had in mind.</p></div>`:"")+
+   (live.length?`<div class="grp">Whereabouts, more precisely</div>
+     <p class="hint" style="margin:0 0 10px">"Italian Alps" covers a third-of-the-price difference between
+     its western and eastern ends, so a rough pin says more than the name does. Skip it if you have not
+     got that far.</p>`+live.map(r=>pinPicker(r)).join(""):"");},
  save:()=>{grabOwn();
   /* Retired picks are kept only until the person has actually chosen again. Once they
      have a live pick, the warning has served its purpose and the stale one goes. */
@@ -613,11 +800,24 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-sk]",b=>b.onclick=()=>{S.sk[b.dataset.sk]=S.sk[b.dataset.sk]?0:1;autosave();render();});
  q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=t.value.slice(0,240);
    S.hz=b.dataset.hz;autosave();render();});
+ q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=t.value.slice(0,240);
+   S.tr=b.dataset.tr;autosave();render();});
  q("[data-cap]",b=>b.onclick=()=>{S.cap=+b.dataset.cap;autosave();render();});
  q("[data-run]",b=>b.onclick=()=>{S.run=+b.dataset.run;autosave();render();});
  q("[data-debt]",b=>b.onclick=()=>{S.debt=b.dataset.debt;autosave();render();});
  q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();render();});
  q("[data-tol]",r=>r.oninput=()=>{S.tol[r.dataset.tol]=+r.value;autosave();});
+ q("[data-pinrg]",sv=>sv.onclick=ev=>{
+   const rg=sv.dataset.pinrg, win=RCWIN[rg]||MAPWIN, f=insetFit(win);
+   const box=sv.getBoundingClientRect(); if(!box.width)return;
+   const sc=box.width/PINW;                       /* viewBox units per CSS pixel */
+   const ll=f.inv((ev.clientX-box.left)/sc,(ev.clientY-box.top)/sc);
+   grabOwn();
+   if(!S.pin)S.pin={};
+   S.pin[rg]=[Math.round(ll[0]*1e4)/1e4,Math.round(ll[1]*1e4)/1e4];
+   autosave();render();});
+ q("[data-pinclr]",b=>b.onclick=()=>{grabOwn();if(S.pin)delete S.pin[b.dataset.pinclr];
+   autosave();render();});
  q("[data-rg]",b=>b.onclick=()=>{grabOwn();const p=b.dataset.rg;
    if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(liveRg().length<2)S.rg.push(p);
    autosave();render();});
@@ -798,7 +998,6 @@ function combine(){
 }
 
 /* ================= Europe map ================= */
-const MAPWIN={la0:34,la1:71,lo0:-11,lo1:32};
 /* The four live regions only. Retired picks have no dot; they are listed under the map instead,
    so they are neither hidden nor drawn as if they were still on the shortlist. */
 const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"French Alps, Vercors & Chartreuse":[45.0,5.8],
@@ -872,6 +1071,13 @@ function mapSVG(rgT){
     font-family="ui-monospace,monospace" font-size="10" font-weight="600" fill="#fff">${v}</text>`;
   o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]-r-4).toFixed(1)}" text-anchor="middle"
     font-family="ui-monospace,monospace" font-size="7" fill="#22423A" opacity="${v?.95:.4}">${esc(SHORT[nm]||nm)}</text>`;});
+ /* Individual pins sit on top of the region bubbles: the bubble says how many, the pin
+    says where in it. A pin outside every bubble is somebody's off-list answer. */
+ allPins(codes).forEach(pn=>{const q=MPX(pn.p[0],pn.p[1]),a=subArea(pn.p);
+  o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="7" fill="${PAL[pn.i%PAL.length]}"
+    fill-opacity=".95" stroke="#EAEDE8" stroke-width="1.4"${insAttr(a||pn.rg,
+      [[nameOf(pn.i),PAL[pn.i%PAL.length],(a?a+", in ":"in ")+pn.rg]])}>
+    <title>${esc(nameOf(pn.i))}${a?" \u2014 "+esc(a):""}</title></circle>`;});
  o+=`</g></svg>`;
  return o;
 }
@@ -903,6 +1109,8 @@ function posterSVG(){
  block("Locked in","#35748A",POSTER.locked);
  block("Could be's","#7C2E3E",POSTER.fight);
  block("Where","#22423A",POSTER.regions);
+ if(POSTER.pins.length)block("Where exactly","#22423A",POSTER.pins);
+ if(POSTER.trial.length)block("A year renting first","#35748A",POSTER.trial);
  if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
  o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
@@ -961,6 +1169,8 @@ function result(){
  const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(x=>(x-m)**2)));};
  const who=i=>codes[i].n||("#"+(i+1));
  const spv=(c,k)=>(c.sp&&c.sp[k])||0, tov=(c,k)=>(c.t&&c.t[k]!==undefined)?c.t[k]:2;
+ /* pins re-keyed through rgNow, so a renamed region lines up with itself */
+ const pinMap=c=>{const m={};Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
  try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
  let secList=[];
  const sec=label=>{const id="sec"+secList.length;secList.push({id,label});return `<div class="sec" id="${id}">${label}</div>`;};
@@ -1006,10 +1216,21 @@ function result(){
   ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
   ["Money & commitment",avg([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
     agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u||"")),catAgr(codes.map(c=>c.d||""))])],
+  /* Region overlap, discounted by how far apart the pins are inside a shared region.
+     Two people who both say "Italian Alps" but mean Piedmont and Friuli are not agreed.
+     With no pins the discount is 1, so a pin-less board scores exactly as it did before. */
   ["Where",(()=>{let t=0,c2=0;for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
     const a=new Set(rgOf(codes[i])),b=new Set(rgOf(codes[j]));
-    const inter=[...a].filter(x=>b.has(x)).length,uni=new Set([...a,...b]).size;
-    t+=uni?inter/uni:1;c2++;}return c2?t/c2:1;})()]
+    const shared=[...a].filter(x=>b.has(x));
+    const uni=new Set([...a,...b]).size;
+    let base=uni?shared.length/uni:1;
+    const pa=pinMap(codes[i]),pb=pinMap(codes[j]);
+    const both=shared.filter(r=>pa[r]&&pb[r]);
+    if(both.length){
+     const near=avg(both.map(r=>Math.max(0,1-kmApart(pa[r],pb[r])/500)));
+     base*=.5+.5*near;
+    }
+    t+=base;c2++;}return c2?t/c2:1;})()]
  ];
  const SCORE=Math.round(avg(secScores.map(x=>x[1]))*100);
  const verdict=SCORE>=75?"You are largely of one mind.":SCORE>=55?"Broadly aligned, with real gaps.":
@@ -1166,6 +1387,40 @@ function result(){
   <p>${named.map(c=>`<b>${esc(String(c.rw).trim())}</b> &mdash; ${esc(c.n||"anon")}`).join("<br>")}</p></div>`;
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
+ /* ---------- pins: where inside the region, and how far apart ---------- */
+ const pins=allPins(codes);
+ if(pins.length){
+  h+=`${sec("Where exactly")}
+   <p class="hint">The coloured dots on the map above. A region name can hide a very large
+   disagreement, so this is the part worth arguing with.</p>`;
+  const byRg={};pins.forEach(x=>{(byRg[x.rg]=byRg[x.rg]||[]).push(x);});
+  Object.entries(byRg).sort((a,b)=>b[1].length-a[1].length).forEach(([rg,list])=>{
+   let gap=0,pairs=0;
+   for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){gap+=kmApart(list[i].p,list[j].p);pairs++;}
+   const mean=pairs?Math.round(gap/pairs):0;
+   h+=`<div class="res"${insAttr(rg,list.map(x=>[nameOf(x.i),PAL[x.i%PAL.length],
+      subArea(x.p)||"pinned"]))}><div class="t"><b>${esc(rg)}</b>
+     <em>${list.length} pin${list.length===1?"":"s"}${pairs?` &middot; ${mean} km apart${pairs>1?" on average":""}`:""}
+     ${pairs&&mean>=150?` <span class="tag split">far apart</span>`:pairs&&mean<50?` <span class="tag agree">same place</span>`:""}</em></div>
+    <div class="diffs">${list.map(x=>`<div class="dl"><span class="dv">
+      <b style="color:${PAL[x.i%PAL.length]}">${esc(nameOf(x.i))}</b>
+      ${subArea(x.p)?esc(subArea(x.p)):`${x.p[0].toFixed(2)}&#176;N, ${x.p[1].toFixed(2)}&#176;E`}
+      </span></div>`).join("")}</div></div>`;});
+  const far=(()=>{let m=null;
+    for(let i=0;i<pins.length;i++)for(let j=i+1;j<pins.length;j++){
+     if(pins[i].rg!==pins[j].rg)continue;          /* only inside one region name */
+     if(pins[i].i===pins[j].i)continue;            /* and only between two people */
+     const d=kmApart(pins[i].p,pins[j].p);if(!m||d>m.d)m={d:d,a:pins[i],b:pins[j]};}
+    return m;})();
+  if(far&&far.d>=150) h+=`<div class="card split"><div class="ct">Same word, different place</div>
+   <p><b>${esc(nameOf(far.a.i))}</b> and <b>${esc(nameOf(far.b.i))}</b> both said
+   <b>${esc(far.a.rg)}</b> and then put their pins ${Math.round(far.d)} km apart. On the tally above
+   that reads as agreement. Worth settling which end you mean before anyone books a viewing.</p></div>`;
+  const nopin=codes.filter(c=>!Object.keys(c.pn||{}).length).length;
+  if(nopin) h+=`<p class="hint">${nopin} of you left the pin blank, which is a fair answer
+   \u2014 it just means the region is as far as you have got.</p>`;
+ }
+
  /* ---------- activities gradient ---------- */
  h+=`${sec("What has to be possible")}
   <p class="hint">Sorted by appetite. Solid is essential, pale is nice, red is ruled out.</p>`;
@@ -1297,6 +1552,27 @@ function result(){
   HORIZON.forEach(([k,a])=>{const n=codes.filter(c=>c.hz===k).length;if(!n)return;
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hz===k?[nameOf(i),PAL[i%PAL.length],"this timeframe"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${codes.filter(c=>c.hz===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
     <div class="bar"><span style="width:${n/N*100}%;background:var(--gold)"></span></div></div>`;});}
+ /* ---------- the trial year ---------- */
+ const trAns=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
+ if(trAns.length){
+  h+=`${sec("Renting together first")}
+   <p class="hint">The proposal from the September call: a year living together somewhere before
+   any money goes into land.</p>`;
+  const yes=codes.filter(c=>c.tr==="must"||c.tr==="good").length;
+  const no=codes.filter(c=>c.tr==="skip"||c.tr==="against").length;
+  const hard=codes.filter(c=>c.tr==="must").length, anti=codes.filter(c=>c.tr==="against").length;
+  if(hard&&anti) h+=`<div class="card split"><div class="ct">A straight conflict</div>
+    <p>${hard} of you will not buy without a trial year and ${anti} ${anti===1?"is":"are"} against
+    having one. That is not a preference to average out \u2014 settle it before anyone looks at
+    property.</p></div>`;
+  else if(yes&&!no&&trAns.length>1) h+=`<div class="card agree"><div class="ct">Settled, if you want it to be</div>
+    <p>Everyone who answered is for it. The trial year can stop being a proposal and start being
+    the plan.</p></div>`;
+  TRIAL.forEach(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;if(!c2)return;
+   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.tr===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}><div class="t"><b>${a}</b>
+    <em>${codes.filter(c=>c.tr===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
+    <div class="bar"><span style="width:${c2/N*100}%;background:${k==="must"||k==="good"?"var(--glacier)":k==="unsure"?"var(--rule)":"var(--madder)"}"></span></div></div>`;});
+ }
  const hhs=codes.filter(c=>c.hh).length;
  if(hhs){h+=sec("Who is coming");
   HOUSE.forEach(([k,a])=>{const n=codes.filter(c=>c.hh===k).length;if(!n)return;
@@ -1375,6 +1651,11 @@ function result(){
     .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
     .concat(codes.filter(c=>c.rw&&String(c.rw).trim())
       .map(c=>"\u201c"+String(c.rw).trim()+"\u201d \u2014 "+(c.n||"anon"))),
+  pins:allPins(codes).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
+  trial:(()=>{const t=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
+    if(!t.length)return [];
+    return TRIAL.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;
+      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
   stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
  wireInspector();
  document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
