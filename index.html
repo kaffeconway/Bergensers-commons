@@ -23,6 +23,16 @@ h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;marg
 .note{background:rgba(53,116,138,.09);border-left:2px solid var(--glacier);padding:12px 14px;
  font-size:13.5px;line-height:1.5;margin:0 0 18px;border-radius:0 3px 3px 0}
 .note b{font-weight:600}
+.note .row{display:block;margin:11px 0 0}
+.note .clim{display:block;margin:2px 0 0;font-size:12px;opacity:.82;line-height:1.45}
+.note .cmp{opacity:.5}
+.note .cmphead{display:block;margin:16px 0 2px;padding-top:11px;border-top:1px solid var(--rule);
+ font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;opacity:.7}
+.note .tail{display:block;margin:15px 0 0;padding-top:11px;border-top:1px solid var(--rule)}
+.note .src{display:block;margin:9px 0 0;font-size:11px;opacity:.6;line-height:1.45}
+.retired{margin:10px 0 0;padding:10px 12px;border-left:2px solid var(--rule);background:rgba(19,30,27,.035);
+ border-radius:0 3px 3px 0;font-size:12.5px;color:var(--pine);opacity:.85;line-height:1.5}
+.retired b{font-weight:600}
 button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .btn{display:block;width:100%;padding:14px 16px;font-size:16px;background:var(--pine);color:var(--paper);border:none;margin-top:10px}
 .btn:hover{background:#1a352e}
@@ -85,7 +95,11 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50}
 .res[data-items]::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
  letter-spacing:.08em;text-transform:uppercase;color:var(--glacier);opacity:.55;margin-top:5px}
-.stepbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.stepbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:3px 12px;margin-bottom:10px}
+.stepbar .whois{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--pine);opacity:.75;
+ display:flex;align-items:center;gap:8px;min-width:0}
+.stepbar .whois b{font-weight:600;color:var(--ink);opacity:1;text-transform:none;letter-spacing:0;
+ font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11em}
 .stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
  letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
@@ -193,8 +207,22 @@ const SKILLS=[["build","Building & renovation"],["wood","Woodwork & joinery"],["
 const HORIZON=[["soon","Within two years"],["mid","Two to five years"],["long","Five to ten years"],["some","Someday, no timeline"]];
 const CAP=["Under \u20ac10k","\u20ac10\u201330k","\u20ac30\u201375k","\u20ac75\u2013150k","Over \u20ac150k","Rather not say"];
 const RUN=["Under \u20ac50","\u20ac50\u2013150","\u20ac150\u2013400","Over \u20ac400","Not sure yet"];
-const REGIONS=["Vestland, Norway \u2014 the fjords","German & Austrian northern Alps","French Alps & Vercors",
+/* Frozen. Every C1 and C2 code was written against this eight-item list, and both formats
+   store a POSITION, not a name (C2 a bit index, C1 a base36 index). Never reorder or edit it:
+   editing it in place silently rewrites what every existing code means. C2 decodes against it. */
+const REGIONS_V2=["Vestland, Norway \u2014 the fjords","German & Austrian northern Alps","French Alps & Vercors",
  "Vosges & Alsace","Ardennes & Eifel","Pyrenees","Northern Germany & Denmark","Somewhere not on this list"];
+/* Live list. The questionnaire and every new code (format C3) use this one. */
+const REGIONS=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
+ "Pyrenees","Somewhere not on this list"];
+const OFFLIST="Somewhere not on this list";
+/* Same region, new label \u2014 applied only when tallying and displaying, never when decoding,
+   so an old pick is not misread as retired. */
+const RENAMED={"French Alps & Vercors":"French Alps, Vercors & Chartreuse"};
+const rgNow=r=>RENAMED[r]||r;
+const rgOf=c=>(c.rg||[]).map(rgNow);
+/* Picked by someone, but no longer on the shortlist. Shown, never folded away or dropped. */
+const RETIRED=REGIONS_V2.map(rgNow).filter(r=>REGIONS.indexOf(r)<0);
 const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
  ["dk","Winter darkness","I need light","I can take a dark winter"],
  ["lang","New language","Prefer to get by","Happy to learn properly"],
@@ -203,14 +231,17 @@ const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
 
 /* ---------- state & storage ---------- */
 let S=blank(), step=0, codes=[], mode="home", msg="";
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:""};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:""};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){MEM[k]=v;}}
 function lsGet(k){try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
-function lsKeys(){try{return Object.keys(localStorage).filter(k=>k.startsWith("commons:"));}
- catch(e){return Object.keys(MEM).filter(k=>k.startsWith("commons:"));}}
+/* "commons:board" shares the prefix but is not somebody's answers \u2014 excluding it keeps
+   "Open or edit mine" off the home screen for a device that has only ever collected codes. */
+const isPersonKey=k=>k.indexOf("commons:")===0&&k!==BOARD;
+function lsKeys(){try{return Object.keys(localStorage).filter(isPersonKey);}
+ catch(e){return Object.keys(MEM).filter(isPersonKey);}}
 const slug=n=>"commons:"+String(n||"").trim().toLowerCase().replace(/\s+/g," ");
 function autosave(){ if(S.n) lsSet(slug(S.n),JSON.stringify(S)); }
 
@@ -243,7 +274,7 @@ function packOne(o){
  const ac=ALLACTS.map(([k])=>String(((o.a&&o.a[k])||0))).join("");
  const to=TOL.map(([k])=>String((o.t&&o.t[k]!==undefined)?o.t[k]:2)).join("");
  const sk=SKILLS.map(([k])=>((o.sk&&o.sk[k])?"1":"0")).join("");
- const rg=(o.rg||[]).map(r=>B36[Math.max(0,REGIONS.indexOf(r))]).join("");
+ const rg=(o.rg||[]).map(r=>B36[Math.max(0,REGIONS_V2.indexOf(r))]).join("");
  return ["C1",o.n||"",idx(STYLES,o.s),sp,ac,to,idx(USES,o.u),idx(HOUSE,o.hh),idx(HORIZON,o.hz),sk,
   typeof o.cp==="number"?o.cp:5,typeof o.rn==="number"?o.rn:4,["Yes","Maybe","No"].indexOf(o.d),
   rg,(o.st||"").replace(/[|~]/g," "),(o.wy||"").replace(/[|~]/g," "),(o.ow||[]).join("|").replace(/~/g," ")].join("~");
@@ -258,13 +289,17 @@ function unpackOne(str){
  ALLACTS.forEach(([k],i)=>o.a[k]=+((f[4]||"")[i]||0));
  TOL.forEach(([k],i)=>o.t[k]=+((f[5]||"")[i]||2));
  SKILLS.forEach(([k],i)=>o.sk[k]=+((f[9]||"")[i]||0));
- (f[13]||"").split("").forEach(ch=>{const r=REGIONS[B36.indexOf(ch)];if(r)o.rg.push(r);});
+ (f[13]||"").split("").forEach(ch=>{const r=REGIONS_V2[B36.indexOf(ch)];if(r)o.rg.push(r);});
  return o;
 }
 function enc(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 function dec(c){c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return JSON.parse(decodeURIComponent(escape(atob(c))));}
 const ownList=()=>String(S.ow||"").split(/[\n;]+/).map(x=>x.trim()).filter(Boolean).slice(0,6);
+/* A draft saved before the list changed can hold regions that are gone. Keep them in state,
+   show them on the region step, and never count them toward the pick-two cap. */
+const liveRg=()=>(S.rg||[]).filter(r=>REGIONS.indexOf(r)>=0);
+const staleRg=()=>(S.rg||[]).filter(r=>REGIONS.indexOf(r)<0);
 /* ---- C2: bit-packed records. Every fixed field costs only the bits it needs. ---- */
 function BW(){this.b=[];this.c=0;this.n=0;}
 BW.prototype.w=function(v,bits){v=v<0?0:v;
@@ -290,10 +325,12 @@ function recBin(o){
  let mask=0;(o.rg||[]).forEach(r=>{const i=REGIONS.indexOf(r);if(i>=0)mask|=(1<<i);});
  w.w(mask,8);
  const bytes=w.done();
- const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e")].join("\u001f"));
+ /* Five \u001f-joined free-text fields. Old codes carry four; parts[4] then comes back
+    undefined and defaults to "". The fixed block is untouched, so N_FIX does not move. */
+ const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e"),o.rw||""].join("\u001f"));
  return bytes.map(b=>String.fromCharCode(b)).join("")+tail;
 }
-function recRead(str){
+function recRead(str,REG){
  const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
  const bytes=[];for(let i=0;i<N_FIX;i++)bytes.push(str.charCodeAt(i)&255);
  const r=new BR(bytes),o={sp:{},a:{},t:{},sk:{},rg:[]};
@@ -304,19 +341,23 @@ function recRead(str){
  ALLACTS.forEach(([k])=>o.a[k]=r.r(2));
  TOL.forEach(([k])=>o.t[k]=r.r(3));
  SKILLS.forEach(([k])=>o.sk[k]=r.r(1));
- const mask=r.r(8);REGIONS.forEach((rg,i)=>{if(mask&(1<<i))o.rg.push(rg);});
+ const mask=r.r(8);REG.forEach((rg,i)=>{if(mask&(1<<i))o.rg.push(rg);});
  const parts=uU8(str.slice(N_FIX)).split("\u001f");
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
+ o.rw=parts[4]||"";
  return o;
 }
-function packC2(list){
- let out=String.fromCharCode(2)+String.fromCharCode(Math.min(255,list.length));
+/* C3: identical bit layout to C2, leading byte 3, written against the current REGIONS. */
+function packC3(list){
+ let out=String.fromCharCode(3)+String.fromCharCode(Math.min(255,list.length));
  list.forEach(o=>{const b=recBin(o);
   out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
  return out;
 }
-function unpackC2(str){
+/* Strict on purpose: a wrong record length or a leftover byte throws rather than
+   producing garbage or phantom "anon" rows. Do not loosen. */
+function unpackRecs(str,REG){
  const N_FIX=Math.ceil((3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8)/8);
  const n=str.charCodeAt(1)&255;
  if(!n||str.length<3)throw new Error("empty pack");
@@ -325,10 +366,12 @@ function unpackC2(str){
   if(i+2>str.length)throw new Error("truncated");
   const len=((str.charCodeAt(i)&255)<<8)|(str.charCodeAt(i+1)&255);i+=2;
   if(len<N_FIX||i+len>str.length)throw new Error("bad record length");
-  out.push(recRead(str.slice(i,i+len)));i+=len;}
+  out.push(recRead(str.slice(i,i+len),REG));i+=len;}
  if(i!==str.length)throw new Error("trailing bytes");
  return out;
 }
+const unpackC2=str=>unpackRecs(str,REGIONS_V2);
+const unpackC3=str=>unpackRecs(str,REGIONS);
 const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
 const unbin64=c=>{
  c=String(c).trim().replace(/\s+/g,"");
@@ -339,9 +382,11 @@ const unbin64=c=>{
 const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
-const encode=o=>bin64(packC2(Array.isArray(o)?o:[o]));
+const encode=o=>bin64(packC3(Array.isArray(o)?o:[o]));
+/* Fallback chain, newest first: C3, then C2 (frozen eight-region list), then C1, then raw JSON. */
 const decode=c=>{
  let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===3){const rows=unpackC3(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===2){const rows=unpackC2(bin);return rows.length===1?rows[0]:rows;}
  let raw=null; try{raw=unb64(c);}catch(e){}
  if(raw&&raw.indexOf("C1~")===0){const rows=raw.split("\n").filter(Boolean).map(unpackOne);
@@ -368,10 +413,12 @@ function wireInspector(){
    showInspector(el.dataset.title||"",items);};});
 }
 const payload=()=>({n:S.n,s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,st:String(S.stop||"").slice(0,240),
- sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList()});
+ sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
+ rw:liveRg().indexOf(OFFLIST)>=0?String(S.rw||"").trim().slice(0,60):""});
 function grabOwn(){const t=document.getElementById("own"); if(t)S.ow=t.value.slice(0,400);
  const q=document.getElementById("stop"); if(q)S.stop=q.value.slice(0,240);
- const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);}
+ const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);
+ const g=document.getElementById("rgw"); if(g)S.rw=g.value.slice(0,60);}
 
 /* ---------- steps ---------- */
 const STEPS=[
@@ -427,17 +474,42 @@ const STEPS=[
   return S.hz?null:"Pick a rough timeframe.";}},
 
 {t:"Money, roughly",k:"Two different things, often confused. Both are bands, not commitments.",
- r:()=>`<div class="note"><b>What the numbers mean.</b> Rough all-in cost of a house with some land,
-   before renovation. Orders of magnitude for calibration, not quotes:<br><br>
-   Pyrenees &middot; &euro;120&ndash;300k<br>
-   Ardennes &amp; Eifel &middot; &euro;150&ndash;350k<br>
-   French Alps &amp; Vercors &middot; &euro;200&ndash;450k<br>
-   Vestland, Norway &middot; &euro;215&ndash;520k<br>
-   Vosges &amp; Alsace &middot; &euro;250&ndash;500k<br>
-   German &amp; Austrian Alps &middot; &euro;600k&ndash;1.2M<br><br>
-   Renovation typically adds 30&ndash;100% on top &mdash; cheapest in France, dearest in Norway, where building
-   costs are among Europe's highest. Take a mid-range example at &euro;500k all-in: five households means
-   &euro;100k each, fifteen means &euro;33k each.</div>
+ r:()=>`<div class="note"><b>What the numbers mean.</b> Rough all-in cost of a house with some land, before
+   renovation, and where each region's climate is heading. Orders of magnitude for calibration, not quotes,
+   and the climate lines are direction of travel rather than forecasts.
+   <span class="row"><b>Pyrenees</b> (Ari&egrave;ge, Hautes-Pyr&eacute;n&eacute;es) &middot; &euro;120&ndash;300k
+    <span class="clim">Cheapest of the four per square metre &mdash; houses run about &euro;1,400/m&sup2; in
+    Ari&egrave;ge. It also carries the strongest drying and heat signal of the four: about +1.2&#176;C in
+    fifty years against 0.85&#176;C globally, half the glaciers gone, and less snow projected at every
+    elevation.</span></span>
+   <span class="row"><b>Italian Alps</b> &middot; &euro;100&ndash;450k in the western and eastern valleys,
+    past &euro;600k in South Tyrol and the Dolomites
+    <span class="clim">This region has to be narrowed before the number means anything. Piedmont and Friuli
+    sit near &euro;1,600/m&sup2;; Trentino-Alto Adige averages about &euro;3,300/m&sup2; and Bolzano about
+    &euro;4,900/m&sup2;, which puts the Dolomites in the same bracket as the German and Austrian Alps. Full
+    alpine warming plus southern exposure, and water stress in the valleys.</span></span>
+   <span class="row"><b>French Alps, Vercors &amp; Chartreuse</b> &middot; &euro;200&ndash;450k
+    <span class="clim">Median around &euro;2,050/m&sup2; in the Vercors and &euro;2,210/m&sup2; in the
+    Chartreuse. Full alpine warming: a rising snowline and drier summers, felt first at lower
+    elevation.</span></span>
+   <span class="row"><b>Vestland, Norway</b> &middot; &euro;215&ndash;520k
+    <span class="clim">Building and renovation costs are the highest of the four. Wetter and milder, and the
+    least exposed of the four to heat and drought &mdash; annual rainfall is projected up 5&ndash;30% by 2100
+    and the growing season one to two months longer, with dark winters and a short season as the standing
+    cost today.</span></span>
+   <span class="cmphead">Not on the shortlist &middot; kept for comparison</span>
+   <span class="row cmp"><b>Dolomites &amp; South Tyrol</b> &middot; &euro;600k and up
+    <span class="clim">The expensive end of "Italian Alps", and the reason that name needs
+    narrowing.</span></span>
+   <span class="row cmp"><b>German &amp; Austrian northern Alps</b> &middot; &euro;600k&ndash;1.2M
+    <span class="clim">Dropped on price in September. Houses in Tyrol average roughly &euro;4,800/m&sup2;.
+    Left here because deleting the expensive end makes the other four look arbitrary.</span></span>
+   <span class="tail">Renovation typically adds 30&ndash;100% on top &mdash; cheapest in France, dearest in
+   Norway, where building costs are among Europe's highest. Take a mid-range example at &euro;500k all-in:
+   five households means &euro;100k each, fifteen means &euro;33k each.</span>
+   <span class="src">Prices: french-property.com, notaires de l'Is&egrave;re, immobiliare.it, idealista.it,
+   ssb.no, Statistik Austria. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement
+   Climatique, Klima i Norge 2100.</span></div>
   <p class="hint"><b>1. Up-front capital</b> \u2014 a one-time contribution toward buying and fixing the place.</p>`+
   CAP.map((m,i)=>`<button class="opt ${S.cap===i?"on":""}" data-cap="${i}">${m}</button>`).join("")+
   `<p class="hint" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of insurance, heating,
@@ -454,8 +526,18 @@ const STEPS=[
  save:()=>null},
 
 {t:"Gut feeling on where",k:"Almost done. Pick up to two regions, without thinking too hard.",
- r:()=>REGIONS.map(p=>`<button class="opt ${S.rg.includes(p)?"on":""}" data-rg="${esc(p)}">${p}</button>`).join(""),
- save:()=>null},
+ r:()=>{const stale=staleRg(),live=liveRg();
+  return (stale.length?`<div class="note"><b>Your earlier ${stale.length>1?"picks have":"pick has"} gone from the list.</b>
+    ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more &mdash;
+    the group narrowed to four regions on the September call, mostly on price. Choose again below;
+    ${stale.length>1?"those picks":"that pick"} will not be carried into your code.</div>`:"")+
+   REGIONS.map(p=>`<button class="opt ${live.indexOf(p)>=0?"on":""}" data-rg="${esc(p)}">${p}</button>`).join("")+
+   (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
+     <label for="rgw"><b>Where were you thinking?</b></label>
+     <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
+     <p class="hint" style="margin:7px 0 0">Up to 60 characters. It travels inside your code, so the group
+     can see what you had in mind.</p></div>`:"");},
+ save:()=>{grabOwn();return null;}},
 
 {t:"Last one, and it's optional",k:"Nothing to do with the questions above \u2014 this one is about the whole idea.",
  r:()=>`<p class="hint"><b>In one line: why do you want this at all?</b><br><br>
@@ -475,6 +557,8 @@ function render(){
  if(mode==="incoming")return incoming();
  const st=STEPS[step];
  app.innerHTML=`<div class="stepbar"><button class="exit" id="exit">&larr; Home</button>
+  ${step>0&&S.n?`<span class="whois"><b>${esc(S.n)}</b>
+    <button class="exit" id="notyou">Not you?</button></span>`:""}
    <span class="stepno">Step ${step+1} of ${STEPS.length}</span></div>
   <div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
@@ -496,8 +580,8 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-debt]",b=>b.onclick=()=>{S.debt=b.dataset.debt;autosave();render();});
  q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();render();});
  q("[data-tol]",r=>r.oninput=()=>{S.tol[r.dataset.tol]=+r.value;autosave();});
- q("[data-rg]",b=>b.onclick=()=>{const p=b.dataset.rg;
-   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(S.rg.length<2)S.rg.push(p);
+ q("[data-rg]",b=>b.onclick=()=>{grabOwn();const p=b.dataset.rg;
+   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(liveRg().length<2)S.rg.push(p);
    autosave();render();});
  q("[data-sp]",b=>b.onclick=()=>{const k=b.dataset.sp,d=+b.dataset.d;
    const v=S.sp[k]+d; if(v<0||v>10||(d>0&&spent()>=BANK))return; S.sp[k]=v; autosave(); render();});
@@ -511,6 +595,10 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  if(bk)bk.onclick=()=>{grabOwn();autosave();step--;window.scrollTo(0,0);render();};
  const ex=document.getElementById("exit");
  if(ex)ex.onclick=()=>{grabOwn();autosave();mode="home";window.scrollTo(0,0);render();};
+ /* Deliberately does NOT autosave: autosave() writes to slug(S.n), so someone who opened the
+    wrong name and started answering would otherwise overwrite that person's saved draft. */
+ const ny=document.getElementById("notyou");
+ if(ny)ny.onclick=()=>{S=blank();step=0;mode="home";window.scrollTo(0,0);render();};
 }
 function home(){
  const saved=lsKeys();
@@ -529,7 +617,9 @@ function home(){
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
  <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
  <p class="foot">No account, no sign-in, nothing installed, nothing uploaded. Your answers are saved on this
- device under your name, so you can close the page and come back for your code later.</p>`;
+ device under your name, so you can close the page and come back for your code later.</p>
+ <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
+ call</a> &mdash; a short recap of what changed.</p>`;
  msg="";
  document.getElementById("start").onclick=()=>{S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
@@ -559,6 +649,7 @@ function resume(){
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-nm]").forEach(b=>b.onclick=()=>{
    try{S=Object.assign(blank(),JSON.parse(lsGet(slug(b.dataset.nm))));}catch(e){return;}
+   S.rg=(S.rg||[]).map(rgNow);
    mode="done";window.scrollTo(0,0);render();});
 }
 function done(){
@@ -603,6 +694,10 @@ function combine(){
    <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>`:""}
  <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
  <button class="btn" id="add">Add to the board</button>
+ ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
+   `<p class="hint" style="margin-top:12px">Some of these answers picked a region from the earlier list.
+    Those picks show on the results page, but a single combined code is written in the current format and
+    cannot carry them \u2014 keep the original codes if you want them back.</p>`:""}
  ${b.length>=2?`<button class="btn" id="go" style="background:var(--glacier)">See where we stand (${b.length})</button>
    <button class="btn ghost" id="share">Share the picture</button>`:
    `<p class="hint" style="margin-top:12px">Two submissions are needed before the picture will draw.</p>`}
@@ -655,12 +750,12 @@ function combine(){
 
 /* ================= Europe map ================= */
 const MAPWIN={la0:34,la1:71,lo0:-11,lo1:32};
-const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"German & Austrian northern Alps":[47.4,10.8],
- "French Alps & Vercors":[45.0,5.8],"Vosges & Alsace":[48.1,7.1],"Ardennes & Eifel":[50.4,6.1],
- "Pyrenees":[42.7,1.5],"Northern Germany & Denmark":[54.6,9.4]};
-const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","German & Austrian northern Alps":"N. Alps",
- "French Alps & Vercors":"French Alps","Vosges & Alsace":"Vosges","Ardennes & Eifel":"Ardennes",
- "Pyrenees":"Pyrenees","Northern Germany & Denmark":"N. Germany"};
+/* The four live regions only. Retired picks have no dot; they are listed under the map instead,
+   so they are neither hidden nor drawn as if they were still on the shortlist. */
+const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"French Alps, Vercors & Chartreuse":[45.0,5.8],
+ "Italian Alps":[46.0,10.5],"Pyrenees":[42.7,1.5]};
+const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","French Alps, Vercors & Chartreuse":"French Alps",
+ "Italian Alps":"Italian Alps","Pyrenees":"Pyrenees"};
 const D2R=Math.PI/180, tt=p=>Math.tan(Math.PI/4+p/2);
 const MP1=42*D2R, MP2=64*D2R, MP0=53*D2R, ML0=10*D2R;
 const mn=Math.log(Math.cos(MP1)/Math.cos(MP2))/Math.log(tt(MP2)/tt(MP1));
@@ -720,7 +815,7 @@ function mapSVG(rgT){
    fill="rgba(34,66,58,.05)" stroke="#131E1B" stroke-opacity=".33" stroke-width=".85" stroke-linejoin="round"/>`;});
  Object.entries(RCPOS).forEach(([nm,[la,lo]])=>{const q=MPX(la,lo),v=rgT[nm]||0;
   const r=v?7+11*(v/mx):3.5;
-  const voters=codes.map((c,i)=>((c.rg||[]).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
+  const voters=codes.map((c,i)=>(rgOf(c).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
   o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${Math.max(r,9).toFixed(1)}"
     fill="${v?"#7C2E3E":"#9AA5A0"}" fill-opacity="${v?.3+.45*(v/mx):.14}" stroke="${v?"#7C2E3E":"#9AA5A0"}"
     stroke-width="${v?1.3:.7}"${insAttr(nm,voters)}><title>${esc(nm)}</title></circle>`;
@@ -863,7 +958,7 @@ function result(){
   ["Money & commitment",avg([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
     agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u||"")),catAgr(codes.map(c=>c.d||""))])],
   ["Where",(()=>{let t=0,c2=0;for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
-    const a=new Set(codes[i].rg||[]),b=new Set(codes[j].rg||[]);
+    const a=new Set(rgOf(codes[i])),b=new Set(rgOf(codes[j]));
     const inter=[...a].filter(x=>b.has(x)).length,uni=new Set([...a,...b]).size;
     t+=uni?inter/uni:1;c2++;}return c2?t/c2:1;})()]
  ];
@@ -997,16 +1092,30 @@ function result(){
    <p>Wanted and agreed: <b>${locked.slice(0,6).map(p=>esc(p.label.toLowerCase())).join(", ")}</b>. Treat these as settled.</p></div>`;
 
  /* ---------- region map ---------- */
- const RC={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"German & Austrian northern Alps":[47.4,10.8],
-  "French Alps & Vercors":[45.0,5.8],"Vosges & Alsace":[48.1,7.1],"Ardennes & Eifel":[50.4,6.1],
-  "Pyrenees":[42.7,1.5],"Northern Germany & Denmark":[54.6,9.4]};
+ /* Map dots live in RCPOS; there is no second copy of the coordinates here. */
  const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
- const rgT=tally(c=>c.rg);
+ const rgT=tally(rgOf);
  h+=`${sec("Gut feeling, mapped")}
   <p class="hint">Bubble size is votes. Grey rings are regions nobody chose. Tap a bubble to see who picked it.</p>
   <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
- const off=(rgT["Somewhere not on this list"]||0);
- if(off) h+=`<p class="hint"><b>${off}</b> of you picked <b>somewhere not on this list</b> \u2014 worth asking where.</p>`;
+ /* Picks from the earlier eight-region list: shown as they were given, marked, never remapped. */
+ const retired=RETIRED.map(r=>[r,rgT[r]||0]).filter(x=>x[1]);
+ if(retired.length){const rn=retired.reduce((a,x)=>a+x[1],0);
+  h+=`<div class="retired"><b>From the earlier list, no longer on the shortlist.</b>
+   ${retired.map(([r,v])=>`${esc(r)} &middot; ${v}`).join(" &nbsp; ")}
+   \u2014 ${rn===1?"this pick was":"these picks were"} made before the group narrowed to four regions,
+   so ${retired.length>1?"they have":"it has"} no bubble on the map. Kept here rather than dropped or
+   folded into "somewhere not on this list".</div>`;}
+ const renamedN=codes.filter(c=>(c.rg||[]).some(r=>RENAMED[r])).length;
+ if(renamedN) h+=`<p class="hint"><b>French Alps &amp; Vercors</b> was renamed
+  <b>French Alps, Vercors &amp; Chartreuse</b>. ${renamedN===1?"One earlier answer is":`${renamedN} earlier answers are`}
+  counted under the new label \u2014 same region, longer name.</p>`;
+ const off=(rgT[OFFLIST]||0);
+ if(off) h+=`<p class="hint"><b>${off}</b> of you picked <b>somewhere not on this list</b>.</p>`;
+ const named=codes.filter(c=>c.rw&&String(c.rw).trim());
+ if(named.length) h+=`<div class="card"><div class="ct">Named instead</div>
+  <p>${named.map(c=>`<b>${esc(String(c.rw).trim())}</b> &mdash; ${esc(c.n||"anon")}`).join("<br>")}</p></div>`;
+ else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
  /* ---------- activities gradient ---------- */
  h+=`${sec("What has to be possible")}
@@ -1213,7 +1322,10 @@ function result(){
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
   sections:secScores.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
   locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
-  regions:Object.entries(tally(c=>c.rg)).sort((a,b)=>b[1]-a[1]).map(([r,n])=>r+" \u2014 "+n),
+  regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
+    .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
+    .concat(codes.filter(c=>c.rw&&String(c.rw).trim())
+      .map(c=>"\u201c"+String(c.rw).trim()+"\u201d \u2014 "+(c.n||"anon"))),
   stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
  wireInspector();
  document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
@@ -1243,7 +1355,7 @@ function result(){
    try{const r=document.createRange();r.selectNodeContents(el);
     getSelection().removeAllRanges();getSelection().addRange(r);}catch(e){}};
   box.scrollIntoView({behavior:"smooth",block:"nearest"});};
- upgradeMap(tally(c=>c.rg));
+ upgradeMap(tally(rgOf));
  document.getElementById("hm").onclick=()=>{mode="home";render();};
 }
 /* open a shared link straight into that person's answers */
@@ -1255,7 +1367,7 @@ function result(){
   S=Object.assign(blank(),{n:o.n||"",style:o.s||"",sp:o.sp||S.sp,act:o.a||S.act,tol:o.t||S.tol,
    use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
    hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},blank().sk,o.sk||{}),
-   debt:o.d||"",rg:o.rg||[],ow:(o.ow||[]).join("\n")});
+   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||""});
   window.__incoming=o; autosave(); mode="incoming"; render(); return;}catch(e){}}
  render();
 })();
