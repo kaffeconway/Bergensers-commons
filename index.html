@@ -100,6 +100,8 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  display:flex;align-items:center;gap:8px;min-width:0}
 .stepbar .whois b{font-weight:600;color:var(--ink);opacity:1;text-transform:none;letter-spacing:0;
  font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11em}
+.stepbar .whois .onboard{flex:none;padding:1px 6px;border:1px solid var(--rule);border-radius:2px;
+ font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--glacier);opacity:.9}
 .stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
  letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
@@ -119,6 +121,13 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .brow:last-child{border-bottom:none}
 .bn{flex:1;font-size:15px}
 .brow .x{width:30px;height:30px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
+.brow .bedit{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
+ background:none;border:none;padding:7px 0;text-align:left;color:var(--ink);font-size:15px;
+ font-family:var(--sans);cursor:pointer}
+.brow .bedit span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brow .bedit em{flex:none;font-family:var(--mono);font-style:normal;font-size:9.5px;letter-spacing:.13em;
+ text-transform:uppercase;color:var(--pine);opacity:.5}
+.brow .bedit:hover em{opacity:1;text-decoration:underline}
 .chartwrap{border:1px solid var(--rule);background:rgba(255,255,255,.45);border-radius:3px;padding:6px;margin:0 0 16px}
 .chart{display:block;width:100%;height:auto}
 .insp{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--pine);
@@ -231,6 +240,9 @@ const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
 
 /* ---------- state & storage ---------- */
 let S=blank(), step=0, codes=[], mode="home", msg="";
+/* >=0 while editing a row of the board rather than a personal draft. boardEditKey guards
+   against the row having moved or been removed underneath us. */
+let boardEdit=-1, boardEditKey="";
 function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:""};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
@@ -243,7 +255,27 @@ const isPersonKey=k=>k.indexOf("commons:")===0&&k!==BOARD;
 function lsKeys(){try{return Object.keys(localStorage).filter(isPersonKey);}
  catch(e){return Object.keys(MEM).filter(isPersonKey);}}
 const slug=n=>"commons:"+String(n||"").trim().toLowerCase().replace(/\s+/g," ");
-function autosave(){ if(S.n) lsSet(slug(S.n),JSON.stringify(S)); }
+function autosave(){
+ if(boardEdit>=0){
+  const b=boardGet(), cur=b[boardEdit];
+  if(cur&&String(cur.n||"").toLowerCase().trim()===boardEditKey){
+   const rec=payload(); b[boardEdit]=rec; boardSet(b);
+   boardEditKey=String(rec.n||"").toLowerCase().trim();
+   return;
+  }
+  boardEdit=-1;  /* the row moved or was removed: fall through to a personal draft */
+ }
+ if(S.n) lsSet(slug(S.n),JSON.stringify(S));
+}
+/* Shared by the shared-link boot path and by opening a row of the board, so the two
+   cannot drift apart. Takes a decoded record, returns questionnaire state. */
+function stateFrom(o){
+ const z=blank();
+ return Object.assign(z,{n:o.n||"",style:o.s||"",sp:o.sp||z.sp,act:o.a||z.act,tol:o.t||z.tol,
+  use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
+  hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},z.sk,o.sk||{}),
+  debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||""});
+}
 
 const BOARD="commons:board";
 function compact(o){const a={};Object.entries(o.a||{}).forEach(([k,v])=>{if(v)a[k]=v;});return Object.assign({},o,{a});}
@@ -485,9 +517,10 @@ const STEPS=[
    <span class="row"><b>Italian Alps</b> &middot; &euro;100&ndash;450k in the western and eastern valleys,
     past &euro;600k in South Tyrol and the Dolomites
     <span class="clim">This region has to be narrowed before the number means anything. Piedmont and Friuli
-    sit near &euro;1,600/m&sup2;; Trentino-Alto Adige averages about &euro;3,300/m&sup2; and Bolzano about
-    &euro;4,900/m&sup2;, which puts the Dolomites in the same bracket as the German and Austrian Alps. Full
-    alpine warming plus southern exposure, and water stress in the valleys.</span></span>
+    sit near &euro;1,600/m&sup2;; Trentino-Alto Adige averages about &euro;3,300/m&sup2;, but the province of
+    Bolzano hit a record &euro;4,746/m&sup2; in August 2026 and the city is nearer &euro;4,900 &mdash; which
+    puts the Dolomites in the same bracket as the German and Austrian Alps. Full alpine warming plus southern
+    exposure, and water stress in the valleys.</span></span>
    <span class="row"><b>French Alps, Vercors &amp; Chartreuse</b> &middot; &euro;200&ndash;450k
     <span class="clim">Median around &euro;2,050/m&sup2; in the Vercors and &euro;2,210/m&sup2; in the
     Chartreuse. Full alpine warming: a rising snowline and drier summers, felt first at lower
@@ -537,7 +570,11 @@ const STEPS=[
      <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
      <p class="hint" style="margin:7px 0 0">Up to 60 characters. It travels inside your code, so the group
      can see what you had in mind.</p></div>`:"");},
- save:()=>{grabOwn();return null;}},
+ save:()=>{grabOwn();
+  /* Retired picks are kept only until the person has actually chosen again. Once they
+     have a live pick, the warning has served its purpose and the stale one goes. */
+  if(liveRg().length)S.rg=liveRg();
+  return null;}},
 
 {t:"Last one, and it's optional",k:"Nothing to do with the questions above \u2014 this one is about the whole idea.",
  r:()=>`<p class="hint"><b>In one line: why do you want this at all?</b><br><br>
@@ -558,7 +595,8 @@ function render(){
  const st=STEPS[step];
  app.innerHTML=`<div class="stepbar"><button class="exit" id="exit">&larr; Home</button>
   ${step>0&&S.n?`<span class="whois"><b>${esc(S.n)}</b>
-    <button class="exit" id="notyou">Not you?</button></span>`:""}
+    ${boardEdit>=0?`<span class="onboard">on the board</span>`:""}
+    <button class="exit" id="notyou">${boardEdit>=0?"Back to the board":"Not you?"}</button></span>`:""}
    <span class="stepno">Step ${step+1} of ${STEPS.length}</span></div>
   <div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
@@ -598,7 +636,9 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  /* Deliberately does NOT autosave: autosave() writes to slug(S.n), so someone who opened the
     wrong name and started answering would otherwise overwrite that person's saved draft. */
  const ny=document.getElementById("notyou");
- if(ny)ny.onclick=()=>{S=blank();step=0;mode="home";window.scrollTo(0,0);render();};
+ if(ny)ny.onclick=()=>{const toBoard=boardEdit>=0;
+  boardEdit=-1;boardEditKey="";S=blank();step=0;mode=toBoard?"combine":"home";
+  window.scrollTo(0,0);render();};
 }
 function home(){
  const saved=lsKeys();
@@ -621,7 +661,7 @@ function home(){
  <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
  call</a> &mdash; a short recap of what changed.</p>`;
  msg="";
- document.getElementById("start").onclick=()=>{S=blank();mode="build";step=0;render();};
+ document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
  document.getElementById("comb").onclick=()=>{mode="combine";render();};
 }
@@ -637,8 +677,8 @@ function incoming(){
  document.getElementById("addb").onclick=()=>{const r=boardAdd([o]);
   msg=`${esc(o.n||"They")} ${r.updated?"updated":"added"}. ${r.total} on the board.`;
   clean();mode="combine";render();};
- document.getElementById("mine").onclick=()=>{clean();mode="done";render();};
- document.getElementById("hmx").onclick=()=>{S=blank();clean();mode="home";render();};
+ document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";clean();mode="done";render();};
+ document.getElementById("hmx").onclick=()=>{boardEdit=-1;boardEditKey="";S=blank();clean();mode="home";render();};
 }
 function resume(){
  const names=lsKeys().map(k=>{try{return JSON.parse(lsGet(k)).n;}catch(e){return null;}}).filter(Boolean);
@@ -649,7 +689,7 @@ function resume(){
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-nm]").forEach(b=>b.onclick=()=>{
    try{S=Object.assign(blank(),JSON.parse(lsGet(slug(b.dataset.nm))));}catch(e){return;}
-   S.rg=(S.rg||[]).map(rgNow);
+   S.rg=(S.rg||[]).map(rgNow); boardEdit=-1; boardEditKey="";
    mode="done";window.scrollTo(0,0);render();});
 }
 function done(){
@@ -664,8 +704,10 @@ function done(){
  <button class="btn ghost" id="again">Change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
  <div class="ok" id="st"></div>
- <p class="foot">Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
- from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.</p>`;
+ <p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
+ page already reflects this. Send the code above back to ${esc(S.n)} if they want it for their own device.`:
+ `Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
+ from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.`}</p>`;
  const flash=t=>{document.getElementById("st").textContent=t;};
  async function copy(txt,label,forChat){
   if(forChat)txt=grp(txt);
@@ -683,15 +725,18 @@ function done(){
  document.getElementById("cp").onclick=()=>copy(code,"Code",true);
  document.getElementById("cl").onclick=()=>copy(location.href,"Link");
  document.getElementById("again").onclick=()=>{mode="build";step=0;window.scrollTo(0,0);render();};
- document.getElementById("comb").onclick=()=>{mode="combine";render();};
+ document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";mode="combine";render();};
 }
 function combine(){
  const b=boardGet();
  app.innerHTML=`<div class="kicker">The board</div><h2>${b.length?`${b.length} submission${b.length===1?"":"s"} collected`:"Paste the codes"}</h2>
  <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
  ${b.length?`<div class="board">${b.map((o,i)=>`<div class="brow">
-   <span class="bn">${esc(o.n||"anon")}</span>
-   <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>`:""}
+   <button class="bn bedit" data-ed="${i}" aria-label="Open and edit ${esc(o.n||"this")}"><span>${esc(o.n||"anon")}</span><em>edit</em></button>
+   <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>
+ <p class="hint" style="margin:-6px 0 14px">Tap a name to open those answers and change them &mdash; useful
+ when someone is sitting next to you, or has asked you to fix something for them. Edits are saved straight
+ back to the board.</p>`:""}
  <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
  <button class="btn" id="add">Add to the board</button>
  ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
@@ -708,6 +753,10 @@ function combine(){
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
   const a=boardGet(); a.splice(+x.dataset.rm,1); boardSet(a); render();});
+ document.querySelectorAll("[data-ed]").forEach(x=>x.onclick=()=>{
+  const i=+x.dataset.ed, o=boardGet()[i]; if(!o)return;
+  S=stateFrom(o); boardEdit=i; boardEditKey=String(o.n||"").toLowerCase().trim();
+  mode="build"; step=0; window.scrollTo(0,0); render();});
  const clr=document.getElementById("clr");
  if(clr)clr.onclick=()=>{if(clr.dataset.sure){boardSet([]);render();}
   else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
@@ -1364,10 +1413,7 @@ function result(){
  if(m){try{const o0=decode(m[1]);
   if(Array.isArray(o0)&&o0.length>1){codes=o0;mode="result";render();return;}
   const o=Array.isArray(o0)?o0[0]:o0;
-  S=Object.assign(blank(),{n:o.n||"",style:o.s||"",sp:o.sp||S.sp,act:o.a||S.act,tol:o.t||S.tol,
-   use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
-   hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},blank().sk,o.sk||{}),
-   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||""});
+  S=stateFrom(o);
   window.__incoming=o; autosave(); mode="incoming"; render(); return;}catch(e){}}
  render();
 })();
