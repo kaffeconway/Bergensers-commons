@@ -1083,6 +1083,55 @@ function mapSVG(rgT){
  o+=`</g></svg>`;
  return o;
 }
+/* ---- the triangle: four regions against the three things the group wants at once ----
+   Positions are barycentric weights of (in the mountains, affordable, easy to reach),
+   carried over from the dots on where-we-landed.html. They are a reading of the
+   September call, NOT a computed score, and the caption under the chart says so - only
+   the dot sizes come from the board. Edit the three numbers and a dot moves. */
+const TRI=[
+ ["Pyrenees",                           .51,.47,.02,-1],
+ ["Italian Alps",                       .65,.12,.23, 1],
+ ["French Alps, Vercors & Chartreuse",  .46,.04,.50, 1],
+ /* Bottom centre on purpose: Norway is the second most expensive of the four and the
+    furthest for most people, so it leans to no corner at all. That is the recap's whole
+    point about it, and it is why converting its dot straight off that page would have
+    read as "affordable", which it is not. */
+ ["Vestland, Norway \u2014 the fjords", .24,.38,.38,-1]
+];
+const TRIW=320, TRIH=214;
+const TRIA=[160,34], TRIB=[24,190], TRIC=[296,190];   /* apex, bottom left, bottom right */
+function triSVG(rgT){
+ const mx=Math.max(1,...TRI.map(([nm])=>rgT[nm]||0));
+ const T=(x,y,t,sz,col,anch,w,op)=>`<text x="${x}" y="${y}" text-anchor="${anch||"middle"}"
+   font-family="ui-monospace,monospace" font-size="${sz}" fill="${col}" font-weight="${w||"normal"}"
+   opacity="${op===undefined?1:op}">${t}</text>`;
+ let o=`<svg viewBox="0 0 ${TRIW} ${TRIH}" class="chart" role="img"
+   aria-label="The four regions placed against being in the mountains, being affordable, and being easy for everyone to reach">`;
+ /* medians, so the eye can judge which corner a dot leans to */
+ const mid=(p,q)=>[(p[0]+q[0])/2,(p[1]+q[1])/2];
+ [[TRIA,mid(TRIB,TRIC)],[TRIB,mid(TRIA,TRIC)],[TRIC,mid(TRIA,TRIB)]].forEach(([a,b])=>{
+  o+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"
+   stroke="#131E1B" stroke-opacity=".08"/>`;});
+ o+=`<polygon points="${TRIA} ${TRIB} ${TRIC}" fill="none" stroke="#131E1B"
+   stroke-opacity=".35" stroke-width="1.2" stroke-linejoin="round"/>`;
+ o+=T(TRIA[0],20,"IN THE MOUNTAINS",8.5,"#22423A","middle","600",.85);
+ o+=T(10,TRIH-8,"AFFORDABLE",8.5,"#22423A","start","600",.85);
+ o+=T(TRIW-10,TRIH-8,"EASY TO REACH",8.5,"#22423A","end","600",.85);
+ TRI.forEach(([nm,m,a,c,side])=>{
+  const t=m+a+c||1, bm=m/t, ba=a/t, bc=c/t;
+  const x=bm*TRIA[0]+ba*TRIB[0]+bc*TRIC[0], y=bm*TRIA[1]+ba*TRIB[1]+bc*TRIC[1];
+  const v=rgT[nm]||0, r=v?7+9*(v/mx):4.5;
+  const voters=codes.map((cc,i)=>(rgOf(cc).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
+  o+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(r,9).toFixed(1)}"
+    fill="${v?"#7C2E3E":"#9AA5A0"}" fill-opacity="${v?.32+.42*(v/mx):.14}"
+    stroke="${v?"#7C2E3E":"#9AA5A0"}" stroke-width="${v?1.3:.7}"${insAttr(nm,voters)}>
+    <title>${esc(nm)}</title></circle>`;
+  if(v)o+=T(x.toFixed(1),(y+3.2).toFixed(1),v,9.5,"#fff","middle","600");
+  o+=T((x+side*(r+7)).toFixed(1),(y+3).toFixed(1),esc(SHORT[nm]||nm),9,"#131E1B",
+       side<0?"end":"start","600",v?.9:.45);
+ });
+ return o+`</svg>`;
+}
 let POSTER=null;
 function posterSVG(){
  const W=1080,H=1620,P=70;let y=0,o="";
@@ -1389,6 +1438,12 @@ function result(){
  if(named.length) h+=`<div class="card"><div class="ct">Named instead</div>
   <p>${named.map(c=>`<b>${esc(String(c.rw).trim())}</b> &mdash; ${esc(c.n||"anon")}`).join("<br>")}</p></div>`;
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
+
+ /* the same four regions, against the three things you want at once */
+ h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
+  <p class="hint">Positions are a reading of the September call, not a measurement
+  &mdash; argue with them. Only the circle sizes are yours: the votes above. Nothing
+  reaches all three corners.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);
