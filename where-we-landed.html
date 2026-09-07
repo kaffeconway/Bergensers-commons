@@ -1,0 +1,530 @@
+<title>Where We Landed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Petrona:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#EDEFE8;
+  --surface:#F7F9F3;
+  --ink:#17211C;
+  --muted:#5C6A62;
+  --line:#CBD3C7;
+  --sage:#22423A;
+  --moss:#4E7A5E;
+  --ember:#A6552E;
+  --serif:"Petrona", Palatino, "Iowan Old Style", Georgia, serif;
+  --mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#121714;
+    --surface:#1A211D;
+    --ink:#E7EBE4;
+    --muted:#95A29A;
+    --line:#2E3A33;
+    --sage:#87AC9A;
+    --moss:#8FB89A;
+    --ember:#DC8A5F;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#121714;
+  --surface:#1A211D;
+  --ink:#E7EBE4;
+  --muted:#95A29A;
+  --line:#2E3A33;
+  --sage:#87AC9A;
+  --moss:#8FB89A;
+  --ember:#DC8A5F;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--serif);
+  font-size:18px;
+  line-height:1.62;
+  margin:0;
+  padding:0 20px 96px;
+}
+.wrap{max-width:1080px;margin:0 auto}
+.col{max-width:34rem}
+
+/* ---- masthead ---- */
+header.mast{
+  padding:56px 0 40px;
+  border-bottom:1px solid var(--line);
+  margin-bottom:44px;
+}
+.eyebrow{
+  font-family:var(--mono);
+  font-size:11.5px;
+  letter-spacing:.13em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:0 0 20px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 14px;
+}
+h1{
+  font-size:clamp(2.6rem,6.5vw,4.1rem);
+  line-height:1.02;
+  font-weight:600;
+  letter-spacing:-.02em;
+  margin:0 0 22px;
+  text-wrap:balance;
+}
+.dek{
+  font-size:1.2rem;
+  color:var(--muted);
+  margin:0;
+  max-width:32rem;
+  font-style:italic;
+}
+
+/* ---- sections ---- */
+section{margin:0 0 60px}
+h2{
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:var(--sage);
+  margin:0 0 22px;
+  padding-bottom:9px;
+  border-bottom:1px solid var(--line);
+}
+h3{
+  font-size:1.28rem;
+  font-weight:600;
+  margin:0 0 6px;
+  letter-spacing:-.01em;
+}
+p{margin:0 0 1.05em}
+a{color:var(--sage)}
+
+/* ---- the three changes ---- */
+.changes{
+  display:grid;
+  gap:26px;
+  grid-template-columns:repeat(auto-fit,minmax(238px,1fr));
+  margin-top:4px;
+}
+.change{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding-top:16px;
+  border-top:3px solid var(--sage);
+}
+.change .tag{
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.11em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.change p{margin:0;font-size:.96rem;color:var(--muted)}
+.change h3{font-size:1.12rem}
+
+/* ---- figure ---- */
+figure{
+  margin:0;
+  background:var(--surface);
+  border:1px solid var(--line);
+  padding:28px 24px 22px;
+}
+.figscroll{overflow-x:auto}
+figure svg{display:block;width:100%;min-width:520px;height:auto;color:var(--ink)}
+figcaption{
+  margin-top:20px;
+  font-size:.92rem;
+  color:var(--muted);
+  max-width:44rem;
+}
+figcaption b{color:var(--ink);font-weight:600}
+
+/* ---- big three ---- */
+.trio{display:flex;flex-direction:column;gap:30px}
+.item{
+  display:grid;
+  grid-template-columns:120px 1fr;
+  gap:22px;
+  align-items:start;
+}
+.item .lab{
+  font-family:var(--mono);
+  font-size:11.5px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--muted);
+  padding-top:.42em;
+}
+.item p{margin:0 0 .7em;max-width:34rem}
+.item p:last-child{margin-bottom:0}
+@media (max-width:640px){
+  .item{grid-template-columns:1fr;gap:6px}
+  .item .lab{padding-top:0}
+}
+
+/* ---- people ---- */
+.people{
+  display:grid;
+  gap:1px;
+  grid-template-columns:repeat(auto-fit,minmax(258px,1fr));
+  background:var(--line);
+  border:1px solid var(--line);
+}
+.person{
+  background:var(--surface);
+  padding:22px 20px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.person .who{
+  font-family:var(--mono);
+  font-size:11.5px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--sage);
+}
+.person ul{margin:0;padding-left:1.05em;font-size:.95rem;color:var(--muted)}
+.person li{margin-bottom:.42em}
+.person li:last-child{margin-bottom:0}
+
+/* ---- open questions ---- */
+.open{display:flex;flex-direction:column;gap:20px}
+.q{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:14px;
+  align-items:start;
+}
+.dot{
+  width:9px;height:9px;border-radius:50%;
+  background:var(--ember);
+  margin-top:.62em;
+  flex:none;
+}
+.q h3{font-size:1.06rem;margin-bottom:3px}
+.q p{margin:0;font-size:.95rem;color:var(--muted);max-width:34rem}
+
+/* ---- pull quote ---- */
+blockquote{
+  margin:52px 0;
+  padding:0 0 0 22px;
+  border-left:3px solid var(--ember);
+  font-size:1.32rem;
+  font-style:italic;
+  line-height:1.42;
+  max-width:30rem;
+  text-wrap:balance;
+}
+blockquote footer{
+  font-family:var(--mono);
+  font-style:normal;
+  font-size:11.5px;
+  letter-spacing:.11em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin-top:12px;
+}
+
+/* ---- next steps ---- */
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:.98rem;
+}
+caption{
+  text-align:left;
+  font-size:.92rem;
+  color:var(--muted);
+  padding-bottom:14px;
+}
+th,td{
+  text-align:left;
+  padding:13px 14px 13px 0;
+  border-bottom:1px solid var(--line);
+  vertical-align:top;
+}
+th{
+  font-family:var(--mono);
+  font-weight:500;
+  font-size:11px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--muted);
+  padding-top:0;
+}
+td.who{font-family:var(--mono);font-size:.86rem;letter-spacing:.05em;white-space:nowrap;padding-right:26px;color:var(--sage)}
+td.note{color:var(--muted);font-size:.9rem}
+
+/* ---- footer ---- */
+.closer{
+  margin-top:64px;
+  padding-top:26px;
+  border-top:1px solid var(--line);
+  font-size:.95rem;
+  color:var(--muted);
+  max-width:34rem;
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow"><span>Bergensers Commons</span><span>Call recap</span><span>6 September 2026</span></p>
+  <h1>Where we landed</h1>
+  <p class="dek">Four regions instead of five, a year of renting before anyone buys, and a legal shell to hold the whole thing. None of it is decided yet.</p>
+</header>
+
+<section>
+  <h2>Three things changed on this call</h2>
+  <div class="changes">
+    <div class="change">
+      <span class="tag">01 / The map</span>
+      <h3>Four regions, not five</h3>
+      <p>Norway, the French Alps, the Italian Alps, the Pyrenees. The German and Austrian Alps come off the list for now, mostly on price. At roughly 600k to 1.2M they were running four to five times the Pyrenees.</p>
+    </div>
+    <div class="change">
+      <span class="tag">02 / The structure</span>
+      <h3>An entity to hold it</h3>
+      <p>Jesse and Asta both arrived at the same idea independently: set something up that can take a loan, sign contracts, and handle people joining or leaving. Business or non-profit is still open.</p>
+    </div>
+    <div class="change">
+      <span class="tag">03 / The order</span>
+      <h3>Rent first, buy later</h3>
+      <p>Live together somewhere for a year before any money goes into land. This was the strongest idea in the room. It is a proposal, not a decision, and it deserves proper argument.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The triangle, with the four regions in it</h2>
+  <div class="figscroll">
+    <figure>
+      <svg viewBox="0 0 720 600" role="img" aria-label="A triangle with corners labelled affordable, in the mountains, and easy for us to reach. The Pyrenees sit toward the affordable and mountains edge, the French Alps and Vercors toward the mountains and reach edge, the Italian Alps high and slightly toward reach, and Vestland in Norway near the centre, winning no corner.">
+        <defs>
+          <marker id="lead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="var(--ember)"></path>
+          </marker>
+        </defs>
+
+        <!-- medians, faint -->
+        <g stroke="currentColor" stroke-width="1" opacity="0.13">
+          <line x1="360" y1="110" x2="360" y2="480"></line>
+          <line x1="120" y1="480" x2="490" y2="295"></line>
+          <line x1="600" y1="480" x2="240" y2="295"></line>
+        </g>
+
+        <!-- triangle -->
+        <polygon points="360,110 120,480 600,480" fill="none" stroke="currentColor" stroke-width="2" opacity="0.6"></polygon>
+
+        <!-- corner labels -->
+        <text x="360" y="82" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="14" font-weight="500" fill="currentColor" letter-spacing="1.4">IN THE MOUNTAINS</text>
+        <text x="360" y="100" text-anchor="middle" font-family="Petrona, Georgia, serif" font-size="13" fill="currentColor" opacity="0.6">terrain, and something you can grow food on</text>
+
+        <text x="112" y="507" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="14" font-weight="500" fill="currentColor" letter-spacing="1.4">AFFORDABLE</text>
+        <text x="112" y="525" text-anchor="start" font-family="Petrona, Georgia, serif" font-size="13" fill="currentColor" opacity="0.6">land plus what renovation adds on top</text>
+
+        <text x="608" y="507" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="14" font-weight="500" fill="currentColor" letter-spacing="1.4">EASY FOR US TO REACH</text>
+        <text x="608" y="525" text-anchor="end" font-family="Petrona, Georgia, serif" font-size="13" fill="currentColor" opacity="0.6">travel time and cost from where we all are now</text>
+
+        <!-- Pyrenees -->
+        <circle cx="252" cy="292" r="8" fill="var(--moss)"></circle>
+        <text x="238" y="286" text-anchor="end" font-family="Petrona, Georgia, serif" font-size="16" font-weight="600" fill="currentColor">Pyrenees</text>
+        <text x="238" y="304" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity="0.62">120 to 300k</text>
+
+        <!-- Italian Alps -->
+        <circle cx="386" cy="238" r="8" fill="var(--moss)"></circle>
+        <text x="400" y="232" text-anchor="start" font-family="Petrona, Georgia, serif" font-size="16" font-weight="600" fill="currentColor">Italian Alps</text>
+        <text x="400" y="250" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity="0.62">100 to 450k, valleys</text>
+
+        <!-- French Alps -->
+        <circle cx="470" cy="310" r="8" fill="var(--moss)"></circle>
+        <text x="484" y="304" text-anchor="start" font-family="Petrona, Georgia, serif" font-size="16" font-weight="600" fill="currentColor">French Alps, Vercors</text>
+        <text x="484" y="322" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity="0.62">200 to 450k</text>
+
+        <!-- Norway, the outlier -->
+        <circle cx="318" cy="392" r="9" fill="none" stroke="var(--ember)" stroke-width="2.5"></circle>
+        <text x="302" y="386" text-anchor="end" font-family="Petrona, Georgia, serif" font-size="16" font-weight="600" fill="currentColor">Vestland, Norway</text>
+        <text x="302" y="404" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity="0.62">215 to 520k</text>
+        <line x1="330" y1="402" x2="404" y2="452" stroke="var(--ember)" stroke-width="1.5" marker-end="url(#lead)" opacity="0.8"></line>
+        <text x="412" y="450" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--ember)" letter-spacing="0.6">WINS NO CORNER.</text>
+        <text x="412" y="467" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="var(--ember)" letter-spacing="0.6">SEE BELOW.</text>
+
+        <text x="360" y="566" text-anchor="middle" font-family="Petrona, Georgia, serif" font-size="13" fill="currentColor" opacity="0.55" font-style="italic">Nearer a corner means stronger on it. Nothing reaches all three.</text>
+      </svg>
+      <figcaption>
+        <p><b>Read this as an argument to have, not a finding.</b> The prices come from our own tool. The positions are my reading of the call, and I don't want to be too presumptuous, so treat every dot as a first guess you should move.</p>
+        <p><b>Norway is the interesting one.</b> On these three axes it does not win anything: it is the second most expensive option, it is the furthest for most of us to get to, and the terrain is fjord rather than alpine. But it has a pull that this triangle has no corner for, which is Asta's community, her knowledge of the place, and land she already trusts to grow on. That is a real reason and the shape of the diagram just cannot hold it.</p>
+        <p><b>The Italian Alps are not one price.</b> Trentino-Alto Adige averages around 3,300 EUR per square metre, but that one number hides the split that matters. The province of Bolzano hit a record 4,746 in August 2026 and the city itself is nearer 4,900, which puts the Dolomites and South Tyrol in the same bracket as the German and Austrian Alps we just dropped on cost. The valleys of Piedmont and Friuli sit near 1,600, a third of that. The dot above sits on the valleys. Until we say which Italian Alps we mean, the number underneath it does not mean much.</p>
+        <p><b>Climate is the fourth thing this triangle cannot show</b>, and it points the opposite way to affordability. The Alps have already warmed about 2&#176;C over the last century against roughly 1&#176;C for the northern hemisphere, and since the 1980s they have been running near 0.5&#176;C per decade, which moves conditions uphill by about 100 metres every ten years. Summers are projected to get drier. So the cheap southern options are cheap partly because of where the climate is heading, and Norway's weather is the one thing about it that improves in relative terms.</p>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>The big three questions</h2>
+  <div class="trio">
+
+    <div class="item">
+      <div class="lab">Structure</div>
+      <div>
+        <p>Most of us want to live there full time. Jesse, Leon and I all said so. Asta most likely will not, at least not outside Norway, and that makes the full time and part time balance the hardest thing on the list rather than a detail to sort later.</p>
+        <p>On the physical shape we are closer than I expected. Everyone described some version of the same thing: a common house to gather in, private space to retreat to, whether that is a separate house or a small cabin. Asta wants separate gardens in proximity, which is what her parents built with their friends on an island in Norway. I want guest rooms so people can come without moving.</p>
+        <p>Still untouched: borrowing between us, buying in, and buying out.</p>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="lab">Location</div>
+      <div>
+        <p>More agreement than anyone expected on the feeling, which several people put roughly as: it does not matter where we are, as long as we are together.</p>
+        <p>Much less agreement on distance to a city. Jesse wants an hour at the outside, ideally 45 minutes, with some transit and a central point. Asta wants a geographical border between her and the city, which is how she grew up, on an island in Norway. Leon pointed out that around Grenoble may simply beat Bavaria on price. Nobody has said which city, and that question is doing a lot of quiet work.</p>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="lab">Timeline</div>
+      <div>
+        <p>The thinnest of the three. The trial year is the only concrete proposal we have, and the permanent commitment is the part that matters most: properly moving somewhere, not visiting it. How we see that someone is committed, and putting in real effort, is still an open question with no answer yet.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>Where each of us stands</h2>
+  <div class="people">
+
+    <div class="person">
+      <div class="who">Leon</div>
+      <ul>
+        <li>Rent first, so people can move in slowly, find work, look for housing, sort out loans</li>
+        <li>Living in one property together is probably easier on everyone financially at the start</li>
+        <li>Build as you go: a communal space, with somewhere of your own to retreat to</li>
+        <li>Open question he raised: will a foreign bank lend for this, or do we need a local one</li>
+      </ul>
+    </div>
+
+    <div class="person">
+      <div class="who">Jesse</div>
+      <ul>
+        <li>Agrees with Leon on common space plus private space</li>
+        <li>Would consider starting with a plot of land we buy together and build on together</li>
+        <li>Start a business and use it as the legal structure for loans, contracts, and people moving in and out</li>
+        <li>Close to a city, 45 to 60 minutes. Which city is the open question</li>
+      </ul>
+    </div>
+
+    <div class="person">
+      <div class="who">Asta</div>
+      <ul>
+        <li>Separate gardens in proximity, the way her parents built a small neighbourhood with friends</li>
+        <li>An island in Norway, or Norway more broadly: fertile land, a community already there, a place she knows well</li>
+        <li>Close to a proper city but geographically separate from it</li>
+        <li>Unlikely to move outside Norway full time. Elsewhere would most likely be a second home</li>
+        <li>On board with an entity for group ownership, and open to rental cabins as income</li>
+      </ul>
+    </div>
+
+    <div class="person">
+      <div class="who">Joseph</div>
+      <ul>
+        <li>With Asta on separate houses, plus guest rooms so people can join part time</li>
+        <li>One plot of land is still the nicer version of it</li>
+        <li>An entry year to try it out is essential, not optional</li>
+        <li>Otherwise close to the group: common house, separate spaces, near a city but not in it</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<blockquote>
+  Is it special because we are special, or because the one visit a year is special?
+  <footer>I think we are special. The trial year is how we find out.</footer>
+</blockquote>
+
+<section>
+  <h2>What is still open</h2>
+  <div class="open">
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>Asta and Norway</h3>
+        <p>Three of our four regions are not Norway, and Asta most likely will not move out of Norway full time. So for three of the four options, full time versus part time is not a balance we get to design. It is already settled for at least one of us. Worth saying out loud before the presentations rather than after.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>Climate change and southern Europe</h3>
+        <p>How much do we want to put into the south. The Alps have warmed roughly twice as fast as the northern hemisphere average over the last century, and about half a degree per decade since the 1980s, which shifts the conditions we would be buying into some 100 metres uphill every ten years. Drier summers on top of that. Over thirty years this is not a footnote, and it cuts against the two cheapest regions. I will cover it properly in the Pyrenees section rather than leave it hanging.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>What visitors pay</h3>
+        <p>If some of us put money into a large plot, what does someone pay to come and stay. Rent of a kind, plus electricity, possibly a share of renovations. Nobody has put a number on any of it.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>Renovations</h3>
+        <p>Raised from a renovation one of our families has been through. Renovation typically adds 30 to 100 percent on top of the purchase price, cheapest in France and dearest in Norway. That is large enough to reorder the whole triangle.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>How we vote</h3>
+        <p>We joked about Plato, but a group buying property together does need a way to decide things, including how someone leaves. Probably a question for whoever drafts the entity.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <span class="dot"></span>
+      <div>
+        <h3>Loans</h3>
+        <p>Leon's question is the practical blocker. I'm presuming the answer differs by country, since lending rules do, which is another reason the entity question probably cannot be settled before the location one.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>Next steps</h2>
+  <table>
+    <caption>One region each, presented back to the group.</caption>
+    <thead>
+      <tr><th scope="col">Who</th><th scope="col">Region</th><th scope="col">Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="who">Asta</td><td>Norway, the islands</td><td class="note">The one option with a community already in place</td></tr>
+      <tr><td class="who">Joe</td><td>Pyrenees</td><td class="note">Including a short section on climate change</td></tr>
+      <tr><td class="who">Jesse</td><td>Italian Alps</td><td class="note">Worth saying which ones. The Dolomites cost roughly what Tyrol costs</td></tr>
+      <tr><td class="who">Leon</td><td>Vercors, Chartreuse</td><td class="note">The French Alps case, and the closest to Grenoble</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<p class="closer">Nothing above is decided, including the trial year. It is a recap so we all argue with the same version of events. If I have put words in your mouth, tell me and I will fix it.</p>
+
+</div>
