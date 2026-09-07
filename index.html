@@ -93,7 +93,9 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .secnav a:active,.secnav a:hover{border-color:var(--pine)}
 #totop{position:fixed;right:14px;bottom:18px;width:42px;height:42px;border-radius:50%;background:var(--pine);
  color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50}
-.res[data-items]::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
+/* Only the first inspectable row on the page carries the hint; repeating it under every
+   row printed the same three words seventy times. */
+.res.tip1::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
  letter-spacing:.08em;text-transform:uppercase;color:var(--glacier);opacity:.55;margin-top:5px}
 .stepbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:3px 12px;margin-bottom:10px}
 .stepbar .whois{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--pine);opacity:.75;
@@ -1188,7 +1190,7 @@ function result(){
  if(settled.s===0) cards.push(["Complete agreement",`<b>${esc(settled.label)}</b> \u2014 every one of you gave the same answer. This is settled; build on it.`,"agree"]);
  else cards.push(["Most settled",`<b>${esc(settled.label)}</b> \u2014 you are close to agreed here.`,"agree"]);
  cards.push(["Most divided",`<b>${esc(bySplit[0].label)}</b> \u2014 the widest spread of any answer. Start the conversation here.`,"split"]);
- if(useTop.n===N) cards.push(["Everyone agrees on this",`All ${N} of you said <b>${esc(useTop.a.toLowerCase())}</b>. That is a much bigger commitment than a holiday place, and it changes what you should be looking for.`,"agree"]);
+ if(useTop.n===N) cards.push(["Everyone agrees on this",`All ${N} of you said <b>${esc(useTop.a.toLowerCase())}</b> \u2014 a much bigger commitment than a holiday place, and it changes what to look for.`,"agree"]);
  const cityM=avg(codes.map(c=>spv(c,"city"))), wildM=avg(codes.map(c=>spv(c,"wild")));
  if(cityM>=3&&wildM>=2) cards.push(["A tension to name",`You spent on <b>near a city</b> (${cityM.toFixed(1)}) and on <b>remoteness</b> (${wildM.toFixed(1)}) at the same time. Somebody has to give.`,"split"]);
  const knownM=avg(codes.map(c=>spv(c,"known")));
@@ -1198,7 +1200,9 @@ function result(){
   <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
   <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>
   ${N>PAL.length?`<p class="hint">With more than ${PAL.length} of you, a couple of colors repeat above &mdash; go by the names, not just the dots.</p>`:""}`;
- h+=cards.map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
+ /* Three is what anyone reads before scrolling past. The rest are still on the page
+    lower down as their own sections, so nothing is actually lost by capping here. */
+ h+=cards.slice(0,3).map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
  h+="__SECNAV__";
 
  /* ---------- alignment score ---------- */
@@ -1286,8 +1290,7 @@ function result(){
      font-family="ui-monospace,monospace" font-size="8" fill="${PAL[shown[0]%PAL.length]}">${val}</text>`;});
   o+=`</svg>`;return o;};
  h+=`${sec("What you would trade for what")}
-  <p class="hint">Each outline is one of you; the shaded shape is the group average. Tap a name to see just
-  that person, with their numbers.</p>
+  <p class="hint">Each outline is one of you; the shaded shape is the group average.</p>
   <div class="pchips" id="pchips">${codes.map((c,i)=>`<button class="pchip on" data-pp="${i}"
     style="--pc:${PAL[i%PAL.length]}">${esc(who(i))}</button>`).join("")}
     <button class="pchip alt" data-pp="all">All</button></div>
@@ -1348,7 +1351,7 @@ function result(){
  quad+=`<text transform="translate(11,${(qt+(QH-qt-qb)/2).toFixed(0)}) rotate(-90)" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".6">how much you agree &#8594;</text>`;
  quad+=`</svg>`;
  h+=`${sec("The whole picture in one chart")}
-  <p class="hint">Every activity and every token category placed by how much you want it and how much you agree.
+  <p class="hint">Everything placed by how much you want it against how much you agree.
   Larger dots are the token categories.</p><div class="chartwrap">${quad}</div>
   <div class="qcap" id="qcap">Tap any dot to name it, and again to see who said what.</div>`;
  window.__qp=QP.map(p=>({label:p.label,want:Math.round(p.x*100),agree:Math.round(p.y*100),
@@ -1366,7 +1369,7 @@ function result(){
  const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
  const rgT=tally(rgOf);
  h+=`${sec("Gut feeling, mapped")}
-  <p class="hint">Bubble size is votes. Grey rings are regions nobody chose. Tap a bubble to see who picked it.</p>
+  <p class="hint">Bubble size is votes; grey rings are regions nobody chose.</p>
   <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
  /* Picks from the earlier eight-region list: shown as they were given, marked, never remapped. */
  const retired=RETIRED.map(r=>[r,rgT[r]||0]).filter(x=>x[1]);
@@ -1391,8 +1394,7 @@ function result(){
  const pins=allPins(codes);
  if(pins.length){
   h+=`${sec("Where exactly")}
-   <p class="hint">The coloured dots on the map above. A region name can hide a very large
-   disagreement, so this is the part worth arguing with.</p>`;
+   <p class="hint">A region name can hide a large disagreement. This is the part worth arguing with.</p>`;
   const byRg={};pins.forEach(x=>{(byRg[x.rg]=byRg[x.rg]||[]).push(x);});
   Object.entries(byRg).sort((a,b)=>b[1].length-a[1].length).forEach(([rg,list])=>{
    let gap=0,pairs=0;
@@ -1442,7 +1444,7 @@ function result(){
 
  /* ---------- tolerance strips ---------- */
  h+=`${sec("How much you can each take")}
-  <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising. Tap a dot to see who.</p>`;
+  <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising.</p>`;
  const bigN=N>6, dotR=N<=6?6.5:N<=10?5:4, perRow=N<=6?1:N<=10?2:3;
  TOL.forEach(([k,a,lo,hi])=>{
   const v=codes.map(c=>tov(c,k)), sp2=Math.max(...v)-Math.min(...v);
@@ -1524,13 +1526,23 @@ function result(){
        theirs:FV[(i+1)%N][n].say,gap:Math.abs(v[i]-others[0])});}
    }});
   lone.sort((a,b)=>b.gap-a.gap);
-  const top=lone.filter(x=>x.gap>=.25).slice(0,6);
+  /* One person standing alone on six things is one finding, not six. Group by who they
+     are and what the disagreement is, so the sentence is written once with a list. */
+  const loneG={};
+  lone.filter(x=>x.gap>=.25).forEach(x=>{
+   const k=x.i+"|"+x.mine+"|"+x.theirs;
+   (loneG[k]=loneG[k]||{i:x.i,mine:x.mine,theirs:x.theirs,gap:x.gap,labels:[]}).labels.push(x.label);
+   loneG[k].gap=Math.max(loneG[k].gap,x.gap);});
+  const top=Object.values(loneG).sort((a,b)=>b.labels.length-a.labels.length||b.gap-a.gap).slice(0,5);
   if(top.length){
    h+=`${sec("Lone voices")}
-    <p class="hint">One person apart from everyone else. Not a problem \u2014 usually the most interesting thing on the page.</p>`;
-   top.forEach(x=>h+=`<div class="res"><div class="t"><b>${esc(x.label)}</b>
-     <em><b style="color:${PAL[x.i%PAL.length]}">${esc(who(x.i))}</b> alone</em></div>
-     <p class="hint" style="margin:3px 0 0">${esc(who(x.i))} says <b>${esc(x.mine)}</b>; everyone else says ${esc(x.theirs)}.</p></div>`);
+    <p class="hint">Where one of you sits apart from everyone else. Usually the most interesting thing here.</p>`;
+   top.forEach(x=>{const many=x.labels.length>1;
+    h+=`<div class="res"><div class="t">
+      <b style="color:${PAL[x.i%PAL.length]}">${esc(who(x.i))}</b>
+      <em>${many?`${x.labels.length} things`:""} alone</em></div>
+      <p class="hint" style="margin:3px 0 0"><b>${esc(x.labels.map(l=>l.toLowerCase()).join(", "))}</b>
+      &mdash; ${esc(x.mine)}, where everyone else says ${esc(x.theirs)}.</p></div>`;});
   }
  }
 
@@ -1579,8 +1591,8 @@ function result(){
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hh===k?[nameOf(i),PAL[i%PAL.length],"yes"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
     <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
   const kid=codes.filter(c=>c.hh==="kids").length;
-  if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children \u2014 which is why school
-   and hospital distance matters, and it should weigh heavily on where you look.</p>`;}
+  if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children, which puts
+   school and hospital distance on the list.</p>`;}
  const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
    who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
  if(skT.some(x=>x.n)){h+=`${sec("What you bring")}
@@ -1658,6 +1670,8 @@ function result(){
       return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
   stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
  wireInspector();
+ const tip1=document.querySelector("#app .res[data-items]");
+ if(tip1)tip1.classList.add("tip1");
  document.querySelectorAll(".qdot").forEach(d=>{const prev=d.onclick;
   d.onclick=ev=>{const q=window.__qp[+d.dataset.qi];
    if(q)document.getElementById("qcap").innerHTML=`<b>${esc(q.label)}</b> &mdash; ${q.want}% wanted, ${q.agree}% agreed
