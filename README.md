@@ -82,7 +82,11 @@ That's the whole pipeline. If you're using Claude Code in this folder, just ask 
 make the change and push — it has full context in `CLAUDE.md` and will use your own
 local git credentials, so nothing needs to be handed to anyone.
 
-A push takes a minute or so to go live. GitHub Pages runs Jekyll over the repo, so avoid
-introducing `{{` or `{%` into `index.html` — Jekyll would eat them as template syntax.
-(The file is clean today.) If that ever becomes awkward, adding an empty `.nojekyll`
-file at the root turns the processing off entirely.
+A push takes a minute or so to go live.
+
+There is an empty `.nojekyll` file at the repo root, which turns off Jekyll processing
+entirely, so files are served exactly as committed. It is there because Jekyll otherwise
+runs its Liquid template parser over everything in the repo — Markdown included — and a
+stray double-brace anywhere fails the build. When that happens the deploy step is simply
+skipped: nothing breaks visibly, the previous build stays live, and the site just looks
+like it did not update. Leave `.nojekyll` in place and that whole failure mode is gone.

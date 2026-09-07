@@ -41,8 +41,16 @@ deploy command to run.
 
 Serving from the repo root means **every file here is on the public web**, this file and
 `README.md` included. Two standing rules for anything published here: **first names only,
-never surnames**, and **no specific home locations for anyone**. GitHub Pages runs Jekyll
-over the repo, so don't introduce `{{` or `{%` into any HTML file.
+never surnames**, and **no specific home locations for anyone**.
+
+**Jekyll is disabled** by an empty `.nojekyll` file at the repo root, so every file is
+served byte-for-byte as committed. Keep that file. Without it, GitHub Pages runs Jekyll's
+Liquid parser over the whole repo — including Markdown like this one — and a single stray
+double-brace anywhere fails the build. The failure is quiet in the worst way: the deploy
+step is skipped, no error surfaces on the site, and the *previous* build stays live, so
+the site simply appears not to have updated. This is not hypothetical. An earlier version
+of this very paragraph, warning about that brace hazard, contained the braces and broke
+the build.
 
 ## Things worth knowing before editing
 
