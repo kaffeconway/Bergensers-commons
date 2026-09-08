@@ -159,6 +159,17 @@ fallback stack), monospace for labels/data, sage-green/paper color palette defin
 CSS custom properties at the top of the `<style>` block. Match this rather than
 introducing a different visual language.
 
+## Reporting back completely
+
+When doing anything for this project that isn't a code edit — summarizing a group call,
+searching and comparing property listings, or writing up what a batch of questionnaire
+results actually shows — report the whole thing plainly. Don't round off inconvenient
+details, don't quietly fold in a judgment call nobody asked for, and don't make a private
+side-decision partway through a task that only lives in your head and never gets
+surfaced. If something is uncertain or you didn't check it, say so rather than reporting
+the version that's easiest to hand over. This applies the same way whether it's Claude or
+Joseph doing the work.
+
 ## Testing changes
 
 There's no test suite. Before committing a change to the codec or paste logic, sanity-
