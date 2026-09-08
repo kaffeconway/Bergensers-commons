@@ -146,12 +146,50 @@ the build.
 
 - **The board (`localStorage`, key prefix `commons:`)** persists submissions on whoever's
   device is collecting them, so codes can be added incrementally over days without
-  re-pasting old ones.
+  re-pasting old ones. Tapping a name on the board opens that person's answers for
+  editing: `boardEdit` holds the row index and `autosave()` then writes `payload()` back
+  to that row instead of creating a personal draft. It is guarded by `boardEditKey`, the
+  row's lowercased name — if the row moved or was deleted underneath the edit, the binding
+  drops and the work falls back to a draft rather than overwriting a stranger. Every entry
+  point that starts a fresh identity must clear both. `stateFrom()` converts a decoded
+  record into questionnaire state and is shared with the shared-link boot path so the two
+  cannot drift.
+
+- **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against being in
+  the mountains, being affordable, and being easy to reach. Two of the three axes are
+  measured and one is not, which the caption says out loud. *Easy to reach* is rail hours
+  from Amsterdam on the fastest service, scored as `1/hours` — not straight-line distance,
+  which flatters Norway badly, and not linear, because 10h against 27h is a different kind
+  of gap from 7h against 10h. *Affordable* is the purchase band with renovation applied,
+  then the geometric mean of the resulting low and high, so a wide range is not hidden by
+  a midpoint. *In the mountains* stays a reading, and all four score close on it.
+
+  Three of the four plot within about 20px of each other, because on these axes they
+  really are alike. That is the finding, not a bug — so labels sit outside the plot on
+  leader lines rather than beside the dots, vote counts live in the labels rather than
+  inside the circles, and the dots stay small enough that an overlap reads as two regions
+  scoring alike. Do not spread the dots apart to make it prettier; edit the weights only
+  if the underlying rail or price figures change.
+
+  A dot's position is the *balance* between the three, not the level of any one. Vestland
+  plots high because mountains is the only one of the three it scores well on — the
+  caption says this, and it needs to keep saying it, or the chart reads as a claim that
+  Norway has the biggest peaks.
 
 - **Map data**: tries to fetch real Natural Earth coastline/border data from a CDN at
   runtime (`upgradeGeo`/`upgradeMap` functions) and falls back to a hand-drawn simplified
   outline if that fetch fails (e.g. offline, or a restrictive sandbox). Both paths must
   keep working.
+
+## Results page
+
+The page explains itself once, not per row. "Tap for names" is a `::after` on `.res.tip1`,
+and that class is applied in JS to the first inspectable row on the page — it used to be
+on every `.res[data-items]`, which printed the same three words about seventy times.
+Headline cards are capped at three. Lone voices groups by person and by what the
+disagreement is, so somebody standing alone on nine activities is one row listing nine
+things rather than nine rows repeating one sentence. Keep that shape: the page reports,
+it does not narrate.
 
 ## Style
 
@@ -159,6 +197,24 @@ Warm, editorial, slightly old-fashioned — serif headings (Iowan Old Style / Pa
 fallback stack), monospace for labels/data, sage-green/paper color palette defined as
 CSS custom properties at the top of the `<style>` block. Match this rather than
 introducing a different visual language.
+
+## Whose answers these are
+
+Every submission is somebody else's answer, held on whoever's device is collecting.
+Nothing in the code removes what a person said. If an answer can't be carried forward,
+surface it and say why — that is what `REGIONS_V2` being frozen is for, why retired picks
+appear with a "no longer on the shortlist" note rather than folded into "somewhere not on
+this list", and why a board row whose slot disappears falls back to a draft instead of
+vanishing.
+
+An entry nobody currently holds is different, and should not accumulate: a write-in for an
+option since unticked, a pin for a region since unpicked. Those are dropped from the code
+on the next save. The test is whether somebody is actively choosing it now.
+
+The order is the part that matters. An entry goes when the *person* replaces it, never
+before. A dropped region is shown on their region step, survives a pass where they choose
+nothing, and is released only once they have actually picked again. Same end state either
+way; the difference is whether they were there for it.
 
 ## Asking before deciding
 
