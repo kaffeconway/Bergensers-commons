@@ -71,7 +71,7 @@ the build.
   field (activities, token spends, tolerances, skills, region picks) is packed into a
   handful of bits each rather than stored as a JSON key. Free text (name, deal-breakers,
   why, activity write-ins, region write-in) is stored as raw UTF-8 after the packed block,
-  as five `\x1f`-joined fields. Encoder is `encode()` / `packC3()` / `recBin()`; decoder is
+  as five `\x1f`-joined fields. Encoder is `encode()` / `packC4()` / `recBin()`; decoder is
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
@@ -89,10 +89,10 @@ the build.
   (`mask |= 1 << i`), C1 as a base36 character. So editing the region list in place does
   not throw: the record still validates, and every existing code silently comes back
   meaning a *different* region than the person picked. That is why the old eight-item list
-  is frozen as **`REGIONS_V2`** and never touched. **C2 and C1 codes are decoded against
-  `REGIONS_V2`; C3 codes against the current `REGIONS`.** If the region list ever changes
-  again, freeze the current array the same way and add a C4 — do not edit `REGIONS` in
-  place.
+  is frozen as **`REGIONS_V2`** and never touched. **C1 and C2 codes are decoded against
+  `REGIONS_V2`; C3 and C4 codes against the current `REGIONS`.** If the region list ever
+  changes again, freeze the current array the same way and add a C5 — do not edit
+  `REGIONS` in place.
 
   `RENAMED` maps a region that was only relabelled (`French Alps & Vercors` →
   `French Alps, Vercors & Chartreuse`) onto its new name. It is applied at display and
@@ -139,8 +139,9 @@ the build.
   "try whole blob first" order.
 
 - **`unpackRecs` validates strictly** — wrong record length or leftover bytes throws,
-  rather than silently producing garbage/"anon" entries. Both `unpackC2` and `unpackC3` are
-  thin wrappers over it, differing only in which region array they read. Keep it strict; a
+  rather than silently producing garbage/"anon" entries. `unpackC2`, `unpackC3` and `unpackC4` are all
+  thin wrappers over it, differing only in which region array they read and whether they
+  expect the longer C4 fixed block. Keep it strict; a
   previous looser version produced phantom empty submissions from corrupted paste input.
 
 - **The board (`localStorage`, key prefix `commons:`)** persists submissions on whoever's
@@ -191,7 +192,7 @@ check with a quick Node script: extract the `<script>` contents, `new Function(.
 them with stub DOM globals, and roundtrip a sample answer through `encode`/`decode`.
 This has caught real bugs before (see the strict-validation and hyphen fixes above) —
 don't skip it for anything touching
-`packOne`/`packC3`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
+`packOne`/`packC4`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
 
 Things worth asserting every time the codec changes: a new answer roundtrips through C4
 with its regions, write-in, pins and trial-year answer intact; a **C3** and a **C2** code
