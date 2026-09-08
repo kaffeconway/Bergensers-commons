@@ -159,6 +159,20 @@ fallback stack), monospace for labels/data, sage-green/paper color palette defin
 CSS custom properties at the top of the `<style>` block. Match this rather than
 introducing a different visual language.
 
+## Asking before deciding
+
+On anything that changes what the group sees, or what somebody's answers mean, ask
+before building rather than explaining afterwards. A judgment call made and then
+reported is still a decision somebody else never got to weigh in on.
+
+This includes code edits. A diff shows what changed, not what was weighed — where a
+region sits on a chart, which of two conflicting figures to trust, what to leave off a
+page. Those are decisions, and they are not the editor's to make quietly.
+
+Small, reversible, obvious things don't need it: a typo, matching a pattern already
+here, following a rule already written down. The test is whether somebody would
+reasonably want a say, not whether the change is large.
+
 ## Reporting back completely
 
 When doing anything for this project that isn't a code edit — summarizing a group call,
