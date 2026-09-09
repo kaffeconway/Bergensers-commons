@@ -1458,7 +1458,10 @@ function result(){
  const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
  const rgT=tally(rgOf);
  h+=`${sec("Gut feeling, mapped")}
-  <p class="hint">Bubble size is votes; grey rings are regions nobody chose.</p>
+  <p class="hint">A map of the regions in question, with dots representing votes; grey
+  rings are regions nobody chose. Below is a triangle of comparison, measuring the actual
+  listings found according to our criteria on two of its three axes &mdash; the third is
+  rail time from home.</p>
   <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
  /* Picks from the earlier eight-region list: shown as they were given, marked, never remapped. */
  const retired=RETIRED.map(r=>[r,rgT[r]||0]).filter(x=>x[1]);
@@ -1480,16 +1483,13 @@ function result(){
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
  /* The same four regions, against the three things you want at once.
-    The line above the chart marks a boundary that matters: everything up to here is
-    the group's own answers, and nothing else. The triangle is the one place on the page
-    that mixes in outside data - two of its three axes are averages of the properties on
-    the tracker. Its circle sizes are still votes. Say where the boundary is before the
-    reader looks at the picture, not after; by then they have already read the dots. */
- h+=`<p class="hint">Everything above is your picks, and only your picks. This is the same
-  four regions placed against the three things you want at once &mdash; and it is the
-  one chart here that brings in outside numbers: two of its axes are measured from the
-  properties being tracked, not from your answers. The circles are still your votes.</p>
-  <div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
+    Which chart is the group's own answers and which brings in outside numbers is settled
+    at the top of the section, before either is looked at - a reader who has already read
+    the dots cannot be told afterwards what they meant. Keep it there, and keep it saying
+    "two of its three axes": the third is rail time, and a claim that the whole triangle
+    measures listings would put Vestland's local access under a label about the journey
+    from home. The circle sizes are votes, in both charts. */
+ h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
   <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
   the average of 28 tracked listings, scored by the search's own cost model &mdash;
   French Alps 10, Vestland 9, Pyrenees 6, Italian Alps 3, so the averages do not rest on
