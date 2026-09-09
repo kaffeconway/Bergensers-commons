@@ -1084,37 +1084,49 @@ function mapSVG(rgT){
  return o;
 }
 /* ---- the triangle: four regions against the three things the group wants at once ----
-   Weights are (in the mountains, affordable, easy to reach), normalised at draw time.
-   Two of the three are measured rather than guessed:
+   Weights are (land & space, affordable, easy to reach), normalised at draw time.
 
-   EASY TO REACH is rail hours from Amsterdam, the group's practical rail gateway, on the
-   fastest service - not straight-line distance, which flatters Norway badly. Grenoble
-   7h30, Turin 9h40 (Amsterdam-Paris plus the reopened Frejus line), Toulouse 9h20 fastest
-   but 12h typical, Bergen about 27 hours across four countries with an overnight. Scored
-   as 1/hours, normalised: travel pain is not linear, and the gap between 10h and 27h is
-   not the same kind of gap as between 7h and 10h.
+   Two of the three now come from the property tracker rather than from a reading here.
+   They are the mean of the 28 live listings in the search, scored by that tracker's own
+   cost model and axis formulas, grouped by region: French Alps 10, Vestland 9, Pyrenees
+   6, Italian Alps 3. Both are rescaled across the four so the axis spans the range the
+   regions actually differ over - the raw averages sit in a narrow band and would make the
+   axis do nothing. Rescaling changes the spacing, never the order.
 
-   AFFORDABLE is the purchase band from the money step with renovation applied on top
-   (+30-100%, cheapest in France, dearest in Norway), then the geometric mean of the
-   resulting low and high. Using both bounds matters: the Italian valleys have the lowest
-   floor of the four and one of the highest ceilings, and a midpoint alone hides that.
+   LAND & SPACE is plot size and buildings, weighted as the tracker weights them. Raw
+   averages: Pyrenees .82, French Alps .75, Italian Alps .73, Vestland .67. This axis used
+   to say IN THE MOUNTAINS and was a judgment call; it is now measured, and it is measuring
+   a different thing. Vestland sits lowest because its listings are small lots around
+   Bergen - one 84 ha outlier does not lift a nine-listing mean.
 
-   IN THE MOUNTAINS is the one that stays a reading. All four are genuinely mountainous -
-   Vestland's peaks are lower than the Alps but its relief runs from sea level, and for
-   living, growing and snow the four barely differ. They are scored close on purpose,
-   which is why this axis does little to separate them.
+   AFFORDABLE is the tracker's cost model on the as-financed basis. Raw averages: Italian
+   Alps .78, Pyrenees .53, Vestland .52, French Alps .49. This corrected a real error here:
+   the old weights had the Pyrenees as the cheap corner, and the listings do not agree -
+   Pyrenees averages EUR 509,940 all-in against French Alps EUR 505,008, near enough the
+   same, with Vestland at EUR 392,449 and the Italian Alps at EUR 275,400. Only Italy
+   separates.
 
-   The consequence is honest and slightly awkward: three of the four cluster, because on
-   these axes they really are similar. Vestland separates, and it is the rail time that
-   moves it. Labels sit outside on leader lines because the dots are too close together
-   to carry them.
+   EASY TO REACH is deliberately NOT from the listings, and the caption says so. It is rail
+   hours from Amsterdam, the group's practical rail gateway, on the fastest service:
+   Grenoble 7h30, Turin 9h40 (Amsterdam-Paris plus the reopened Frejus line), Toulouse 9h20
+   fastest but 12h typical, Bergen about 27 hours across four countries with an overnight.
+   Scored as 1/hours, normalised, because travel pain is not linear. The tracker has an
+   axis called "connected", but it is 62% weighted on "near a city" and measures each
+   house's local situation - Vestland's listings score best of the four on it, all being
+   near Bergen. Under this label that would read as Norway being the easy one to get to
+   from the Netherlands, which is false. So the two are kept apart.
+
+   Carry the tracker's own caveats with these numbers: the priority weights are the mean
+   token spend of four questionnaire answers out of roughly fifteen, renovation is blank
+   on every listing so every price is a floor, the axis scores are desk reads of listing
+   text, and the Italian Alps average is three listings with the widest spread of the four.
 
    Last two numbers on each row are where its label sits, and which side it anchors to. */
 const TRI=[
- ["Pyrenees",                           .85,1.00,.71,  14,172,"start"],
- ["Italian Alps",                       .95, .83,.77, 306,106,"end"],
- ["French Alps, Vercors & Chartreuse",  .92, .63,1.00,306,166,"end"],
- ["Vestland, Norway \u2014 the fjords", .88, .47,.28,  14, 92,"start"]
+ ["Pyrenees",                          1.00, .533,.71, 306,106,"end"],
+ ["Italian Alps",                       .761,1.00,.77,  14,172,"start"],
+ ["French Alps, Vercors & Chartreuse",  .808, .470,1.00,306,166,"end"],
+ ["Vestland, Norway \u2014 the fjords", .600, .514,.28,  14, 92,"start"]
 ];
 const TRIW=320, TRIH=214;
 const TRIA=[160,34], TRIB=[24,190], TRIC=[296,190];   /* apex, bottom left, bottom right */
@@ -1124,7 +1136,7 @@ function triSVG(rgT){
    font-family="ui-monospace,monospace" font-size="${sz}" fill="${col}" font-weight="${w||"normal"}"
    opacity="${op===undefined?1:op}">${t}</text>`;
  let o=`<svg viewBox="0 0 ${TRIW} ${TRIH}" class="chart" role="img"
-   aria-label="The four regions placed against being in the mountains, being affordable, and being easy for everyone to reach">`;
+   aria-label="The four regions placed against land and space, being affordable, and being easy for everyone to reach">`;
  /* medians, so the eye can judge which corner a dot leans to */
  const mid=(p,q)=>[(p[0]+q[0])/2,(p[1]+q[1])/2];
  [[TRIA,mid(TRIB,TRIC)],[TRIB,mid(TRIA,TRIC)],[TRIC,mid(TRIA,TRIB)]].forEach(([a,b])=>{
@@ -1132,16 +1144,16 @@ function triSVG(rgT){
    stroke="#131E1B" stroke-opacity=".08"/>`;});
  o+=`<polygon points="${TRIA} ${TRIB} ${TRIC}" fill="none" stroke="#131E1B"
    stroke-opacity=".35" stroke-width="1.2" stroke-linejoin="round"/>`;
- o+=T(TRIA[0],20,"IN THE MOUNTAINS",8.5,"#22423A","middle","600",.85);
+ o+=T(TRIA[0],20,"LAND &amp; SPACE",8.5,"#22423A","middle","600",.85);
  o+=T(10,TRIH-8,"AFFORDABLE",8.5,"#22423A","start","600",.85);
  o+=T(TRIW-10,TRIH-8,"EASY TO REACH",8.5,"#22423A","end","600",.85);
  TRI.forEach(([nm,m,a,c,lx,ly,anch])=>{
   const t=m+a+c||1, bm=m/t, ba=a/t, bc=c/t;
   const x=bm*TRIA[0]+ba*TRIB[0]+bc*TRIC[0], y=bm*TRIA[1]+ba*TRIB[1]+bc*TRIC[1];
   const v=rgT[nm]||0;
-  /* Deliberately small. The two closest regions plot 14px apart, so a dot big enough to
-     hold its own vote count would swallow its neighbour. The count goes in the label
-     instead, and an overlap then reads as what it is - two regions scoring alike. */
+  /* Deliberately small. The two closest regions plot 23px apart, so a dot big enough to
+     hold its own vote count would crowd its neighbour. The count goes in the label
+     instead, and a near-touch then reads as what it is - two regions scoring alike. */
   const r=v?6+5*(v/mx):4;
   const lab=SHORT[nm]||nm;
   const tw=(lab+(v?" . "+v:"")).length*5.4;            /* 9px monospace advance */
@@ -1446,7 +1458,10 @@ function result(){
  const tally=f=>{const t={};codes.forEach(c=>(f(c)||[]).forEach(x=>t[x]=(t[x]||0)+1));return t;};
  const rgT=tally(rgOf);
  h+=`${sec("Gut feeling, mapped")}
-  <p class="hint">Bubble size is votes; grey rings are regions nobody chose.</p>
+  <p class="hint">A map of the regions in question, with dots representing votes; grey
+  rings are regions nobody chose. Below is a triangle of comparison, measuring the actual
+  listings found according to our criteria on two of its three axes &mdash; the third is
+  rail time from home.</p>
   <div class="chartwrap"><div id="mapbox">${mapSVG(rgT)}</div></div>`;
  /* Picks from the earlier eight-region list: shown as they were given, marked, never remapped. */
  const retired=RETIRED.map(r=>[r,rgT[r]||0]).filter(x=>x[1]);
@@ -1467,15 +1482,23 @@ function result(){
   <p>${named.map(c=>`<b>${esc(String(c.rw).trim())}</b> &mdash; ${esc(c.n||"anon")}`).join("<br>")}</p></div>`;
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
- /* the same four regions, against the three things you want at once */
+ /* The same four regions, against the three things you want at once.
+    Which chart is the group's own answers and which brings in outside numbers is settled
+    at the top of the section, before either is looked at - a reader who has already read
+    the dots cannot be told afterwards what they meant. Keep it there, and keep it saying
+    "two of its three axes": the third is rail time, and a claim that the whole triangle
+    measures listings would put Vestland's local access under a label about the journey
+    from home. The circle sizes are votes, in both charts. */
  h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
-  <p class="hint"><b>Easy to reach</b> is rail hours from the Netherlands, not distance
-  &mdash; Grenoble is about 7&frac12; hours, Bergen about 27. <b>Affordable</b> is the price
-  band with renovation on top. <b>In the mountains</b> is the one that stays a judgment,
-  and all four score close on it. Circle sizes are the votes above. Position is the
-  balance between the three, not the level of any one: Vestland sits high because
-  mountains is the only one of the three it scores well on. Three of the four sit near
-  each other because on these axes they genuinely are alike.</p>`;
+  <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
+  the average of 28 tracked listings, scored by the search's own cost model &mdash;
+  French Alps 10, Vestland 9, Pyrenees 6, Italian Alps 3, so the averages do not rest on
+  equal ground. <b>Easy to reach</b> is not one of them: it is rail hours from the Netherlands,
+  about 7&frac12; to Grenoble and about 27 to Bergen. The listings score access
+  <i>around</i> a house, which is a different question, so the two are kept apart. A dot's
+  place is the balance between the three, not the level of any one. Two things to hold
+  against it: the priorities behind those averages are four answers, not fifteen, and
+  renovation is blank on every listing, so every price shown is a floor.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);

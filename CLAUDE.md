@@ -155,26 +155,47 @@ the build.
   record into questionnaire state and is shared with the shared-link boot path so the two
   cannot drift.
 
-- **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against being in
-  the mountains, being affordable, and being easy to reach. Two of the three axes are
-  measured and one is not, which the caption says out loud. *Easy to reach* is rail hours
-  from Amsterdam on the fastest service, scored as `1/hours` — not straight-line distance,
-  which flatters Norway badly, and not linear, because 10h against 27h is a different kind
-  of gap from 7h against 10h. *Affordable* is the purchase band with renovation applied,
-  then the geometric mean of the resulting low and high, so a wide range is not hidden by
-  a midpoint. *In the mountains* stays a reading, and all four score close on it.
+- **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against land &
+  space, affordability, and being easy to reach. **Two of the three axes now come from the
+  property tracker in `kaffeconway/bergensers-property-search`, and one deliberately does
+  not** — the caption says which, and it has to keep saying it.
 
-  Three of the four plot within about 20px of each other, because on these axes they
-  really are alike. That is the finding, not a bug — so labels sit outside the plot on
-  leader lines rather than beside the dots, vote counts live in the labels rather than
-  inside the circles, and the dots stay small enough that an overlap reads as two regions
-  scoring alike. Do not spread the dots apart to make it prettier; edit the weights only
-  if the underlying rail or price figures change.
+  *Land & space* and *affordable* are the mean of the 28 live listings in that tracker,
+  computed with its own `load()`, cost model and axis formulas (`tools/make_charts.py`) so
+  the two repos cannot drift, then rescaled across the four regions so each axis spans the
+  range they actually differ over. Rescaling changes spacing, never order. The listing
+  counts are uneven and are printed in the caption: French Alps 10, Vestland 9, Pyrenees 6,
+  Italian Alps 3.
 
-  A dot's position is the *balance* between the three, not the level of any one. Vestland
-  plots high because mountains is the only one of the three it scores well on — the
-  caption says this, and it needs to keep saying it, or the chart reads as a claim that
-  Norway has the biggest peaks.
+  *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
+  fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
+  badly, and not linear, because 10h against 27h is a different kind of gap from 7h against
+  10h. The tracker does have an axis called *connected*, but it is 62% weighted on "near a
+  city" and scores each house's **local** situation; Vestland's listings score best of the
+  four on it, all being near Bergen. Putting that number under *easy to reach* would say
+  Norway is the easy one to get to from the Netherlands, which is false. Keep the two apart.
+
+  Adopting the listing averages corrected a real error here: the old hand-set price bands
+  had the Pyrenees as the cheap corner. The listings do not agree — Pyrenees averages
+  €509,940 all-in against the French Alps' €505,008, with Vestland €392,449 and the Italian
+  Alps €275,400. Only Italy separates. If the tracker gains or loses listings, re-run the
+  averages rather than nudging the weights by hand.
+
+  The tracker's own caveats travel with the numbers and are in the caption: the priority
+  weights behind them are the mean token spend of **four** questionnaire answers out of
+  roughly fifteen, renovation is blank on every listing so every price is a floor, the axis
+  scores are desk reads of listing text, and the Italian average rests on three listings
+  with the widest spread of the four.
+
+  The closest two regions plot about 23px apart. Labels sit outside the plot on leader
+  lines rather than beside the dots, vote counts live in the labels rather than inside the
+  circles, and the dots stay small enough that a near-touch reads as two regions scoring
+  alike. Do not spread the dots apart to make it prettier; change the weights only when the
+  underlying listing averages or rail figures change.
+
+  A dot's position is the *balance* between the three, not the level of any one. The
+  caption says this, and it needs to keep saying it, or a high dot reads as a claim that
+  the region is best overall.
 
 - **Map data**: tries to fetch real Natural Earth coastline/border data from a CDN at
   runtime (`upgradeGeo`/`upgradeMap` functions) and falls back to a hand-drawn simplified
