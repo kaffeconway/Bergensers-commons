@@ -1479,17 +1479,26 @@ function result(){
   <p>${named.map(c=>`<b>${esc(String(c.rw).trim())}</b> &mdash; ${esc(c.n||"anon")}`).join("<br>")}</p></div>`;
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
- /* the same four regions, against the three things you want at once */
- h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
-  <p class="hint"><b>Land &amp; space</b> and <b>affordable</b> are the average of the
-  properties actually being tracked &mdash; 28 listings, scored by the search's own cost
-  model (French Alps 10, Vestland 9, Pyrenees 6, Italian Alps 3). <b>Easy to reach</b> is
-  not: it is rail hours from the Netherlands, about 7&frac12; to Grenoble and about 27 to
-  Bergen. The listings score access <i>around</i> a house, which is a different question,
-  so the two are kept apart. Circle sizes are the votes above. A dot's place is the
-  balance between the three, not the level of any one. Two things to hold against it: the
-  priorities behind those averages are four answers, not fifteen, and renovation is blank
-  on every listing, so every price shown is a floor.</p>`;
+ /* The same four regions, against the three things you want at once.
+    The line above the chart marks a boundary that matters: everything up to here is
+    the group's own answers, and nothing else. The triangle is the one place on the page
+    that mixes in outside data - two of its three axes are averages of the properties on
+    the tracker. Its circle sizes are still votes. Say where the boundary is before the
+    reader looks at the picture, not after; by then they have already read the dots. */
+ h+=`<p class="hint">Everything above is your picks, and only your picks. This is the same
+  four regions placed against the three things you want at once &mdash; and it is the
+  one chart here that brings in outside numbers: two of its axes are measured from the
+  properties being tracked, not from your answers. The circles are still your votes.</p>
+  <div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
+  <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
+  the average of 28 tracked listings, scored by the search's own cost model &mdash;
+  French Alps 10, Vestland 9, Pyrenees 6, Italian Alps 3, so the averages do not rest on
+  equal ground. <b>Easy to reach</b> is not one of them: it is rail hours from the Netherlands,
+  about 7&frac12; to Grenoble and about 27 to Bergen. The listings score access
+  <i>around</i> a house, which is a different question, so the two are kept apart. A dot's
+  place is the balance between the three, not the level of any one. Two things to hold
+  against it: the priorities behind those averages are four answers, not fifteen, and
+  renovation is blank on every listing, so every price shown is a floor.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);
