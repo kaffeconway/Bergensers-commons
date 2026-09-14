@@ -1,3 +1,5 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light">
@@ -791,7 +793,7 @@ function render(){
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
   <button class="btn" id="next">${step===STEPS.length-1?"Get my code":"Next"}</button>
   ${step>0?`<button class="btn ghost" id="back">Back</button>`:""}
-  <div class="err" id="err"></div>`;
+  <div class="err" id="err" role="status" aria-live="polite"></div>`;
  wire();
 }
 function wire(){
@@ -905,7 +907,7 @@ function done(){
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
  <button class="btn ghost" id="again">Change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
- <div class="ok" id="st"></div>
+ <div class="ok" id="st" role="status" aria-live="polite"></div>
  <p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
  page already reflects this. Send the code above back to ${esc(S.n)} if they want it for their own device.`:
  `Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
@@ -950,7 +952,7 @@ function combine(){
    `<p class="hint" style="margin-top:12px">Two submissions are needed before the picture will draw.</p>`}
  <button class="btn ghost" id="hm">Back</button>
  ${b.length?`<button class="btn ghost" id="clr">Clear the board</button>`:""}
- <div class="err" id="err"></div><div class="ok" id="ok"></div>
+ <div class="err" id="err" role="status" aria-live="polite"></div><div class="ok" id="ok" role="status" aria-live="polite"></div>
  <p class="foot">The board is saved on this device, so you can collect codes over days and only ever paste the new ones.</p>`;
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
