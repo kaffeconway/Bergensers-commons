@@ -1,5 +1,14 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Fifteen friends working out where to buy a place together in Europe. Five minutes on your own, no right answers, then send back the short code it gives you.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
+<meta property="og:title" content="Build your commons">
+<meta property="og:site_name" content="Bergensers Commons">
+<meta property="og:description" content="Fifteen friends working out where to buy a place together in Europe. Five minutes on your own, no right answers, then send back the short code it gives you.">
+<meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
 <title>Build your commons</title>
@@ -91,8 +100,17 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .secnav a{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--pine);
  text-decoration:none;padding:6px 11px;border:1px solid var(--rule);border-radius:20px;background:rgba(255,255,255,.6)}
 .secnav a:active,.secnav a:hover{border-color:var(--pine)}
+/* Sixteen chips in a strip 358px wide: fourteen of them are off-screen, so without a
+   marker the nav cannot tell you where you are in twenty-odd screens of page. The current
+   one is filled in, and scrolled into view, which also shows that the strip scrolls. */
+.secnav a.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
+/* Hidden until you are far enough down to want it. It used to be fully opaque at the top
+   of the page, where it does nothing and sits on top of a row you might be reading. */
 #totop{position:fixed;right:14px;bottom:18px;width:42px;height:42px;border-radius:50%;background:var(--pine);
- color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50}
+ color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50;
+ opacity:0;pointer-events:none;transition:opacity .18s ease}
+#totop.on{opacity:.92;pointer-events:auto}
+#totop.on:hover{opacity:1}
 /* Only the first inspectable row on the page carries the hint; repeating it under every
    row printed the same three words seventy times. */
 .res.tip1::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
@@ -107,6 +125,9 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
  letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
+/* Underlined even at rest: beside the name in the same size and family, "Not you?" read
+   as part of the name rather than as the way out. */
+.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
  color:var(--pine);opacity:.6}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
@@ -316,6 +337,9 @@ let S=blank(), step=0, codes=[], mode="home", msg="";
 /* >=0 while editing a row of the board rather than a personal draft. boardEditKey guards
    against the row having moved or been removed underneath us. */
 let boardEdit=-1, boardEditKey="";
+/* Unresolved same-name collisions from the last paste, oldest first, plus whether the
+   collector has chosen "keep both" on the one in front of them. */
+let pend=[], pendBoth=false;
 function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",tr:TRIAL[0][0],pin:{}};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
@@ -365,6 +389,26 @@ function boardAdd(list){
  });
  boardSet(b); return {added,updated,total:b.length};
 }
+/* Two different people can share a first name, and a first name is all this page asks for.
+   Matching an incoming code to a row by name alone therefore cannot tell a corrected resend
+   from a second person - and the old behaviour, a silent replace reported as "1 updated",
+   destroyed the first person's answers outright. Nothing is merged or dropped now without
+   whoever is collecting saying which it is. */
+function nameSplit(list){
+ const b=boardGet(), fresh=[], clashes=[];
+ list.forEach(o=>{
+  const key=String(o.n||"").toLowerCase().trim();
+  const i=key?b.findIndex(x=>String(x.n||"").toLowerCase().trim()===key):-1;
+  if(i>=0)clashes.push({inc:o,row:i}); else fresh.push(o);
+ });
+ return {fresh,clashes};
+}
+function boardAppend(list){const b=boardGet();list.forEach(o=>b.push(o));boardSet(b);return b.length;}
+/* A last initial, which is not a surname. Requires a name, whitespace, then one letter. */
+const INITIAL=/^(.+\S)\s+([A-Za-z])\.?$/;
+const hasInitial=n=>INITIAL.test(String(n||"").trim());
+const sameName=(a,b)=>String(a||"").toLowerCase().trim().replace(/\s+/g," ")
+                    ===String(b||"").toLowerCase().trim().replace(/\s+/g," ");
 const app=document.getElementById("app");
 const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A","#8A4A2F",
  "#3E5C7A","#6B2F4A","#7A6B2F","#2F4A6B","#5A7C2E","#7C5A2E","#2E5A7C",
@@ -791,7 +835,7 @@ function render(){
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
   <button class="btn" id="next">${step===STEPS.length-1?"Get my code":"Next"}</button>
   ${step>0?`<button class="btn ghost" id="back">Back</button>`:""}
-  <div class="err" id="err"></div>`;
+  <div class="err" id="err" role="status" aria-live="polite"></div>`;
  wire();
 }
 function wire(){
@@ -863,7 +907,8 @@ function home(){
  <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
  call</a> &mdash; a short recap of what changed.</p>`;
  msg="";
- document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";S=blank();mode="build";step=0;render();};
+ document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";pend=[];pendBoth=false;
+  S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
  document.getElementById("comb").onclick=()=>{mode="combine";render();};
 }
@@ -876,8 +921,10 @@ function incoming(){
  <button class="btn ghost" id="mine">Open it as mine, and edit</button>
  <button class="btn ghost" id="hmx">Ignore it, start fresh</button>`;
  const clean=()=>{try{history.replaceState(null,"",location.pathname);}catch(e){}};
- document.getElementById("addb").onclick=()=>{const r=boardAdd([o]);
-  msg=`${esc(o.n||"They")} ${r.updated?"updated":"added"}. ${r.total} on the board.`;
+ document.getElementById("addb").onclick=()=>{const sp=nameSplit([o]);
+  if(sp.clashes.length){pend=sp.clashes;pendBoth=false;clean();mode="combine";render();return;}
+  boardAppend(sp.fresh);
+  msg=`${esc(o.n||"They")} added. ${boardGet().length} on the board.`;
   clean();mode="combine";render();};
  document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";clean();mode="done";render();};
  document.getElementById("hmx").onclick=()=>{boardEdit=-1;boardEditKey="";S=blank();clean();mode="home";render();};
@@ -905,7 +952,7 @@ function done(){
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
  <button class="btn ghost" id="again">Change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
- <div class="ok" id="st"></div>
+ <div class="ok" id="st" role="status" aria-live="polite"></div>
  <p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
  page already reflects this. Send the code above back to ${esc(S.n)} if they want it for their own device.`:
  `Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
@@ -929,7 +976,77 @@ function done(){
  document.getElementById("again").onclick=()=>{mode="build";step=0;window.scrollTo(0,0);render();};
  document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";mode="combine";render();};
 }
+/* One collision at a time. Showing what each version actually answered is the only way the
+   collector can tell a resend from a namesake - the name alone is what got them here. */
+function clash(){
+ const b=boardGet(); let c=pend[0];
+ /* The row could have moved or gone since the clash was raised. Re-find it by name, the
+    same way a board edit re-checks its binding; if it is genuinely gone there is nothing
+    to collide with, so the code just lands. */
+ if(!b[c.row]||!sameName(b[c.row].n,c.inc.n)){
+  const i=boardGet().findIndex(x=>sameName(x.n,c.inc.n));
+  if(i<0){boardAppend([c.inc]);pend.shift();pendBoth=false;return combine();}
+  c.row=i;
+ }
+ const old=boardGet()[c.row]||{};
+ const gist=o=>{
+  const r=(o.rg||[]).map(rgNow).map(x=>SHORT[x]||x).join(", ");
+  const st=String(o.st||"").trim(), wy=String(o.wy||"").trim();
+  return [r?"picked "+esc(r):"picked no region",
+          st?"would walk away over: "+esc(st.slice(0,54)):"",
+          (!st&&wy)?esc(wy.slice(0,54)):""].filter(Boolean).join(" &middot; ");};
+ const nm=esc(c.inc.n||"Someone");
+ if(!pendBoth){
+  app.innerHTML=`<div class="kicker">The board</div>
+  <h2>${nm} is already on the board</h2>
+  <p class="lede">A first name is all this page asks for, so two of you can share one. This code
+  either corrects the answers already here, or belongs to a different person. Nothing is
+  overwritten until you say which.</p>
+  <div class="card"><div class="ct">Already here</div><p>${gist(old)||"no answers"}</p></div>
+  <div class="card"><div class="ct">Just pasted</div><p>${gist(c.inc)||"no answers"}</p></div>
+  <button class="btn" id="rep">Same ${nm} &mdash; replace the answers here</button>
+  <button class="btn" id="both">A different ${nm} &mdash; keep both</button>
+  <button class="btn ghost" id="skip">Skip this code, leave the board as it is</button>
+  <div class="err" id="err" role="status" aria-live="polite"></div>
+  <p class="foot">${pend.length>1?`${pend.length-1} more code${pend.length>2?"s":""} to look at after this one. `:""}Nothing has been changed yet.</p>`;
+  document.getElementById("rep").onclick=()=>{const a=boardGet();a[c.row]=c.inc;boardSet(a);
+   pend.shift();mode="combine";window.scrollTo(0,0);render();};
+  document.getElementById("both").onclick=()=>{pendBoth=true;window.scrollTo(0,0);render();};
+  document.getElementById("skip").onclick=()=>{pend.shift();pendBoth=false;
+   mode="combine";window.scrollTo(0,0);render();};
+  return;
+ }
+ /* Keep both: an initial on each, because initialling only the newcomer still leaves
+    whoever reads the board guessing which of them plain "Leon" was. */
+ app.innerHTML=`<div class="kicker">The board</div>
+ <h2>Two people called ${nm}</h2>
+ <p class="lede">Add a last initial to each, so the board, the charts and the results page can
+ tell them apart. One letter is enough &mdash; this page never asks for surnames.</p>
+ <div class="sl"><label for="n1">Already here &mdash; ${gist(old)||"no answers"}</label>
+  <input type="text" id="n1" maxlength="24" value="${esc((old.n||c.inc.n||"")+" ")}"></div>
+ <div class="sl"><label for="n2">Just pasted &mdash; ${gist(c.inc)}</label>
+  <input type="text" id="n2" maxlength="24" value="${esc((c.inc.n||"")+" ")}"></div>
+ <button class="btn" id="save">Keep both</button>
+ <button class="btn ghost" id="back2">Back</button>
+ <div class="err" id="err" role="status" aria-live="polite"></div>
+ <p class="foot">The row already on the board gets renamed too. Nobody's answers change &mdash;
+ only the label on them.</p>`;
+ document.getElementById("back2").onclick=()=>{pendBoth=false;window.scrollTo(0,0);render();};
+ document.getElementById("save").onclick=()=>{
+  const v1=(document.getElementById("n1").value||"").trim().replace(/\s+/g," ");
+  const v2=(document.getElementById("n2").value||"").trim().replace(/\s+/g," ");
+  const err=document.getElementById("err");
+  if(!hasInitial(v1)||!hasInitial(v2)){
+   err.textContent="Both need a last initial \u2014 a name, a space, then one letter.";return;}
+  if(sameName(v1,v2)){err.textContent="Those are still the same name. Two different initials.";return;}
+  const a=boardGet();
+  if(a[c.row])a[c.row]=Object.assign({},a[c.row],{n:v1});
+  boardSet(a);
+  boardAppend([Object.assign({},c.inc,{n:v2})]);
+  pend.shift();pendBoth=false;mode="combine";window.scrollTo(0,0);render();};
+}
 function combine(){
+ if(pend.length)return clash();
  const b=boardGet();
  app.innerHTML=`<div class="kicker">The board</div><h2>${b.length?`${b.length} submission${b.length===1?"":"s"} collected`:"Paste the codes"}</h2>
  <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
@@ -950,7 +1067,7 @@ function combine(){
    `<p class="hint" style="margin-top:12px">Two submissions are needed before the picture will draw.</p>`}
  <button class="btn ghost" id="hm">Back</button>
  ${b.length?`<button class="btn ghost" id="clr">Clear the board</button>`:""}
- <div class="err" id="err"></div><div class="ok" id="ok"></div>
+ <div class="err" id="err" role="status" aria-live="polite"></div><div class="ok" id="ok" role="status" aria-live="polite"></div>
  <p class="foot">The board is saved on this device, so you can collect codes over days and only ever paste the new ones.</p>`;
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
@@ -992,8 +1109,12 @@ function combine(){
    }
   }
   if(!out.length){document.getElementById("err").textContent="None of those could be read as a code.";return;}
-  const r=boardAdd(out);
-  msg=`${r.added?`${r.added} added`:""}${r.added&&r.updated?", ":""}${r.updated?`${r.updated} updated`:""}. ${r.total} on the board.`;
+  /* Codes with a name nobody on the board is using land straight away. A name already
+     there is a question, not an instruction, and waits for an answer. */
+  const sp=nameSplit(out);
+  if(sp.fresh.length)boardAppend(sp.fresh);
+  if(sp.clashes.length){pend=sp.clashes;pendBoth=false;window.scrollTo(0,0);render();return;}
+  msg=`${sp.fresh.length} added. ${boardGet().length} on the board.`;
   render();
   document.getElementById("ok").textContent=msg; msg="";
  };
@@ -1006,6 +1127,20 @@ const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"French Alps, Verco
  "Italian Alps":[46.0,10.5],"Pyrenees":[42.7,1.5]};
 const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","French Alps, Vercors & Chartreuse":"French Alps",
  "Italian Alps":"Italian Alps","Pyrenees":"Pyrenees"};
+/* Where each region's name sits, and which side it anchors to - the same device the
+   triangle uses, and for the same reason. The names used to be printed directly above
+   their bubbles, which works only while the bubbles are small: the radius grows with
+   votes, and the three alpine regions sit within about 35 viewBox units of each other,
+   so "French Alps" was already buried inside the Italian Alps bubble at four votes and
+   two more labels go under at a realistic fifteen. Fixed slots cannot collide with each
+   other however the vote splits. Keep the count inside the bubble - unlike the
+   triangle's dots, these are big enough to hold a numeral. */
+const MAPLAB={
+ "Vestland, Norway \u2014 the fjords":      [6,104,"start"],
+ "French Alps, Vercors & Chartreuse":      [6,249,"start"],
+ "Pyrenees":                               [6,302,"start"],
+ "Italian Alps":                         [334,243,"end"]
+};
 const D2R=Math.PI/180, tt=p=>Math.tan(Math.PI/4+p/2);
 const MP1=42*D2R, MP2=64*D2R, MP0=53*D2R, ML0=10*D2R;
 const mn=Math.log(Math.cos(MP1)/Math.cos(MP2))/Math.log(tt(MP2)/tt(MP1));
@@ -1052,6 +1187,52 @@ const FALLBACK=[
  [[38.3,15.6],[38.0,15.6],[36.7,15.1],[37.0,14.0],[37.8,12.4],[38.1,13.4],[38.3,15.6]]
 ];
 let MAPGEO=FALLBACK, MAPSRC="outline";
+/* Fill and stroke are two separate passes, and the reason is a bug worth remembering.
+   An SVG <polyline> carrying a fill closes itself implicitly, and two of the fallback
+   coastlines are open lines rather than rings: the continental coast, running from the
+   German North Sea all the way round to the Black Sea, and the Baltic coast from Estonia
+   back to Germany. Filling them drew two phantom wedges - the long one 177 units across a
+   340-unit map - straight over Poland and the Baltic, which read as landmasses that do not
+   exist. So the fill pass takes rings only, and the continent gets one ring assembled
+   below. Natural Earth data is all closed rings already, so the upgraded map fills
+   properly and is left alone. */
+const isRing=ln=>ln.length>3&&ln[0][0]===ln[ln.length-1][0]&&ln[0][1]===ln[ln.length-1][1];
+const rev=a=>a.slice().reverse();
+/* The two open coastlines are neighbours: the continental one starts on the German North
+   Sea coast at 8.6E and the Baltic one ends at 9.9E, about a degree apart at the base of
+   Jutland. So they join end to end into a single land ring, and the return leg runs east
+   of the frame where the clip hides it. Going clockwise round the land: the Baltic coast
+   backwards from Germany to Estonia, on east past St Petersburg and out of the frame,
+   south down the off-frame edge, in at the Black Sea, then the continental coast backwards
+   to Germany, closing across the base of Jutland. Every leg is a real coast, off-frame, or
+   that one degree hop - and the Baltic Sea falls outside the ring, which is correct. */
+/* A meridian is not a vertical line in a conic projection - it slants hard, so a single
+   "off-frame" longitude is off-frame at one latitude and well inside at the next. Picking
+   34.5E looked safe and in fact landed at x=274 of 340 up at 60N, which is where the last
+   phantom edge came from. So solve for the longitude that projects past the right edge at
+   each latitude instead, and the clip takes the whole return leg. */
+const eastOf=la=>{
+ const xp=((MW+25)-mOX)/mSC, r=mF/Math.pow(tt(la*D2R),mn);
+ return (Math.asin(Math.max(-1,Math.min(1,xp/r)))/mn+ML0)/D2R;
+};
+const contRing=()=>{
+ /* North out of the frame first, following the eastern edge of the drawn window - roughly
+    the Finnish border - rather than straight out east, which cut a long diagonal across
+    Karelia. Then round the outside, top to bottom, and back in at the Black Sea. */
+ const back=[];
+ for(let la=72;la>=42;la-=2)back.push([la,eastOf(la)]);
+ return rev(FALLBACK[5])                                  /* Baltic coast: Germany -> Estonia */
+  .concat([[59.9,28.0],[59.8,30.2],[61.5,31.3],[64.5,32.2],[67.5,33.0],[71.5,33.5],[74.0,34.0]])
+  .concat(back)                                            /* outside the frame, north to south */
+  .concat(rev(FALLBACK[2]));                               /* continental coast: Black Sea -> Germany */
+};
+function landFill(g){
+ const rings=g.filter(isRing);
+ /* Only the hand-drawn set needs assembling, and only while those two entries are still
+    the open ones. If the outline is ever edited into rings, this stops adding anything. */
+ if(g!==FALLBACK||isRing(FALLBACK[2])||isRing(FALLBACK[5]))return rings;
+ return rings.concat([contRing()]);
+}
 function mapSVG(rgT){
  const maxv=Math.max(1,...Object.values(rgT).filter((v,i)=>true),1);
  const vals=Object.entries(RCPOS).map(([nm])=>rgT[nm]||0);
@@ -1060,9 +1241,12 @@ function mapSVG(rgT){
  o+=`<defs><clipPath id="mc"><rect x="0" y="0" width="${MW}" height="${MH}"/></clipPath></defs><g clip-path="url(#mc)">`;
  for(let la=40;la<=70;la+=10){const p=[];for(let lo=MAPWIN.lo0;lo<=MAPWIN.lo1;lo+=2)p.push(MPX(la,lo));
   o+=`<polyline points="${p.map(q=>q[0].toFixed(1)+","+q[1].toFixed(1)).join(" ")}" fill="none" stroke="#131E1B" stroke-opacity=".05"/>`;}
+ const pts=ln=>ln.map(([la,lo])=>{const q=MPX(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ");
+ landFill(MAPGEO).forEach(ln=>{if(ln.length<3)return;
+  o+=`<polygon points="${pts(ln)}" fill="rgba(34,66,58,.05)" stroke="none"/>`;});
  MAPGEO.forEach(ln=>{if(ln.length<2)return;
-  o+=`<polyline points="${ln.map(([la,lo])=>{const q=MPX(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ")}"
-   fill="rgba(34,66,58,.05)" stroke="#131E1B" stroke-opacity=".33" stroke-width=".85" stroke-linejoin="round"/>`;});
+  o+=`<polyline points="${pts(ln)}" fill="none" stroke="#131E1B" stroke-opacity=".33"
+   stroke-width=".85" stroke-linejoin="round"/>`;});
  Object.entries(RCPOS).forEach(([nm,[la,lo]])=>{const q=MPX(la,lo),v=rgT[nm]||0;
   const r=v?7+11*(v/mx):3.5;
   const voters=codes.map((c,i)=>(rgOf(c).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
@@ -1071,8 +1255,16 @@ function mapSVG(rgT){
     stroke-width="${v?1.3:.7}"${insAttr(nm,voters)}><title>${esc(nm)}</title></circle>`;
   if(v)o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]+3.3).toFixed(1)}" text-anchor="middle"
     font-family="ui-monospace,monospace" font-size="10" font-weight="600" fill="#fff">${v}</text>`;
-  o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]-r-4).toFixed(1)}" text-anchor="middle"
-    font-family="ui-monospace,monospace" font-size="7" fill="#22423A" opacity="${v?.95:.4}">${esc(SHORT[nm]||nm)}</text>`;});
+  const lab=SHORT[nm]||nm, sl=MAPLAB[nm];
+  if(sl){const [lx,ly,anch]=sl, tw=lab.length*4.8;      /* 8px monospace advance */
+   const lsx=anch==="end"?lx-tw-4:lx+tw+4, lsy=ly-3;
+   const d=Math.max(1,Math.hypot(q[0]-lsx,q[1]-lsy)), rr=Math.max(r,9);
+   o+=`<line x1="${lsx.toFixed(1)}" y1="${lsy.toFixed(1)}"
+     x2="${(q[0]-(q[0]-lsx)/d*(rr+2.5)).toFixed(1)}" y2="${(q[1]-(q[1]-lsy)/d*(rr+2.5)).toFixed(1)}"
+     stroke="#131E1B" stroke-opacity="${v?.3:.14}" stroke-width=".8"/>`;
+   o+=`<text x="${lx}" y="${ly}" text-anchor="${anch}" font-family="ui-monospace,monospace"
+     font-size="8" font-weight="600" fill="#22423A" opacity="${v?.95:.4}">${esc(lab)}</text>`;
+  }});
  /* Individual pins sit on top of the region bubbles: the bubble says how many, the pin
     says where in it. A pin outside every bubble is somebody's off-list answer. */
  allPins(codes).forEach(pn=>{const q=MPX(pn.p[0],pn.p[1]),a=subArea(pn.p);
@@ -1757,6 +1949,41 @@ function result(){
  if(pairsAllBtn)pairsAllBtn.onclick=()=>{document.getElementById("pairsBox").innerHTML=pairs.map(pairRow).join("");pairsAllBtn.remove();};
  const totop=document.getElementById("totop");
  if(totop)totop.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+ /* One scroll listener for the whole page: it shows the back-to-top button once there is
+    something to go back up to, and marks which section you are in. Twenty-odd screens with
+    a sixteen-chip strip is otherwise impossible to place yourself in. The previous listener
+    is always removed first - result() re-renders, and two of these would fight. */
+ (function(){
+  if(window.__navScroll)window.removeEventListener("scroll",window.__navScroll);
+  const nav=document.querySelector(".secnav");
+  const links=nav?[...nav.querySelectorAll("a")]:[];
+  const secs=links.map(a=>document.getElementById(a.getAttribute("href").slice(1)));
+  let queued=false, cur=-1;
+  const paint=()=>{
+   queued=false;
+   if(totop)totop.classList.toggle("on",window.scrollY>600);
+   if(!links.length)return;
+   /* The last heading to have passed under the strip is the one you are reading. Above the
+      first of them nothing is marked - marking a section you have not reached yet is a
+      small lie, and it made the strip jump on first paint. */
+   let i=-1;
+   for(let k=0;k<secs.length;k++){
+    if(secs[k]&&secs[k].getBoundingClientRect().top<=64)i=k; else break;
+   }
+   if(i===cur)return;
+   cur=i;
+   links.forEach((a,k)=>a.classList.toggle("on",k===i));
+   if(i<0)return;
+   /* keep the marked chip in view without dragging the page around it */
+   const a=links[i], l=a.offsetLeft, r=l+a.offsetWidth;
+   if(l<nav.scrollLeft+12)nav.scrollTo({left:Math.max(0,l-12),behavior:"smooth"});
+   else if(r>nav.scrollLeft+nav.clientWidth-12)
+    nav.scrollTo({left:r-nav.clientWidth+12,behavior:"smooth"});
+  };
+  window.__navScroll=()=>{if(!queued){queued=true;requestAnimationFrame(paint);}};
+  window.addEventListener("scroll",window.__navScroll,{passive:true});
+  paint();
+ })();
  (function(){let act=null;
   document.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{
    const v=b.dataset.pp;
