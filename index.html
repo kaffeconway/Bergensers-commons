@@ -1175,6 +1175,52 @@ const FALLBACK=[
  [[38.3,15.6],[38.0,15.6],[36.7,15.1],[37.0,14.0],[37.8,12.4],[38.1,13.4],[38.3,15.6]]
 ];
 let MAPGEO=FALLBACK, MAPSRC="outline";
+/* Fill and stroke are two separate passes, and the reason is a bug worth remembering.
+   An SVG <polyline> carrying a fill closes itself implicitly, and two of the fallback
+   coastlines are open lines rather than rings: the continental coast, running from the
+   German North Sea all the way round to the Black Sea, and the Baltic coast from Estonia
+   back to Germany. Filling them drew two phantom wedges - the long one 177 units across a
+   340-unit map - straight over Poland and the Baltic, which read as landmasses that do not
+   exist. So the fill pass takes rings only, and the continent gets one ring assembled
+   below. Natural Earth data is all closed rings already, so the upgraded map fills
+   properly and is left alone. */
+const isRing=ln=>ln.length>3&&ln[0][0]===ln[ln.length-1][0]&&ln[0][1]===ln[ln.length-1][1];
+const rev=a=>a.slice().reverse();
+/* The two open coastlines are neighbours: the continental one starts on the German North
+   Sea coast at 8.6E and the Baltic one ends at 9.9E, about a degree apart at the base of
+   Jutland. So they join end to end into a single land ring, and the return leg runs east
+   of the frame where the clip hides it. Going clockwise round the land: the Baltic coast
+   backwards from Germany to Estonia, on east past St Petersburg and out of the frame,
+   south down the off-frame edge, in at the Black Sea, then the continental coast backwards
+   to Germany, closing across the base of Jutland. Every leg is a real coast, off-frame, or
+   that one degree hop - and the Baltic Sea falls outside the ring, which is correct. */
+/* A meridian is not a vertical line in a conic projection - it slants hard, so a single
+   "off-frame" longitude is off-frame at one latitude and well inside at the next. Picking
+   34.5E looked safe and in fact landed at x=274 of 340 up at 60N, which is where the last
+   phantom edge came from. So solve for the longitude that projects past the right edge at
+   each latitude instead, and the clip takes the whole return leg. */
+const eastOf=la=>{
+ const xp=((MW+25)-mOX)/mSC, r=mF/Math.pow(tt(la*D2R),mn);
+ return (Math.asin(Math.max(-1,Math.min(1,xp/r)))/mn+ML0)/D2R;
+};
+const contRing=()=>{
+ /* North out of the frame first, following the eastern edge of the drawn window - roughly
+    the Finnish border - rather than straight out east, which cut a long diagonal across
+    Karelia. Then round the outside, top to bottom, and back in at the Black Sea. */
+ const back=[];
+ for(let la=72;la>=42;la-=2)back.push([la,eastOf(la)]);
+ return rev(FALLBACK[5])                                  /* Baltic coast: Germany -> Estonia */
+  .concat([[59.9,28.0],[59.8,30.2],[61.5,31.3],[64.5,32.2],[67.5,33.0],[71.5,33.5],[74.0,34.0]])
+  .concat(back)                                            /* outside the frame, north to south */
+  .concat(rev(FALLBACK[2]));                               /* continental coast: Black Sea -> Germany */
+};
+function landFill(g){
+ const rings=g.filter(isRing);
+ /* Only the hand-drawn set needs assembling, and only while those two entries are still
+    the open ones. If the outline is ever edited into rings, this stops adding anything. */
+ if(g!==FALLBACK||isRing(FALLBACK[2])||isRing(FALLBACK[5]))return rings;
+ return rings.concat([contRing()]);
+}
 function mapSVG(rgT){
  const maxv=Math.max(1,...Object.values(rgT).filter((v,i)=>true),1);
  const vals=Object.entries(RCPOS).map(([nm])=>rgT[nm]||0);
@@ -1183,9 +1229,12 @@ function mapSVG(rgT){
  o+=`<defs><clipPath id="mc"><rect x="0" y="0" width="${MW}" height="${MH}"/></clipPath></defs><g clip-path="url(#mc)">`;
  for(let la=40;la<=70;la+=10){const p=[];for(let lo=MAPWIN.lo0;lo<=MAPWIN.lo1;lo+=2)p.push(MPX(la,lo));
   o+=`<polyline points="${p.map(q=>q[0].toFixed(1)+","+q[1].toFixed(1)).join(" ")}" fill="none" stroke="#131E1B" stroke-opacity=".05"/>`;}
+ const pts=ln=>ln.map(([la,lo])=>{const q=MPX(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ");
+ landFill(MAPGEO).forEach(ln=>{if(ln.length<3)return;
+  o+=`<polygon points="${pts(ln)}" fill="rgba(34,66,58,.05)" stroke="none"/>`;});
  MAPGEO.forEach(ln=>{if(ln.length<2)return;
-  o+=`<polyline points="${ln.map(([la,lo])=>{const q=MPX(la,lo);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ")}"
-   fill="rgba(34,66,58,.05)" stroke="#131E1B" stroke-opacity=".33" stroke-width=".85" stroke-linejoin="round"/>`;});
+  o+=`<polyline points="${pts(ln)}" fill="none" stroke="#131E1B" stroke-opacity=".33"
+   stroke-width=".85" stroke-linejoin="round"/>`;});
  Object.entries(RCPOS).forEach(([nm,[la,lo]])=>{const q=MPX(la,lo),v=rgT[nm]||0;
   const r=v?7+11*(v/mx):3.5;
   const voters=codes.map((c,i)=>(rgOf(c).indexOf(nm)>=0)?[nameOf(i),PAL[i%PAL.length],"picked this region"]:null).filter(Boolean);
