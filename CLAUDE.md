@@ -163,12 +163,10 @@ the build.
   collide however the vote splits — there is a test that walks all 816 possible
   fifteen-person divisions and checks no label lands in a bubble and no leader crosses one.
   If a region is ever added to the map, give it a slot at least 30 units clear of the others
-  on its side. The vote count stays *inside* the bubble: unlike the triangle's dots these
-  are big enough to hold a numeral.
-
-  Known and not fixed: the individual pins are drawn after the bubbles, so at fifteen people
-  a cluster of pins can cover the numeral underneath. Whether the count or the pins should
-  win is a real choice, not an oversight — ask before deciding it.
+  on its side. The vote count rides **in the label**, as `Italian Alps · 7`, not inside the
+  bubble: individual pins are drawn after the bubbles, so a cluster of them covered the
+  numeral at four people as well as fifteen. A pin is somebody's actual answer about *where*
+  in a region; it wins, and the number moves out of its way.
 
 - **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against land &
   space, affordability, and being easy to reach. **Two of the three axes now come from the
@@ -226,6 +224,24 @@ Headline cards are capped at three. Lone voices groups by person and by what the
 disagreement is, so somebody standing alone on nine activities is one row listing nine
 things rather than nine rows repeating one sentence. Keep that shape: the page reports,
 it does not narrate.
+
+## Losing somebody's answers
+
+Two ways the board could lose a submission quietly, both closed:
+
+Removing a row is one tap with no confirmation, while clearing the whole board asks twice —
+the guard was on the less likely action, and a row may be the only copy of what somebody
+sent. `undoRow` holds the last row removed and the board offers it back by name. The offer
+lapses on the next action (leaving the board, pasting, editing a row, clearing, going to the
+results), so it is never a stale button over a board that has moved on, and it reinserts at
+`min(at, length)` rather than at an index that may no longer exist.
+
+`lsSet` catches a storage failure and falls back to an in-memory object that dies with the
+tab — private browsing, a content blocker, a full quota. That used to be silent, so a
+collector gathering codes over days would be told "the board is saved on this device" and
+lose everything on reload. `lsFailed` records it, `storeWarn()` says so on the board, and
+the code screen drops its claim to have saved anything and tells the person to copy the link
+instead. Any screen that promises persistence has to check that flag.
 
 ## Style
 
@@ -289,6 +305,10 @@ the version that's easiest to hand over. This applies the same way whether it's 
 Joseph doing the work.
 
 ## Testing changes
+
+Keyboard focus is styled with `:focus-visible` only (a 2px glacier outline), so a mouse or
+a tap shows nothing and a keyboard user gets a visible ring. Every control here is a custom
+button, so without it there is only the browser default to go on.
 
 There's no test suite. Before committing a change to the codec or paste logic, sanity-
 check with a quick Node script: extract the `<script>` contents, `new Function(...)`

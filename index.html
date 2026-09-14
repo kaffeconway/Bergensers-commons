@@ -130,8 +130,16 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
  color:var(--pine);opacity:.6}
+/* Every control on the page is a custom button, so the browser default ring is all a
+   keyboard user has to go on. :focus-visible only, so a mouse or a tap shows nothing. */
+:focus-visible{outline:2px solid var(--glacier);outline-offset:2px}
+.opt:focus-visible,.chip:focus-visible,.btn:focus-visible,.tok button:focus-visible{outline-offset:1px}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
 .ok{color:var(--pine);font-size:13.5px;margin-top:8px}
+.ok .lnk{background:none;border:none;padding:0;font:inherit;color:var(--glacier);
+ text-decoration:underline;cursor:pointer}
+.warn{background:rgba(124,46,62,.07);border-left:2px solid var(--madder);padding:11px 13px;
+ margin:0 0 14px;border-radius:0 3px 3px 0;font-size:13.5px;line-height:1.45}
 .foot{margin-top:26px;font-size:12.5px;color:var(--pine);opacity:.75;line-height:1.5}
 
 .card{border-left:2px solid var(--pine);background:rgba(255,255,255,.55);padding:11px 13px;margin:0 0 9px;border-radius:0 3px 3px 0}
@@ -340,11 +348,20 @@ let boardEdit=-1, boardEditKey="";
 /* Unresolved same-name collisions from the last paste, oldest first, plus whether the
    collector has chosen "keep both" on the one in front of them. */
 let pend=[], pendBoth=false;
+/* The last row taken off the board, kept only until the next action. Removing is one tap
+   with no confirmation while clearing the whole board asks twice, so the guard was on the
+   less likely action - and a row is somebody's answers, which may be the only copy. */
+let undoRow=null;
 function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",tr:TRIAL[0][0],pin:{}};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
-function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){MEM[k]=v;}}
+/* Storage can refuse quietly - private browsing, a content blocker, a full quota - and
+   the fallback below is a plain object that dies with the tab. Somebody collecting codes
+   over days has to be told that rather than find out on reload, so the failure is recorded
+   and the screens that promise persistence say otherwise. */
+let lsFailed=false;
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){lsFailed=true;MEM[k]=v;}}
 function lsGet(k){try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
 /* "commons:board" shares the prefix but is not somebody's answers \u2014 excluding it keeps
    "Open or edit mine" off the home screen for a device that has only ever collected codes. */
@@ -415,6 +432,10 @@ const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A"
  "#4A2F8A","#7A2F6B","#8A2F3E","#2F3E8A","#6B7A2F","#2F8A4A","#2F5C8A","#2F8A7A","#5C8A2F"];
 const nameOf=i=>((codes[i]&&codes[i].n)||("#"+(i+1)));
 const grp=s=>String(s).replace(/(.{20})(?=.)/g,"$1 ");
+const storeWarn=()=>lsFailed?`<div class="warn" role="status">
+ <b>This device is not letting the page save anything.</b> Private browsing or a content
+ blocker will do this. Nothing here survives closing the tab, so
+ copy the combined code somewhere safe before you leave.</div>`:"";
 const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const spent=()=>SPEND.reduce((a,[k])=>a+S.sp[k],0);
 const B36="0123456789abcdefghijklmnopqrstuvwxyz";
@@ -953,10 +974,14 @@ function done(){
  <button class="btn ghost" id="again">Change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
  <div class="ok" id="st" role="status" aria-live="polite"></div>
- <p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
+ ${lsFailed?`<div class="warn" role="status">
+ <b>This device is not letting the page save your answers.</b> Private browsing or a content
+ blocker will do this. They will be gone when you close the tab, so copy the link or the code
+ now \u2014 it is the only copy.</div>`:
+ `<p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
  page already reflects this. Send the code above back to ${esc(S.n)} if they want it for their own device.`:
  `Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
- from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.`}</p>`;
+ from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.`}</p>`}`;
  const flash=t=>{document.getElementById("st").textContent=t;};
  async function copy(txt,label,forChat){
   if(forChat)txt=grp(txt);
@@ -1050,12 +1075,15 @@ function combine(){
  const b=boardGet();
  app.innerHTML=`<div class="kicker">The board</div><h2>${b.length?`${b.length} submission${b.length===1?"":"s"} collected`:"Paste the codes"}</h2>
  <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
+ ${storeWarn()}
  ${b.length?`<div class="board">${b.map((o,i)=>`<div class="brow">
    <button class="bn bedit" data-ed="${i}" aria-label="Open and edit ${esc(o.n||"this")}"><span>${esc(o.n||"anon")}</span><em>edit</em></button>
    <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>
  <p class="hint" style="margin:-6px 0 14px">Tap a name to open those answers and change them &mdash; useful
  when someone is sitting next to you, or has asked you to fix something for them. Edits are saved straight
  back to the board.</p>`:""}
+ ${undoRow?`<div class="ok" role="status" aria-live="polite">Removed
+   <b>${esc(undoRow.rec.n||"anon")}</b>. <button class="lnk" id="undo">Put them back</button></div>`:""}
  <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
  <button class="btn" id="add">Add to the board</button>
  ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
@@ -1068,19 +1096,28 @@ function combine(){
  <button class="btn ghost" id="hm">Back</button>
  ${b.length?`<button class="btn ghost" id="clr">Clear the board</button>`:""}
  <div class="err" id="err" role="status" aria-live="polite"></div><div class="ok" id="ok" role="status" aria-live="polite"></div>
- <p class="foot">The board is saved on this device, so you can collect codes over days and only ever paste the new ones.</p>`;
- document.getElementById("hm").onclick=()=>{mode="home";render();};
+ <p class="foot">${lsFailed?"The board is only in memory on this device \u2014 see above.":
+  "The board is saved on this device, so you can collect codes over days and only ever paste the new ones."}</p>`;
+ document.getElementById("hm").onclick=()=>{undoRow=null;mode="home";render();};
  document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
-  const a=boardGet(); a.splice(+x.dataset.rm,1); boardSet(a); render();});
+  const a=boardGet(), i=+x.dataset.rm, rec=a[i];
+  if(!rec)return;
+  a.splice(i,1); boardSet(a); undoRow={rec:rec,at:i}; render();});
+ const ub=document.getElementById("undo");
+ if(ub)ub.onclick=()=>{const a=boardGet(), u=undoRow;
+  undoRow=null;
+  if(u)a.splice(Math.min(u.at,a.length),0,u.rec);
+  boardSet(a); render();};
  document.querySelectorAll("[data-ed]").forEach(x=>x.onclick=()=>{
   const i=+x.dataset.ed, o=boardGet()[i]; if(!o)return;
+  undoRow=null;
   S=stateFrom(o); boardEdit=i; boardEditKey=String(o.n||"").toLowerCase().trim();
   mode="build"; step=0; window.scrollTo(0,0); render();});
  const clr=document.getElementById("clr");
- if(clr)clr.onclick=()=>{if(clr.dataset.sure){boardSet([]);render();}
+ if(clr)clr.onclick=()=>{undoRow=null;if(clr.dataset.sure){boardSet([]);render();}
   else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
  const go=document.getElementById("go");
- if(go)go.onclick=()=>{codes=boardGet();mode="result";window.scrollTo(0,0);render();};
+ if(go)go.onclick=()=>{undoRow=null;codes=boardGet();mode="result";window.scrollTo(0,0);render();};
  const shr=document.getElementById("share");
  if(shr)shr.onclick=async()=>{const pk=packBoard();
   try{await navigator.clipboard.writeText(pk);document.getElementById("ok").textContent=
@@ -1092,6 +1129,7 @@ function combine(){
  document.getElementById("add").onclick=()=>{
   const raw=document.getElementById("tx").value;
   if(!raw.trim()){document.getElementById("err").textContent="Nothing pasted yet.";return;}
+  undoRow=null;
   const out=[],bad=[];
   const tryOne=t=>{const c=String(t).replace(/^.*#c=/,"").replace(/\s+/g,"");
    if(!c)return null;
@@ -1253,9 +1291,11 @@ function mapSVG(rgT){
   o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="${Math.max(r,9).toFixed(1)}"
     fill="${v?"#7C2E3E":"#9AA5A0"}" fill-opacity="${v?.3+.45*(v/mx):.14}" stroke="${v?"#7C2E3E":"#9AA5A0"}"
     stroke-width="${v?1.3:.7}"${insAttr(nm,voters)}><title>${esc(nm)}</title></circle>`;
-  if(v)o+=`<text x="${q[0].toFixed(1)}" y="${(q[1]+3.3).toFixed(1)}" text-anchor="middle"
-    font-family="ui-monospace,monospace" font-size="10" font-weight="600" fill="#fff">${v}</text>`;
-  const lab=SHORT[nm]||nm, sl=MAPLAB[nm];
+  /* The count lives in the label, not in the bubble. Individual pins are drawn after the
+     bubbles - the bubble says how many, the pin says where in it - so a cluster of pins
+     sat on top of the numeral and hid it, at four people as well as fifteen. A pin is
+     somebody's actual answer about where; it wins, and the number moves out of its way. */
+  const lab=(SHORT[nm]||nm)+(v?" \u00b7 "+v:""), sl=MAPLAB[nm];
   if(sl){const [lx,ly,anch]=sl, tw=lab.length*4.8;      /* 8px monospace advance */
    const lsx=anch==="end"?lx-tw-4:lx+tw+4, lsy=ly-3;
    const d=Math.max(1,Math.hypot(q[0]-lsx,q[1]-lsy)), rr=Math.max(r,9);
