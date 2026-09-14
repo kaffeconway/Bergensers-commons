@@ -155,6 +155,21 @@ the build.
   record into questionnaire state and is shared with the shared-link boot path so the two
   cannot drift.
 
+- **The Europe map's region names sit in fixed margin slots** (`MAPLAB`), on leader lines,
+  not above their bubbles. The bubble radius grows with votes and the three alpine regions
+  fall within about 35 viewBox units of each other, so printed labels collided: "French
+  Alps" was buried inside the Italian Alps bubble at **four** votes, and at a realistic
+  fifteen two more went under and the bubbles themselves overlapped. Fixed slots cannot
+  collide however the vote splits — there is a test that walks all 816 possible
+  fifteen-person divisions and checks no label lands in a bubble and no leader crosses one.
+  If a region is ever added to the map, give it a slot at least 30 units clear of the others
+  on its side. The vote count stays *inside* the bubble: unlike the triangle's dots these
+  are big enough to hold a numeral.
+
+  Known and not fixed: the individual pins are drawn after the bubbles, so at fifteen people
+  a cluster of pins can cover the numeral underneath. Whether the count or the pins should
+  win is a real choice, not an oversight — ask before deciding it.
+
 - **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against land &
   space, affordability, and being easy to reach. **Two of the three axes now come from the
   property tracker in `kaffeconway/bergensers-property-search`, and one deliberately does
@@ -227,6 +242,17 @@ surface it and say why — that is what `REGIONS_V2` being frozen is for, why re
 appear with a "no longer on the shortlist" note rather than folded into "somewhere not on
 this list", and why a board row whose slot disappears falls back to a draft instead of
 vanishing.
+
+Two different people can share a first name, and a first name is all this asks for. So a
+pasted code whose name is already on the board is a **question**, not an instruction:
+`nameSplit` holds it back and the collector chooses. Replace (a corrected resend), keep
+both, or skip — and nothing is written until they pick. Keeping both requires a last
+initial on **both** rows, not just the newcomer, because initialling one still leaves a
+reader guessing which of them plain "Leon" was; `hasInitial` enforces a name, a space and
+one letter, and refuses two names that still match. An initial is not a surname, so this
+stays inside the first-names-only rule. This replaced a silent replace-by-name that
+reported itself as "1 updated" while destroying the first person's answers — the exact
+thing this section forbids.
 
 An entry nobody currently holds is different, and should not accumulate: a write-in for an
 option since unticked, a pin for a region since unpicked. Those are dropped from the code
