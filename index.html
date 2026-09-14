@@ -100,8 +100,17 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .secnav a{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--pine);
  text-decoration:none;padding:6px 11px;border:1px solid var(--rule);border-radius:20px;background:rgba(255,255,255,.6)}
 .secnav a:active,.secnav a:hover{border-color:var(--pine)}
+/* Sixteen chips in a strip 358px wide: fourteen of them are off-screen, so without a
+   marker the nav cannot tell you where you are in twenty-odd screens of page. The current
+   one is filled in, and scrolled into view, which also shows that the strip scrolls. */
+.secnav a.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
+/* Hidden until you are far enough down to want it. It used to be fully opaque at the top
+   of the page, where it does nothing and sits on top of a row you might be reading. */
 #totop{position:fixed;right:14px;bottom:18px;width:42px;height:42px;border-radius:50%;background:var(--pine);
- color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50}
+ color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50;
+ opacity:0;pointer-events:none;transition:opacity .18s ease}
+#totop.on{opacity:.92;pointer-events:auto}
+#totop.on:hover{opacity:1}
 /* Only the first inspectable row on the page carries the hint; repeating it under every
    row printed the same three words seventy times. */
 .res.tip1::after{content:"tap for names";display:block;font-family:var(--mono);font-size:9.5px;
@@ -116,6 +125,9 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
  letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
+/* Underlined even at rest: beside the name in the same size and family, "Not you?" read
+   as part of the name rather than as the way out. */
+.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
  color:var(--pine);opacity:.6}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
@@ -1937,6 +1949,41 @@ function result(){
  if(pairsAllBtn)pairsAllBtn.onclick=()=>{document.getElementById("pairsBox").innerHTML=pairs.map(pairRow).join("");pairsAllBtn.remove();};
  const totop=document.getElementById("totop");
  if(totop)totop.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
+ /* One scroll listener for the whole page: it shows the back-to-top button once there is
+    something to go back up to, and marks which section you are in. Twenty-odd screens with
+    a sixteen-chip strip is otherwise impossible to place yourself in. The previous listener
+    is always removed first - result() re-renders, and two of these would fight. */
+ (function(){
+  if(window.__navScroll)window.removeEventListener("scroll",window.__navScroll);
+  const nav=document.querySelector(".secnav");
+  const links=nav?[...nav.querySelectorAll("a")]:[];
+  const secs=links.map(a=>document.getElementById(a.getAttribute("href").slice(1)));
+  let queued=false, cur=-1;
+  const paint=()=>{
+   queued=false;
+   if(totop)totop.classList.toggle("on",window.scrollY>600);
+   if(!links.length)return;
+   /* The last heading to have passed under the strip is the one you are reading. Above the
+      first of them nothing is marked - marking a section you have not reached yet is a
+      small lie, and it made the strip jump on first paint. */
+   let i=-1;
+   for(let k=0;k<secs.length;k++){
+    if(secs[k]&&secs[k].getBoundingClientRect().top<=64)i=k; else break;
+   }
+   if(i===cur)return;
+   cur=i;
+   links.forEach((a,k)=>a.classList.toggle("on",k===i));
+   if(i<0)return;
+   /* keep the marked chip in view without dragging the page around it */
+   const a=links[i], l=a.offsetLeft, r=l+a.offsetWidth;
+   if(l<nav.scrollLeft+12)nav.scrollTo({left:Math.max(0,l-12),behavior:"smooth"});
+   else if(r>nav.scrollLeft+nav.clientWidth-12)
+    nav.scrollTo({left:r-nav.clientWidth+12,behavior:"smooth"});
+  };
+  window.__navScroll=()=>{if(!queued){queued=true;requestAnimationFrame(paint);}};
+  window.addEventListener("scroll",window.__navScroll,{passive:true});
+  paint();
+ })();
  (function(){let act=null;
   document.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{
    const v=b.dataset.pp;
