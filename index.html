@@ -260,8 +260,36 @@ const SKILLS=[["build","Building & renovation"],["wood","Woodwork & joinery"],["
  ["legal","Legal & paperwork"],["lang","Local language"],["org","Organising people"],["teach","Teaching"],
  ["care","Childcare"],["make","Making & craft"],["web","Tech & admin"]];
 const HORIZON=[["soon","Within two years"],["mid","Two to five years"],["long","Five to ten years"],["some","Someday, no timeline"]];
-const CAP=["Under \u20ac10k","\u20ac10\u201330k","\u20ac30\u201375k","\u20ac75\u2013150k","Over \u20ac150k","Rather not say"];
-const RUN=["Under \u20ac50","\u20ac50\u2013150","\u20ac150\u2013400","Over \u20ac400","Not sure yet"];
+/* ---- the two money bands ----
+   A band travels in the share code as its POSITION in this array, so a boundary can never
+   be redrawn in place: every code already sent would keep its old position number and
+   quietly come back meaning a different band. That is the REGIONS_V2 trap, in a second
+   place. New bands are therefore only ever APPENDED, and the two that were split - "Over
+   EUR 150k" at index 4 and "Over EUR 400" at index 3 - stay in the array so older codes still
+   decode to exactly what the person said. They are no longer offered on the form.
+
+   Why they were split: of the 30 properties the search has tracked, 24 cost more than
+   EUR 400 a month per person and run up to EUR 854, and a EUR 500k place split four ways
+   is EUR 125k each. Both questions went blind exactly where the decision is made - the property repo's
+   own workbook had to build extended lookup tables to get round it.
+
+   CAPOFFER / RUNOFFER are what the form shows, and in what order, which is deliberately
+   not the storage order. Three bits holds exactly eight, which is what both lists now use:
+   a ninth band in either needs a C5. */
+const CAP=["Under \u20ac10k","\u20ac10\u201330k","\u20ac30\u201375k","\u20ac75\u2013150k","Over \u20ac150k","Rather not say",
+ "\u20ac150\u2013250k","Over \u20ac250k"];
+const CAPOFFER=[0,1,2,3,6,7,5];
+const CAPSPLIT=4;
+const RUN=["Under \u20ac50","\u20ac50\u2013150","\u20ac150\u2013400","Over \u20ac400","Not sure yet",
+ "\u20ac400\u2013600","\u20ac600\u2013900","Over \u20ac900"];
+const RUNOFFER=[0,1,2,5,6,7,4];
+const RUNSPLIT=3;
+/* Euro range per band, index-aligned with the arrays above; null where the answer is not a
+   number. An open-ended top band needs some ceiling to pool at all - the page has always
+   read "Over EUR 150k" as 150-300, and the new ones follow the same doubling convention.
+   Index-keyed, so appending a band does not renumber any of this either. */
+const CAPEUR=[[0,10],[10,30],[30,75],[75,150],[150,300],null,[150,250],[250,500]];
+const RUNEUR=[[0,50],[50,150],[150,400],[400,800],null,[400,600],[600,900],[900,1800]];
 /* Frozen. Every C1 and C2 code was written against this eight-item list, and both formats
    store a POSITION, not a name (C2 a bit index, C1 a base36 index). Never reorder or edit it:
    editing it in place silently rewrites what every existing code means. C2 decodes against it. */
@@ -352,7 +380,7 @@ let pend=[], pendBoth=false;
    with no confirmation while clearing the whole board asks twice, so the guard was on the
    less likely action - and a row is somebody's answers, which may be the only copy. */
 let undoRow=null;
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",tr:TRIAL[0][0],pin:{}};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],pin:{}};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
@@ -389,6 +417,7 @@ function stateFrom(o){
   use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
   hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},z.sk,o.sk||{}),
   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||"",
+  cz:o.cz||"",lv:o.lv||"",
   tr:o.tr||TRIAL[0][0],pin:Object.assign({},o.pn||{})});
 }
 
@@ -437,6 +466,14 @@ const storeWarn=()=>lsFailed?`<div class="warn" role="status">
  blocker will do this. Nothing here survives closing the tab, so
  copy the combined code somewhere safe before you leave.</div>`:"";
 const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+/* The form offers CAPOFFER / RUNOFFER, not CAP / RUN: the two split bands are storage-only.
+   One exception - if somebody's saved answer IS a split band, show it, marked, so they can
+   see what they said before choosing again. Same order as a dropped region on the region
+   step: shown, survives a pass where they change nothing, replaced when they re-answer. */
+const bandBtns=(list,offer,split,cur,attr)=>
+ (cur===split?[split]:[]).concat(offer).map(i=>
+  `<button class="opt ${cur===i?"on":""}" data-${attr}="${i}">${list[i]}${
+   i===split?"<small>this band has since been split \u2014 choose again below</small>":""}</button>`).join("");
 const spent=()=>SPEND.reduce((a,[k])=>a+S.sp[k],0);
 const B36="0123456789abcdefghijklmnopqrstuvwxyz";
 function packOne(o){
@@ -527,9 +564,11 @@ function recBin(o){
  w.w(IDX(TRIAL,o.tr),3);
  for(let i=0;i<2;i++)wPin(w,(o.pn&&picks[i])?o.pn[picks[i]]:null);
  const bytes=w.done();
- /* Five \u001f-joined free-text fields. Old codes carry four; parts[4] then comes back
-    undefined and defaults to "". The fixed block is untouched, so N_FIX does not move. */
- const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e"),o.rw||""].join("\u001f"));
+ /* Seven \u001f-joined free-text fields. An older code carries four or five; the missing
+    parts[n] come back undefined and default to "". The fixed block is untouched, so N_FIX
+    does not move and no version bump is needed - the same way rw was added. */
+ const tail=U8([o.n||"",o.st||"",o.wy||"",(o.ow||[]).join("\u001e"),o.rw||"",
+  o.cz||"",o.lv||""].join("\u001f"));
  return bytes.map(b=>String.fromCharCode(b)).join("")+tail;
 }
 function recRead(str,REG,ext){
@@ -553,6 +592,7 @@ function recRead(str,REG,ext){
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
  o.rw=parts[4]||"";
+ o.cz=parts[5]||""; o.lv=parts[6]||"";
  return o;
 }
 /* C4: the C3 layout plus a trial-year answer and up to two map pins. */
@@ -624,11 +664,14 @@ function wireInspector(){
 const payload=()=>({n:S.n,s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,st:String(S.stop||"").slice(0,240),
  sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
  rw:liveRg().indexOf(OFFLIST)>=0?String(S.rw||"").trim().slice(0,60):"",
+ cz:String(S.cz||"").trim().slice(0,40),lv:String(S.lv||"").trim().slice(0,40),
  tr:S.tr||TRIAL[0][0],pn:Object.assign({},S.pin||{})});
 function grabOwn(){const t=document.getElementById("own"); if(t)S.ow=t.value.slice(0,400);
  const q=document.getElementById("stop"); if(q)S.stop=q.value.slice(0,240);
  const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);
- const g=document.getElementById("rgw"); if(g)S.rw=g.value.slice(0,60);}
+ const g=document.getElementById("rgw"); if(g)S.rw=g.value.slice(0,60);
+ const cz=document.getElementById("cz"); if(cz)S.cz=cz.value.slice(0,40);
+ const lv=document.getElementById("lv"); if(lv)S.lv=lv.value.slice(0,40);}
 
 /* ---------- the pin picker ----------
    A plain equirectangular fit with a cos(lat) correction on longitude. Over a window a
@@ -738,8 +781,19 @@ const STEPS=[
 {t:"How would you use it?",k:"Be honest rather than aspirational.",
  r:()=>USES.map(([k,a])=>`<button class="opt ${S.use===k?"on":""}" data-use="${k}">${a}</button>`).join("")+
   `<p class="hint" style="margin-top:20px"><b>Who would be coming with you?</b></p>`+
-  HOUSE.map(([k,a])=>`<button class="opt ${S.hh===k?"on":""}" data-hh="${k}">${a}</button>`).join(""),
- save:()=>S.use?(S.hh?null:"And who is coming with you?"):"Pick one."},
+  HOUSE.map(([k,a])=>`<button class="opt ${S.hh===k?"on":""}" data-hh="${k}">${a}</button>`).join("")+
+  `<div class="note" style="margin-top:22px"><b>And where are you coming from?</b>
+   Not idle curiosity, and not used for anything else: which passport you hold and which
+   country you live in decide what is legally possible. Italy only sells to buyers from
+   outside the EU whose own country returns the favour; Switzerland is closed to
+   non-residents almost entirely; and a mortgage nearly always needs income in the country
+   you are buying in, which changes a deposit into a cash purchase. A word each is enough,
+   and you can leave them blank.</div>
+   <div class="sl"><label for="cz">Passport, or passports</label>
+    <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
+   <div class="sl"><label for="lv">Country you live in now</label>
+    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>`,
+ save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
  r:()=>`<div class="note"><b>Renting together first.</b> The idea that came out of the September call:
@@ -794,10 +848,10 @@ const STEPS=[
    ssb.no, Statistik Austria. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement
    Climatique, Klima i Norge 2100.</span></div>
   <p class="hint"><b>1. Up-front capital</b> \u2014 a one-time contribution toward buying and fixing the place.</p>`+
-  CAP.map((m,i)=>`<button class="opt ${S.cap===i?"on":""}" data-cap="${i}">${m}</button>`).join("")+
+  bandBtns(CAP,CAPOFFER,CAPSPLIT,S.cap,"cap")+
   `<p class="hint" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of insurance, heating,
    maintenance, tax, repairs. This continues forever, and it is what usually breaks these projects.</p>`+
-  RUN.map((m,i)=>`<button class="opt ${S.run===i?"on":""}" data-run="${i}">${m}</button>`).join("")+
+  bandBtns(RUN,RUNOFFER,RUNSPLIT,S.run,"run")+
   `<p class="hint" style="margin-top:18px"><b>3.</b> Would you borrow to take part?</p>`+
   ["Yes","Maybe","No"].map(d=>`<button class="opt ${S.debt===d?"on":""}" data-debt="${d}">${d}</button>`).join(""),
  save:()=>S.debt?null:"Answer the borrowing question too."},
@@ -1935,6 +1989,17 @@ function result(){
   const kid=codes.filter(c=>c.hh==="kids").length;
   if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children, which puts
    school and hospital distance on the list.</p>`;}
+ /* Passports and countries decide what is legally possible before any preference does, so
+    this reports what was actually said and stays quiet about what it implies. */
+ const from=codes.filter(c=>(c.cz&&c.cz.trim())||(c.lv&&c.lv.trim()));
+ if(from.length){h+=`${sec("Where we are coming from")}
+  <p class="hint">What is possible legally is decided by these before any preference on this
+  page. ${from.length}/${N} answered.</p>`;
+  from.forEach(c=>h+=`<div class="res"><div class="t"><b>${esc(c.n||"anon")}</b>
+   <em>${esc([c.cz&&c.cz.trim(),c.lv&&c.lv.trim()?"in "+c.lv.trim():""].filter(Boolean).join(" \u00b7 "))}</em></div></div>`);
+  const noCz=N-codes.filter(c=>c.cz&&c.cz.trim()).length;
+  if(noCz)h+=`<p class="hint" style="margin-top:8px">${noCz} ${noCz===1?"has":"have"} not said,
+   and every property outside Norway needs this settled before an offer.</p>`;}
  const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
    who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
  if(skT.some(x=>x.n)){h+=`${sec("What you bring")}
@@ -1953,17 +2018,25 @@ function result(){
  if(stops.length){h+=`${sec("What would stop you")}
   <p class="hint">Deal-breakers, in their own words. These outrank every preference on this page.</p>`;
   stops.forEach(c=>h+=`<div class="card split"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.st)}</p></div>`);}
- const lows=[0,10,30,75,150],highs=[10,30,75,150,300];
- const said=codes.filter(c=>typeof c.cp==="number"&&c.cp<5);
- if(said.length){const lo=said.reduce((a,c)=>a+lows[c.cp],0),hi=said.reduce((a,c)=>a+highs[c.cp],0);
+ /* Keyed off CAPEUR, not a bare index cutoff: the old "c.cp < 5" test would have counted
+    the two appended top bands as "did not answer" and quietly left them out of the pool. */
+ const said=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]);
+ if(said.length){const lo=said.reduce((a,c)=>a+CAPEUR[c.cp][0],0),hi=said.reduce((a,c)=>a+CAPEUR[c.cp][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled up-front capital</b><em>${said.length}/${N} answered</em></div>
    <p class="hint" style="margin:4px 0 0">Roughly &euro;${lo}k&ndash;${hi}k before borrowing. A house with land runs
    &euro;120k&ndash;1.2M depending on region, so this is ${hi<150?"early days":"a real start"}.</p></div>`;}
- const rl=[0,50,150,400],rh=[50,150,400,800];
- const rs=codes.filter(c=>typeof c.rn==="number"&&c.rn<4);
- if(rs.length){const lo=rs.reduce((a,c)=>a+rl[c.rn],0),hi=rs.reduce((a,c)=>a+rh[c.rn],0);
+ const rs=codes.filter(c=>typeof c.rn==="number"&&RUNEUR[c.rn]);
+ if(rs.length){const lo=rs.reduce((a,c)=>a+RUNEUR[c.rn][0],0),hi=rs.reduce((a,c)=>a+RUNEUR[c.rn][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled monthly</b><em>${rs.length}/${N} answered</em></div>
    <p class="hint" style="margin:4px 0 0">About &euro;${lo}&ndash;${hi} a month between you.</p></div>`;}
+ const splitBands=[];
+ if(codes.some(c=>c.cp===CAPSPLIT))splitBands.push(`<b>${esc(CAP[CAPSPLIT])}</b> up front`);
+ if(codes.some(c=>c.rn===RUNSPLIT))splitBands.push(`<b>${esc(RUN[RUNSPLIT])}</b> a month`);
+ if(splitBands.length) h+=`<p class="hint">Some of you answered ${splitBands.join(" and ")},
+  ${splitBands.length>1?"bands":"a band"} since split into narrower ones because most of the
+  places actually found cost more than the old top band could describe. Counted here at the
+  old range and shown as given, not moved into a band nobody picked \u2014 worth asking those
+  people to answer again.</p>`;
  const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length;
  h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${N-yes-mb} no</em></div></div>`;
 
