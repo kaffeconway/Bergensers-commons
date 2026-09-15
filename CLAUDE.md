@@ -204,12 +204,20 @@ the build.
   property tracker in `kaffeconway/bergensers-property-search`, and one deliberately does
   not** — the caption says which, and it has to keep saying it.
 
-  *Land & space* and *affordable* are the mean of the 28 live listings in that tracker,
+  *Land & space* and *affordable* are the mean of the live listings in that tracker,
   computed with its own `load()`, cost model and axis formulas (`tools/make_charts.py`) so
   the two repos cannot drift, then rescaled across the four regions so each axis spans the
   range they actually differ over. Rescaling changes spacing, never order. The listing
-  counts are uneven and are printed in the caption: French Alps 10, Vestland 9, Pyrenees 6,
-  Italian Alps 3.
+  counts are uneven and are printed in the caption, **with the date they were computed**:
+  as of 15 Sept 2026, 30 listings — French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4.
+
+  **The date is there because the numbers drift faster than anyone expects.** The tracker
+  gained eleven listings in six days. When that first happened the dots had barely moved
+  (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
+  of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
+  A test pins the current total and counts, so a re-run fails until the caption is brought
+  with it, and two further assertions check the counts sum to the stated total and that a
+  date is present at all.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
@@ -221,9 +229,14 @@ the build.
 
   Adopting the listing averages corrected a real error here: the old hand-set price bands
   had the Pyrenees as the cheap corner. The listings do not agree — Pyrenees averages
-  €509,940 all-in against the French Alps' €505,008, with Vestland €392,449 and the Italian
-  Alps €275,400. Only Italy separates. If the tracker gains or loses listings, re-run the
-  averages rather than nudging the weights by hand.
+  €516,690 all-in against the French Alps' €515,070, with Vestland €388,157 and the Italian
+  Alps €224,910. Only Italy separates, and it separates further than it did. If the tracker
+  gains or loses listings, re-run the averages rather than nudging the weights by hand.
+
+  Vestland and the Pyrenees changed places on *affordable* in the 15 Sept re-run, by four
+  thousandths (.530 against .525 after rescaling). **Don't write a caption that claims an
+  order between those two.** The chart shows balance rather than level, and at that distance
+  the honest reading is that they score alike.
 
   The tracker's own caveats travel with the numbers and are in the caption: the priority
   weights behind them are the mean token spend of **four** questionnaire answers out of
@@ -231,7 +244,8 @@ the build.
   scores are desk reads of listing text, and the Italian average rests on three listings
   with the widest spread of the four.
 
-  The closest two regions plot about 23px apart. Labels sit outside the plot on leader
+  The closest two regions plot about 23px apart (Italian Alps and Vestland, as of the
+  15 Sept re-run). Labels sit outside the plot on leader
   lines rather than beside the dots, vote counts live in the labels rather than inside the
   circles, and the dots stay small enough that a near-touch reads as two regions scoring
   alike. Do not spread the dots apart to make it prettier; change the weights only when the
