@@ -104,7 +104,9 @@ the build.
   Adding a **free-text** field costs nothing in format terms: append it to the `\x1f`-joined
   tail. Old codes simply have fewer separators, so the new `parts[n]` comes back `undefined`
   and defaults to `""`, `N_FIX` doesn't move, and `unpackRecs`'s strict length validation
-  still passes. That's how the region write-in (`rw`) was added without a format bump.
+  still passes. That's how the region write-in (`rw`) was added without a format bump, and
+  then passport (`cz`) and country-lived-in (`lv`) after it. **The tail is seven fields now**:
+  name, deal-breaker, why, activity write-ins, region write-in, passport, country.
   Adding a **fixed-width** field is the opposite: it moves `N_FIX`, so it needs a new
   version byte and a new `BITS_*` constant.
 
@@ -154,6 +156,35 @@ the build.
   point that starts a fresh identity must clear both. `stateFrom()` converts a decoded
   record into questionnaire state and is shared with the shared-link boot path so the two
   cannot drift.
+
+- **The two money bands are positional, like the regions were.** `cp` and `rn` travel in
+  the code as the *index* into `CAP` / `RUN`, written as bare 3-bit values. So redrawing a
+  boundary in place would leave every code already sent carrying its old index and coming
+  back meaning a different band — the `REGIONS_V2` trap in a second place, and this one has
+  no version byte to hide behind. **Only ever append.**
+
+  Two bands were split in Sept 2026 because the property search found that most of what it
+  was tracking cost more than our top bands could describe: 24 of its 30 listings run over
+  €400/month per person, up to €854, and a €500k place split four ways is €125k each. Its
+  workbook had built its own extended lookup tables to get round ours. So `€150–250k` and
+  `Over €250k` were appended for capital, `€400–600`, `€600–900` and `Over €900` for monthly.
+
+  The two that were split — `Over €150k` at index 4, `Over €400` at index 3 — **stay in the
+  arrays forever** so older codes still decode to exactly what the person said. They are no
+  longer offered: `CAPOFFER` / `RUNOFFER` say what the form shows and in what order, which is
+  deliberately not the storage order, and `CAPSPLIT` / `RUNSPLIT` name the retired ones.
+  Somebody whose saved answer *is* a retired band sees it on the form, marked, and it is
+  replaced only when they choose again — the same order as a dropped region. The results page
+  says so too, and pools the answer at the old band's range rather than moving it into a band
+  nobody picked.
+
+  `CAPEUR` / `RUNEUR` hold the euro range per band, index-aligned and `null` for the two
+  non-numeric answers. Pool from those, never from a bare index cutoff: the previous
+  `c.cp < 5` test would have read both appended top bands as "did not answer".
+
+  **Three bits holds exactly eight and both lists now hold eight.** A ninth band in either
+  needs a C5. There is an assertion that fails the moment one is added, rather than the
+  ninth silently writing as zero and reading back as "Under €10k".
 
 - **The Europe map's region names sit in fixed margin slots** (`MAPLAB`), on leader lines,
   not above their bubbles. The bubble radius grows with votes and the three alpine regions
@@ -214,6 +245,33 @@ the build.
   runtime (`upgradeGeo`/`upgradeMap` functions) and falls back to a hand-drawn simplified
   outline if that fetch fails (e.g. offline, or a restrictive sandbox). Both paths must
   keep working.
+
+## The property search reads this repo
+
+`kaffeconway/bergensers-property-search` evaluates real listings against these answers, and
+the coupling runs in both directions now, so a change here can move numbers there.
+
+It **reads `REGIONS` live** and caches it as `docs/questionnaire-regions.json`; its coverage
+table generates from that, so a region added or dropped here appears there without anyone
+editing prose. Don't rename a region casually — and per the rule above, never edit the array
+in place.
+
+It also derives its scoring weights from the mean token spend of the codes collected here
+(`/sync-weights`), reads `STYLES` to score the *Buildings* axis, reads the *"unfinished for
+years"* tolerance as the ceiling on an acceptable *Condition* score, and reads the *use*
+answer as the evidence that year-round residence is required. Four responses are in as of
+Sept 2026, and every ranking it publishes carries that caveat.
+
+Three things it says it is blocked on that this questionnaire does **not** yet ask, recorded
+here so they are not rediscovered: **who is actually buying in and how many** (its Assumptions
+sheet models four sharers, sourced to a verbal remark, and its own profile calls the number of
+signers the single biggest lever on affordability); **whether a bank would lend to each
+person** (a Norwegian mortgage generally needs Norwegian income or residency, and without it
+its 15%-equity model becomes a cash purchase — a 7x swing in the per-person figure); and
+**which regions anyone already knows** (its *Somewhere we know* axis is currently assumed —
+Vestland 4 by definition, France and Italy 0–1 — and nobody has been asked whether a single
+one of us knows the Pyrenees, which now hold six listings and its top-ranked property).
+Passport and country-lived-in were the fourth, and are now asked.
 
 ## Results page
 
