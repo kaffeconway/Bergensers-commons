@@ -26,7 +26,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);f
 #app{max-width:620px;margin:0 auto;padding:20px 16px 60px}
 h1{font-family:var(--serif);font-weight:500;font-size:30px;line-height:1.08;margin:0 0 6px;letter-spacing:-.015em}
 h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;margin:0 0 4px}
-.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.7;margin-bottom:14px}
+.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.85;margin-bottom:14px}
 .lede{font-size:16px;color:var(--pine);margin:0 0 20px}
 .hint{font-size:13.5px;color:var(--pine);opacity:.8;margin:0 0 16px}
 .note{background:rgba(53,116,138,.09);border-left:2px solid var(--glacier);padding:12px 14px;
@@ -62,7 +62,7 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
  letter-spacing:.06em;color:var(--pine);border-bottom:1px solid var(--rule);z-index:5}
 .bank b{color:var(--madder);font-size:15px}
 .grp{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--pine);
- opacity:.65;margin:18px 0 8px}
+ opacity:.85;margin:18px 0 8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 /* 44 in the touch dimension (Apple's bar, and WCAG 2.2 SC 2.5.5) without widening the
    grid: the extra height is padding, the row gap gives one pixel back. */
@@ -119,7 +119,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  padding:2px 7px;border-radius:2px;margin-left:6px}
 .tag.agree{background:rgba(34,66,58,.14);color:var(--pine)}
 .tag.split{background:rgba(124,46,62,.14);color:var(--madder)}
-.sec{margin:30px 0 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+.sec{margin:30px 0 10px;font-weight:400;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
  color:var(--pine);opacity:.8;padding-bottom:6px;border-bottom:1px solid var(--rule);scroll-margin-top:50px}
 .who{font-family:var(--mono);font-size:11.5px;color:var(--pine);opacity:.8;margin-bottom:16px}
 .secnav{position:sticky;top:0;z-index:4;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
@@ -160,10 +160,15 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
    as part of the name rather than as the way out. */
 .stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
- color:var(--pine);opacity:.6}
+ color:var(--pine);opacity:.8}
 /* Every control on the page is a custom button, so the browser default ring is all a
    keyboard user has to go on. :focus-visible only, so a mouse or a tap shows nothing. */
 :focus-visible{outline:2px solid var(--glacier);outline-offset:2px}
+/* The heading takes focus on every screen change, so the change is announced and a keyboard
+   user starts from the top of the new screen rather than from the browser chrome. It is not
+   a control and cannot be operated, so it gets no ring - and Chromium matches :focus-visible
+   on it after a TAP but not after keyboard use, which is exactly the wrong way round. */
+#app h1[tabindex],#app h2[tabindex]{outline:none}
 .opt:focus-visible,.chip:focus-visible,.btn:focus-visible,.tok button:focus-visible{outline-offset:1px}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
 .ok{color:var(--pine);font-size:13.5px;margin-top:8px}
@@ -183,12 +188,15 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  min-height:44px;padding:0 14px;font-family:var(--mono);font-size:11px;letter-spacing:.09em;
  text-transform:uppercase;color:var(--pine)}
 .more>summary::-webkit-details-marker{display:none}
-.more>summary::before{content:"+";font-size:16px;line-height:1;width:12px;flex:none;text-align:center;opacity:.8}
+/* On the marker's own span, which is aria-hidden: generated content counts toward the
+   accessible name, so the summary was announced as "plus what do these numbers mean". */
+.more>summary .mk::before{content:"+";font-size:16px;line-height:1;text-align:center;opacity:.8}
+.more>summary .mk{width:12px;flex:none;text-align:center}
 /* A CSS string is not HTML: "&#8722;" would paint those seven characters over the summary
    label rather than a minus sign. CSS escapes with a backslash, and \2212 is just as ASCII
    as the entity is - the pure-ASCII rule needs the right escape for the language, not the
    same escape everywhere. */
-.more[open]>summary::before{content:"\2212"}
+.more[open]>summary .mk::before{content:"\2212"}
 .more[open]>summary{border-bottom:1px solid var(--rule)}
 .more>summary:hover{color:var(--ink)}
 /* The note keeps its own inner typography (.row / .clim / .cmphead / .tail / .src) and
@@ -223,6 +231,20 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .vh{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 
+/* Where this leaves us. Five lines, every one a count, at the top of a page that is
+   otherwise twenty screens of charts. The respondent count leads it, because at four
+   answers "Italian Alps 2" stated at the top of a page lends the number an authority the
+   data cannot carry, and the page's own "read these as prompts rather than findings"
+   caveat sits fifteen screens further down. */
+.sum{margin:0 0 20px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.sum .lede2{margin:12px 0 4px;font-size:14px;line-height:1.45;color:var(--pine)}
+.sum .lede2 b{color:var(--ink);font-weight:600}
+.sum .sr{display:flex;gap:11px;align-items:baseline;padding:8px 0;border-top:1px solid var(--rule2)}
+.sum .sk{flex:none;width:74px;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+ text-transform:uppercase;color:var(--pine);opacity:.8}
+.sum .sv{flex:1;min-width:0;font-size:14.5px;line-height:1.4;overflow-wrap:anywhere}
+.sum .sv b{font-weight:600}
+.sum .sv em{font-style:normal;color:var(--pine);opacity:.85}
 .card{border-left:2px solid var(--pine);background:rgba(255,255,255,.55);padding:11px 13px;margin:0 0 9px;border-radius:0 3px 3px 0}
 .card.split{border-left-color:var(--madder)}
 .card.agree{border-left-color:var(--glacier)}
@@ -239,7 +261,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 /* Removing a row is one tap and a row may be the only copy of what somebody sent, so the
    target for it is at least sized properly. The name beside it is now the main way into an
    edit, and was 32 tall. */
-.brow .x{width:40px;height:44px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
+.brow .x{width:44px;height:44px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
 .brow .bedit{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
  background:none;border:none;padding:0;min-height:44px;text-align:left;color:var(--ink);font-size:15px;
  font-family:var(--sans);cursor:pointer}
@@ -568,6 +590,13 @@ const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A"
  "#4A2F8A","#7A2F6B","#8A2F3E","#2F3E8A","#6B7A2F","#2F8A4A","#2F5C8A","#2F8A7A","#5C8A2F"];
 const nameOf=i=>((codes[i]&&codes[i].n)||("#"+(i+1)));
 const grp=s=>String(s).replace(/(.{20})(?=.)/g,"$1 ");
+/* A pooled figure runs to four and five digits, which is exactly where a reader starts
+   counting zeroes. Used by the summary and by the two pooled rows, so the same number is
+   written the same way in both places. */
+const num=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,",");
+const WORDNUM=["nobody","one","two","three","four","five","six","seven","eight","nine","ten",
+ "eleven","twelve","thirteen","fourteen","fifteen"];
+const nword=n=>WORDNUM[n]!==undefined?WORDNUM[n]:String(n);
 const storeWarn=()=>lsFailed?`<div class="warn" role="status">
  <b>This device is not letting the page save anything.</b> Private browsing or a content
  blocker will do this. Nothing here survives closing the tab, so
@@ -576,33 +605,53 @@ const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"
 /* One status region for the whole app, made once and never torn down - a live region that is
    rebuilt with its screen is not announced. Cleared first, because the same text twice
    running is otherwise dropped. */
-let liveEl=null;
+let liveEl=null, liveClear=null;
+function liveInit(){try{
+ if(liveEl)return;
+ liveEl=document.createElement("p");liveEl.className="vh";
+ liveEl.setAttribute("role","status");liveEl.setAttribute("aria-live","polite");
+ document.body.appendChild(liveEl);}catch(e){}}
 function say(t){
  try{
-  if(!liveEl){liveEl=document.createElement("p");liveEl.className="vh";
-   liveEl.setAttribute("role","status");liveEl.setAttribute("aria-live","polite");
-   document.body.appendChild(liveEl);}
+  liveInit(); if(!liveEl)return;
   liveEl.textContent="";
+  /* the same words twice running are otherwise dropped */
   setTimeout(()=>{liveEl.textContent=String(t);},30);
+  /* and cleared again, or the last thing said on one screen sits in the accessibility
+     tree of the next one as ordinary page text */
+  if(liveClear)clearTimeout(liveClear);
+  liveClear=setTimeout(()=>{if(liveEl)liveEl.textContent="";},4000);
  }catch(e){}
 }
+/* In the DOM before any screen renders. A live region inserted and filled in the same
+   breath is the case assistive technology is least reliable about, and the first tap is
+   the one where it matters most. */
+liveInit();
 /* Every answer control carries a data-fk. render() rebuilds the whole screen on each tap, so
    without this a keyboard user is thrown back to the top of the document every time they
    choose anything. Captured before the rebuild, restored after it; a key that no longer
    exists (a step change, a new screen) simply finds nothing and does nothing. */
-let fk="";
+let fk="", fkNext="";
 function markFocus(){try{const a=document.activeElement;
- fk=(a&&a.getAttribute)?(a.getAttribute("data-fk")||""):"";
+ fk=fkNext||((a&&a.getAttribute)?(a.getAttribute("data-fk")||""):"");
+ fkNext="";
  /* A <details> fires its toggle event asynchronously, so a disclosure opened a moment ago
     may not have reached moreOpen yet. Reading .open here - synchronously, in the same task
     as the rebuild that is about to replace it - is what makes it certain. */
  document.querySelectorAll("[data-more]").forEach(d=>{moreOpen[d.dataset.more]=d.open;});
  }catch(e){fk="";}}
 function restoreFocus(){
- const k=fk; fk=""; if(!k)return;
- try{const l=document.querySelectorAll("[data-fk]");
-  for(let i=0;i<l.length;i++)if(l[i].getAttribute("data-fk")===k){
-   try{l[i].focus({preventScroll:true});}catch(e){l[i].focus();} return;}
+ const k=fk; fk="";
+ try{
+  if(k){const l=document.querySelectorAll("[data-fk]");
+   for(let i=0;i<l.length;i++)if(l[i].getAttribute("data-fk")===k){
+    try{l[i].focus({preventScroll:true});}catch(e){l[i].focus();} return;}}
+  /* Nothing matched, so this is a different screen rather than a re-render of the same
+     one. Focus its heading: otherwise focus falls to <body>, the screen change is not
+     announced at all, and a keyboard user starts again from the browser chrome. */
+  const hh=document.querySelector("#app h1, #app h2");
+  if(hh){hh.setAttribute("tabindex","-1");
+   try{hh.focus({preventScroll:true});}catch(e){}}
  }catch(e){}
 }
 /* A disclosure that is rebuilt with its step would slam shut while somebody is reading it
@@ -860,8 +909,27 @@ const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S
    as well, and both of those went through here - so a corrected name typed from the review
    was thrown away without a word. Guarded on non-empty: an emptied box must not wipe the
    name that autosave() keys the saved draft on. */
+/* The one place the name is adopted. Renaming a row of the board onto a name another row
+   already carries leaves two rows the board, the charts and the results page cannot tell
+   apart - the collision nameSplit holds a pasted code back for, reached from the other
+   direction. It was always possible; the review screen made it two taps from the board
+   instead of twelve. Both ways off step 0 go through here, because "Next" validating and
+   "Back" quietly writing anyway is the same hole with a longer path to it. Returns an error
+   string, or null; a refused name is kept back and said on the next screen rather than
+   half-written. */
+let nameRefused="";
+function setName(v){
+ const n=cut(String(v||"").trim(),24);
+ if(!n)return "A name would help.";
+ if(boardEdit>=0){
+  const clash=boardGet().filter((x,i)=>i!==boardEdit&&sameName(x.n,n))[0];
+  if(clash){nameRefused=(clash.n||n)+" is already on the board, so that rename was not made. Add a last initial, so the two can be told apart.";
+   return nameRefused;}
+ }
+ nameRefused=""; S.n=n; return null;
+}
 function grabOwn(){const n=document.getElementById("nm");
- if(n&&n.value.trim())S.n=cut(n.value.trim(),24);
+ if(n&&n.value.trim())setName(n.value);
  const t=document.getElementById("own"); if(t)S.ow=cut(t.value,400);
  const q=document.getElementById("stop"); if(q)S.stop=cut(q.value,240);
  const w=document.getElementById("why"); if(w)S.why=cut(w.value,180);
@@ -939,20 +1007,13 @@ function pinPicker(rg){
 /* ---------- steps ---------- */
 const STEPS=[
 {t:"Who's this?",k:"A first name, so the group can see whose is whose \u2014 and so you can come back and edit later.",
- r:()=>`<input type="text" id="nm" value="${esc(S.n)}" placeholder="First name" autocomplete="given-name">
-  <p class="hint" style="margin-top:14px">Your answers save on this device under this name. Nothing is uploaded anywhere.</p>`,
- save:()=>{S.n=cut((document.getElementById("nm").value||"").trim(),24);
-  if(!S.n)return "A name would help.";
-  /* Renaming a row of the board onto a name another row already carries leaves two rows the
-     board, the charts and the results page cannot tell apart - the same collision nameSplit
-     holds a pasted code back for, reached from the other direction. It was always possible;
-     the review screen made it two taps from the board instead of twelve. The board's own
-     answer to two people with one name is a last initial, so that is what this asks for. */
-  if(boardEdit>=0){
-   const clash=boardGet().filter((x,i)=>i!==boardEdit&&sameName(x.n,S.n))[0];
-   if(clash)return (clash.n||S.n)+" is already on the board. Add a last initial, so the two can be told apart.";
-  }
-  return null;}},
+ r:()=>`<input type="text" id="nm" value="${esc(S.n)}" aria-label="Your first name"
+   placeholder="First name" autocomplete="given-name">
+  <p class="hint" style="margin-top:14px">${lsFailed?
+   `This device is not letting the page save anything, so do this in one sitting and copy
+    your code at the end.`:
+   `Your answers save on this device under this name. Nothing is uploaded anywhere.`}</p>`,
+ save:()=>setName(document.getElementById("nm").value)},
 
 {t:"What shape is it?",k:"Not where \u2014 what kind of place. Pick the one closest to how you picture it.",
  r:()=>STYLES.map(([k,a,b])=>opt(S.style===k,"style",k,a,b)).join(""),
@@ -977,7 +1038,8 @@ const STEPS=[
    items.map(([k,a])=>chipHTML(k,a)).join("")+`</div>`).join("")+
   `<p class="hint" style="margin-top:12px">Leaving something neutral is fine. Most people rule out very little.</p>
    <div class="grp">Something we've missed?</div>
-   <textarea id="own" placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
+   <textarea id="own" aria-label="Anything we have missed \u2014 one per line"
+    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
    <p class="hint" style="margin-top:8px">These travel inside your code and show up in the group picture,
    so anything several of you add can go on the list properly next time.</p>`,
  save:()=>{grabOwn();return null;}},
@@ -990,9 +1052,12 @@ const STEPS=[
  save:()=>null},
 
 {t:"How would you use it?",k:"Be honest rather than aspirational.",
- r:()=>USES.map(([k,a])=>opt(S.use===k,"use",k,a)).join("")+
-  `<p class="hint" style="margin-top:20px"><b>Who would be coming with you?</b></p>`+
-  HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+
+ r:()=>`<p class="vh" id="q-use">How would you use it?</p>
+   <div role="group" aria-labelledby="q-use">`+
+  USES.map(([k,a])=>opt(S.use===k,"use",k,a)).join("")+
+  `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
+   <div role="group" aria-labelledby="q-hh">`+
+  HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
   `<div class="note" style="margin-top:22px"><b>And where are you coming from?</b>
    Not idle curiosity, and not used for anything else: which passport you hold and which
    country you live in decide what is legally possible. Italy only sells to buyers from
@@ -1007,15 +1072,17 @@ const STEPS=[
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
- r:()=>`<p class="hint" style="margin:0 0 12px"><b>Renting together first.</b> Living somewhere together
-   for a year before any money goes into land.</p>`+
-  TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+
+ r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first.</b> Living somewhere
+   together for a year before any money goes into land.</p>
+   <div role="group" aria-labelledby="q-tr">`+
+  TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+`</div>`+
   `<details class="more" data-more="trial" ${moreOpen.trial?"open":""} style="margin-top:14px">
-   <summary>Where this idea came from</summary><div class="note">It came out of the September call. It was
+   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came out of the September call. It was
    the strongest proposal in the room and nobody has actually been asked about it, so this is the question
    doing the most work on this page.</div></details>
-   <p class="hint" style="margin-top:20px"><b>Realistically, when?</b></p>`+
-  HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+
+   <p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
+   <div role="group" aria-labelledby="q-hz">`+
+  HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`+
   `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
    a place you cannot leave, a number you cannot reach. Deal-breakers are worth more than preferences.</p>
    <textarea id="stop" aria-label="What would make you walk away"
@@ -1024,20 +1091,22 @@ const STEPS=[
   return S.hz?null:"Pick a rough timeframe.";}},
 
 {t:"Money, roughly",k:"Bands, not commitments. Rough prices and climate per region sit under the questions.",
- r:()=>`  <p class="hint" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 a one-time contribution toward
-   buying and fixing the place.</p>`+
+ r:()=>`  <p class="hint" id="q-cap" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 a one-time contribution
+   toward buying and fixing the place.</p><div role="group" aria-labelledby="q-cap">`+
   bandBtns(CAP,CAPOFFER,CAPSPLIT,S.cap,"cap")+
-  `<p class="hint" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of insurance, heating,
-   maintenance, tax, repairs. This continues forever, and it is what usually breaks these projects.</p>`+
+  `</div><p class="hint" id="q-run" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of
+   insurance, heating, maintenance, tax, repairs. This continues forever, and it is what usually breaks
+   these projects.</p><div role="group" aria-labelledby="q-run">`+
   bandBtns(RUN,RUNOFFER,RUNSPLIT,S.run,"run")+
-  `<p class="hint" style="margin-top:18px"><b>3.</b> Would you borrow to take part?</p>`+
-  ["Yes","Maybe","No"].map(d=>opt(S.debt===d,"debt",d,d)).join("")+
+  `</div><p class="hint" id="q-debt" style="margin-top:18px"><b>3. Would you borrow to take part?</b></p>
+   <div role="group" aria-labelledby="q-debt">`+
+  ["Yes","Maybe","No"].map(d=>opt(S.debt===d,"debt",d,d)).join("")+`</div>`+
   /* 417 of this step's 475 words used to stand between the person and the first control they
      could answer with. The content calibrates the answer and is worth keeping whole, so it
      moves rather than shrinks: a disclosure directly beneath the questions, closed to begin
      with, announced by the lede so nobody has to discover it. */
   `<details class="more" data-more="money" ${moreOpen.money?"open":""} style="margin-top:24px">
-   <summary>What do these numbers mean?</summary><div class="note">Rough all-in cost of a house with some land, before
+   <summary><span class="mk" aria-hidden="true"></span>What do these numbers mean?</summary><div class="note">Rough all-in cost of a house with some land, before
    renovation, and where each region's climate is heading. Orders of magnitude for calibration, not quotes,
    and the climate lines are direction of travel rather than forecasts.
    <span class="row"><b>Pyrenees</b> (Ari&egrave;ge, Hautes-Pyr&eacute;n&eacute;es) &middot; &euro;120&ndash;300k
@@ -1109,7 +1178,7 @@ const STEPS=[
  r:()=>`<textarea id="why" aria-label="Why do you want this at all"
    placeholder="Because...">${esc(S.why||"")}</textarea>
    <details class="more" data-more="why" ${moreOpen.why?"open":""} style="margin-top:14px">
-   <summary>Why this one is here</summary><div class="note">Nothing to do with the questions above
+   <summary><span class="mk" aria-hidden="true"></span>Why this one is here</summary><div class="note">Nothing to do with the questions above
    \u2014 this one is about the whole idea. Skip it if you'd rather; nothing depends on it. If you do
    write something it gets quoted back to the group, and it tends to be the part people actually
    remember.</div></details>`,
@@ -1150,8 +1219,9 @@ function paintChip(b){
  const name=lab?lab.textContent:k;
  b.className=("chip "+ACTCLASS[v]).replace(/\s+$/,"");
  const g=b.querySelector(".g"); if(g)g.textContent=ACTSTATE[v][0];
+ /* The chip keeps focus through the repaint, and a change to the focused element's own
+    accessible name is announced. say() as well said the same words twice on every tap. */
  b.setAttribute("aria-label",name+": "+ACTSTATE[v][1]);
- say(name+": "+ACTSTATE[v][1]);
 }
 function paintTokens(){
  const el=document.getElementById("left"); if(el)el.textContent=BANK-spent();
@@ -1202,7 +1272,11 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-pinclr]",b=>b.onclick=()=>{grabOwn();if(S.pin)delete S.pin[b.dataset.pinclr];
    autosave();render();});
  q("[data-rg]",b=>b.onclick=()=>{grabOwn();const p=b.dataset.rg;
-   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(liveRg().length<2)S.rg.push(p);
+   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p);
+   else if(liveRg().length<2)S.rg.push(p);
+   /* Refusing a third pick by doing nothing at all leaves somebody who cannot see the two
+      filled buttons with no idea why the tap had no effect. */
+   else say("Two regions is the limit. Unpick one of them first.");
    autosave();render();});
  q("[data-sp]",b=>b.onclick=()=>{const k=b.dataset.sp,d=+b.dataset.d;
    const v=S.sp[k]+d; if(v<0||v>10||(d>0&&spent()>=BANK))return; S.sp[k]=v; autosave();
@@ -1213,12 +1287,12 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  if(nx)nx.onclick=()=>{const e=STEPS[step].save&&STEPS[step].save();
    if(e){document.getElementById("err").textContent=e;return;}
    autosave();
-   if(rvJump>=0){rvJump=-1;mode="review";}
+   if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";}
    else if(step===STEPS.length-1)mode="review"; else step++;
    window.scrollTo(0,0);render();};
  const bk=document.getElementById("back");
  if(bk)bk.onclick=()=>{grabOwn();autosave();
-   if(rvJump>=0){rvJump=-1;mode="review";} else step--;
+   if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";} else step--;
    window.scrollTo(0,0);render();};
  const ex=document.getElementById("exit");
  if(ex)ex.onclick=()=>{grabOwn();autosave();rvJump=-1;mode="home";window.scrollTo(0,0);render();};
@@ -1324,7 +1398,12 @@ const RVMADE="Not chosen \u2014 a code cannot carry a blank here, so it says thi
 /* Everything that reaches the markup is escaped here, once, so no caller can forget. */
 function rvRow(key,jump,plain,sub){
  const has=plain!==undefined&&plain!==null&&String(plain)!=="";
- return `<button class="rv" data-jump="${jump}" aria-label="${esc("Change "+key+". "+(has?String(plain):"Not answered")+".")}">
+ /* The name has to carry the sub-line too. aria-label replaces the entire subtree, so a
+    note that is only in the markup reaches sighted readers and nobody else - and on this
+    screen the notes are the part that says an answer was invented, or that a band has been
+    split since. data-fk is here so returning from a jumped step lands back on this row. */
+ return `<button class="rv" data-jump="${jump}" data-fk="${esc("rv:"+jump)}"
+  aria-label="${esc("Change "+key+". "+(has?String(plain):"Not answered")+"."+(sub?" "+sub:""))}">
   <span class="rv2"><span class="rk">${esc(key)}</span>${has?esc(plain):NOANS}${
    sub?`<span class="rs">${esc(sub)}</span>`:""}</span>
   <span class="rc" aria-hidden="true">change</span></button>`;
@@ -1396,11 +1475,16 @@ function review(){
  const r=dec||pay, sound=!!dec&&!broke;
  const bad=sound?rvCheck(pay,dec):[];
  const onBoard=boardEdit>=0, nm=String(pay.n||"").trim();
+ /* A row stored from a C1/C2/C3 code has no tr key at all: the trial-year question came
+    after it. Saying "this is where the question starts" of somebody who was never asked
+    puts words in their mouth, which is the whole thing this screen exists not to do. */
+ const rawRow=onBoard?(boardGet()[boardEdit]||null):null;
+ const neverAsked=!!rawRow&&!("tr" in rawRow);
  const missing=RVREQ.filter(([k])=>!String(pay[k]||"").trim());
  const noTokens=SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
  const guessed=RVGUESS.filter(([k])=>!String(pay[k]||"").trim());
 
- const sec=t=>`<div class="sec">${esc(t)}</div>`;
+ const sec=t=>`<h3 class="sec">${esc(t)}</h3>`;
  const sp=SPEND.map(([k,a])=>({a:a,v:(r.sp&&r.sp[k])||0})).sort((x,y)=>y.v-x.v);
  const spTot=sp.reduce((a,x)=>a+x.v,0);
  const byState=[[],[],[],[]];
@@ -1420,6 +1504,11 @@ function review(){
    `Read back out of the code itself, so this is exactly what the group will see. Tap any line
     to change it.`}</p>`;
 
+ const nameSaid=!!nameRefused;
+ if(nameRefused){
+  h+=`<div class="warn" role="status">${esc(nameRefused)}</div>`;
+  nameRefused="";
+ }
  if(broke){
   h+=`<div class="warn" role="status"><b>This code is not readable.</b> Written and read back,
    ${esc(broke)}. That is a fault in this page rather than in the answers, and the answers
@@ -1479,7 +1568,9 @@ function review(){
    TOL.some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
     "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
   sec("Timing, and what would stop you")+
-  rvRow("Renting together first",6,labOf(TRIAL,r.tr),r.tr===TRIAL[0][0]?RVLEFT:"")+
+  rvRow("Renting together first",6,labOf(TRIAL,r.tr),
+   neverAsked?"Their code predates this question, so they were never asked it.":
+   (r.tr===TRIAL[0][0]?RVLEFT:""))+
   rvRow("Realistically, when",6,labOf(HORIZON,r.hz),pay.hz?"":RVMADE)+
   rvRow("What would make you walk away",6,r.st)+
   sec("Money")+
@@ -1513,6 +1604,10 @@ function review(){
    `Nothing has been sent anywhere. The code on the next screen is the only thing that leaves
     this device.`}</p>`;
  app.innerHTML=h;
+ /* A live region inserted with its text already in it is not announced - the same rule
+    say() was built for, and this screen was breaking it. The box stays where it is. */
+ if(iffy||nameSaid)setTimeout(()=>{const w=document.querySelector("#app .warn");
+  if(w)say(w.textContent.replace(/\s+/g," ").trim());},60);
  document.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>{
   rvJump=+b.dataset.jump; step=rvJump; mode="build"; window.scrollTo(0,0); render();});
  document.getElementById("exit").onclick=()=>{
@@ -1662,7 +1757,8 @@ function combine(){
  back to the board.</p>`:""}
  ${undoRow?`<div class="ok" role="status" aria-live="polite">Removed
    <b>${esc(undoRow.rec.n||"anon")}</b>. <button class="lnk" id="undo">Put them back</button></div>`:""}
- <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
+ <textarea id="tx" aria-label="Paste new codes here, one per line"
+  placeholder="Paste new codes here \u2014 one per line"></textarea>
  <button class="btn" id="add">Add to the board</button>
  ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
    `<p class="hint" style="margin-top:12px">Some of these answers picked a region from the earlier list.
@@ -2085,7 +2181,11 @@ function result(){
  const pinMap=c=>{const m={};Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
  try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
  let secList=[];
- const sec=label=>{const id="sec"+secList.length;secList.push({id,label});return `<div class="sec" id="${id}">${label}</div>`;};
+ /* h3, not a div: these are the only structure over twenty-odd screens, and a screen
+    reader navigating by heading used to get one stop for the whole page. .sec already sets
+    the size and spacing; font-weight is pinned in the rule so nothing moves. */
+ const sec=label=>{const id="sec"+secList.length;secList.push({id,label});
+  return `<h3 class="sec" id="${id}">${label}</h3>`;};
 
  /* ---------- headline findings ---------- */
  const rows=[];
@@ -2106,13 +2206,77 @@ function result(){
  const knownM=avg(codes.map(c=>spv(c,"known")));
  if(knownM<2) cards.push(["Stated versus revealed",`<b>Somewhere we know</b> scored only ${knownM.toFixed(1)} of 20. Sentiment about a place tends to rank high in conversation and low when it costs something. Worth being honest about.`,"split"]);
 
+ /* ---------- where this leaves us ----------
+    Five lines about the thing the group exists to decide, at the top of a page that
+    otherwise opens with findings about the questionnaire. Every line is a count or a pool
+    the page already computes further down; nothing here is interpretation, and there is no
+    adjective in it. A tie prints as a tie rather than picking a winner, and a question
+    nobody answered says so rather than disappearing. */
+ const lead=pairs=>{const live=pairs.filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+  if(!live.length)return null;
+  const top=live[0][1];
+  return {tied:live.filter(x=>x[1]===top),rest:live.filter(x=>x[1]<top)};};
+ /* One label already contains a comma of its own - "Someday, no timeline" - so neither the
+    count nor the next item can be attached to it with one. Parentheses bind the count to
+    its name whatever the name is, and a middot separates the items. */
+ const leadTxt=L=>{
+  if(!L)return null;
+  const names=L.tied.map(x=>`<b>${esc(x[0])}</b>`);
+  const head=L.tied.length===1?`${names[0]} (${L.tied[0][1]})`:
+   `${names.slice(0,-1).join(", ")} and ${names[names.length-1]} (${L.tied[0][1]} each)`;
+  return head+(L.rest.length?` <em>&mdash; then ${
+    L.rest.map(x=>esc(x[0])+" ("+x[1]+")").join(" &middot; ")}</em>`:"");};
+ const sumRows=[];
+ const srow=(k,v)=>sumRows.push(`<div class="sr"><span class="sk">${esc(k)}</span>
+   <span class="sv">${v}</span></div>`);
+ /* Regions: ranked among the four on the shortlist, with picks from the earlier list
+    counted separately rather than ranked against regions nobody can choose now. */
+ {const t={};codes.forEach(c=>rgOf(c).forEach(x=>{t[x]=(t[x]||0)+1;}));
+  const liveL=leadTxt(lead(REGIONS.map(r=>[SHORT[r]||r,t[r]||0])));
+  const gone=RETIRED.map(r=>[r,t[r]||0]).filter(x=>x[1]);
+  srow("Where",(liveL||"<em>nobody picked a region</em>")+
+   (gone.length?` <em>&middot; ${gone.reduce((a,x)=>a+x[1],0)} for regions since dropped</em>`:""));}
+ /* The trial year sits second: it is the proposal the September call put highest and the
+    one nothing else on this page can settle. "No view" is the stored default as well as a
+    real answer, and the record cannot tell those apart, so the line says so. */
+ {const f=codes.filter(c=>c.tr==="must"||c.tr==="good").length,
+    ag=codes.filter(c=>c.tr==="skip"||c.tr==="against").length,
+    nv=N-f-ag;
+  srow("Trial year",(f||ag)?
+   `<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
+   `<em>${N===2?"both of you":"all "+nword(N)+" of you"} left it at "no view", which is
+    also where it starts</em>`);}
+ {const t={};codes.forEach(c=>{if(c.hz)t[c.hz]=(t[c.hz]||0)+1;});
+  srow("When",leadTxt(lead(HORIZON.map(([k,a])=>[a,t[k]||0])))||"<em>nobody gave a timeframe</em>");}
+ /* Pooled from CAPEUR / RUNEUR, the same ranges the two rows further down use. */
+ {const cs=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]),
+    rs=codes.filter(c=>typeof c.rn==="number"&&RUNEUR[c.rn]);
+  const cap=cs.length?`<b>&euro;${num(cs.reduce((a,c)=>a+CAPEUR[c.cp][0],0))}&ndash;${
+     num(cs.reduce((a,c)=>a+CAPEUR[c.cp][1],0))}k</b> up front`:"",
+   run=rs.length?`<b>&euro;${num(rs.reduce((a,c)=>a+RUNEUR[c.rn][0],0))}&ndash;${
+     num(rs.reduce((a,c)=>a+RUNEUR[c.rn][1],0))}</b> a month`:"";
+  const who2=cs.length===rs.length?`${cs.length} of ${N} put a number on both`:
+   `${cs.length} of ${N} gave a capital band, ${rs.length} a monthly one`;
+  srow("Money",(cap||run)?[cap,run].filter(Boolean).join(", ")+` <em>&mdash; ${who2}</em>`:
+   `<em>nobody put a number on it</em>`);}
+ {const st=codes.filter(c=>c.st&&c.st.trim()).length;
+  srow("Stoppers",st?`<b>${st}</b> of ${N} named a deal-breaker`:
+   `<em>nobody named a deal-breaker</em>`);}
+
  let h=`<div class="kicker">${N} of you</div><h2>Where you stand</h2>
+  ${sec("Where this leaves us")}<div class="sum">
+   <p class="lede2"><b>${N} answer${N===1?"":"s"} so far.</b> Every line is a count of those
+   ${nword(N)}, not of the group.</p>${sumRows.join("")}</div>
   <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
   <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>
   ${N>PAL.length?`<p class="hint">With more than ${PAL.length} of you, a couple of colors repeat above &mdash; go by the names, not just the dots.</p>`:""}`;
  /* Three is what anyone reads before scrolling past. The rest are still on the page
-    lower down as their own sections, so nothing is actually lost by capping here. */
- h+=cards.slice(0,3).map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
+    lower down as their own sections, so nothing is actually lost by capping here. They are
+    held back until the alignment gauge: they say which axis is most settled and which most
+    divided, which is that gauge broken up, not a finding about where to buy. Above it they
+    sat between the five lines and the number they are about. */
+ const cardHTML=cards.slice(0,3).map(([t,b,k])=>
+   `<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
  h+="__SECNAV__";
 
  /* ---------- alignment score ---------- */
@@ -2162,7 +2326,8 @@ function result(){
   <text x="${(gcx-gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">0</text>
   <text x="${(gcx+gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">100</text></svg>`;
  h+=`${sec("How aligned are you")}<div class="chartwrap">${gauge}</div>
-  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>`;
+  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>
+  ${cardHTML}`;
  secScores.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
   h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
    <div class="bar"><span style="width:${(v*100).toFixed(0)}%;background:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}"></span></div></div>`;});
@@ -2558,12 +2723,12 @@ function result(){
  const said=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]);
  if(said.length){const lo=said.reduce((a,c)=>a+CAPEUR[c.cp][0],0),hi=said.reduce((a,c)=>a+CAPEUR[c.cp][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled up-front capital</b><em>${said.length}/${N} answered</em></div>
-   <p class="hint" style="margin:4px 0 0">Roughly &euro;${lo}k&ndash;${hi}k before borrowing. A house with land runs
+   <p class="hint" style="margin:4px 0 0">Roughly &euro;${num(lo)}k&ndash;${num(hi)}k before borrowing. A house with land runs
    &euro;120k&ndash;1.2M depending on region, so this is ${hi<150?"early days":"a real start"}.</p></div>`;}
  const rs=codes.filter(c=>typeof c.rn==="number"&&RUNEUR[c.rn]);
  if(rs.length){const lo=rs.reduce((a,c)=>a+RUNEUR[c.rn][0],0),hi=rs.reduce((a,c)=>a+RUNEUR[c.rn][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled monthly</b><em>${rs.length}/${N} answered</em></div>
-   <p class="hint" style="margin:4px 0 0">About &euro;${lo}&ndash;${hi} a month between you.</p></div>`;}
+   <p class="hint" style="margin:4px 0 0">About &euro;${num(lo)}&ndash;${num(hi)} a month between you.</p></div>`;}
  const splitBands=[];
  if(codes.some(c=>c.cp===CAPSPLIT))splitBands.push(`<b>${esc(CAP[CAPSPLIT])}</b> up front`);
  if(codes.some(c=>c.rn===RUNSPLIT))splitBands.push(`<b>${esc(RUN[RUNSPLIT])}</b> a month`);
