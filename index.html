@@ -2,12 +2,12 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Fifteen friends working out where to buy a place together in Europe. Eleven questions on your own, no right answers, and it saves as you go, so you can stop anywhere and come back for your code later.">
+<meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
 <meta property="og:title" content="Build your commons">
 <meta property="og:site_name" content="Bergensers Commons">
-<meta property="og:description" content="Fifteen friends working out where to buy a place together in Europe. Eleven questions on your own, no right answers, and it saves as you go, so you can stop anywhere and come back for your code later.">
+<meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
 <meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
@@ -17,6 +17,19 @@ html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%;scroll-
 :root{color-scheme:light only;
  --paper:#EAEDE8; --ink:#131E1B; --pine:#22423A; --glacier:#35748A; --madder:#7C2E3E;
  --gold:#8A6A2F; --rule:rgba(19,30,27,.16); --rule2:rgba(19,30,27,.07);
+ /* --rule was doing two unrelated jobs. As the boundary of something you can tap it has to
+    reach 3:1 (WCAG SC 1.4.11) and does not - 1.38:1 against the paper, with the button's own
+    fill at 1.09:1, so nothing was really saying where a tappable area began. As a hairline
+    between rows it is decorative and 1.4.11 does not govern it. Pushing the single token to
+    the .48 that 3:1 needs would have taken every separator and card edge in the file with
+    it, and traded the soft editorial feel for something much harder. So: --edge on controls
+    only - .opt, .chip, inputs, textareas, buttons - and --rule left alone everywhere else. */
+ /* .54, not the .48 that reaches 3:1 on its own: a border composites over the control's OWN
+    fill before the page shows through it, so the figure that decides whether you can see
+    where a control begins is the border against the paper OUTSIDE. At .48 that is 2.81:1 on
+    a chip and 2.74:1 on a text input, which have different fills. .54 clears 3:1 on all of
+    them. */
+ --edge:rgba(19,30,27,.54);
  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -45,10 +58,10 @@ h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;marg
 button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .btn{display:block;width:100%;padding:14px 16px;font-size:16px;background:var(--pine);color:var(--paper);border:none;margin-top:10px}
 .btn:hover{background:#1a352e}
-.btn.ghost{background:none;color:var(--pine);border:1px solid var(--rule)}
+.btn.ghost{background:none;color:var(--pine);border:1px solid var(--edge)}
 .btn.ghost:hover{border-color:var(--pine)}
 .opt{display:block;width:100%;text-align:left;padding:13px 15px;margin-bottom:8px;background:rgba(255,255,255,.5);
- border:1px solid var(--rule);color:var(--ink);font-size:15.5px;line-height:1.35}
+ border:1px solid var(--edge);color:var(--ink);font-size:15.5px;line-height:1.35}
 .opt:hover{border-color:var(--pine)}
 .opt.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
 .opt small{display:block;font-size:12.5px;opacity:.75;margin-top:2px}
@@ -56,7 +69,7 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .tok .lb{flex:1;font-size:15px}
 .tok .lb small{display:block;font-size:12px;color:var(--pine);opacity:.7}
 .tok .pips{font-family:var(--mono);font-size:13px;color:var(--glacier);min-width:60px;text-align:right;letter-spacing:1px}
-.tok button{width:44px;height:44px;font-size:18px;background:none;border:1px solid var(--rule);color:var(--pine);line-height:1}
+.tok button{width:44px;height:44px;font-size:18px;background:none;border:1px solid var(--edge);color:var(--pine);line-height:1}
 .tok button:disabled{opacity:.22;cursor:default}
 .bank{position:sticky;top:0;background:var(--paper);padding:11px 0;font-family:var(--mono);font-size:12.5px;
  letter-spacing:.06em;color:var(--pine);border-bottom:1px solid var(--rule);z-index:5}
@@ -70,7 +83,7 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
    until the grid wraps into the same 23 rows it did before, so the only height this step
    gains is the 8px per row that the 44px target costs. */
 .chip{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 9px 0 6px;font-size:14px;
- border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--ink)}
+ border:1px solid var(--edge);background:rgba(255,255,255,.5);color:var(--ink)}
 /* Neutral and "nice to have" are 1.3:1 apart in greyscale, which is far under the 3:1 a
    state needs to be identifiable, so that distinction was carried by hue alone (WCAG
    SC 1.4.1). Deepening the fill enough to reach 3:1 would make "nice to have" look as
@@ -101,7 +114,7 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
    thumb is unchanged and the reachable area is nearly three times the size. */
 input[type=range]{width:100%;accent-color:var(--pine);height:44px;background:none;margin:0}
 input[type=text],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
- border:1px solid var(--rule);border-radius:3px;color:var(--ink)}
+ border:1px solid var(--edge);border-radius:3px;color:var(--ink)}
 textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical}
 .dots{display:flex;gap:5px;margin-bottom:18px}
 .dots i{height:3px;flex:1;background:var(--rule);border-radius:2px}
@@ -125,7 +138,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .secnav{position:sticky;top:0;z-index:4;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
  white-space:nowrap;background:var(--paper);padding:9px 0;margin:16px 0 6px;border-bottom:1px solid var(--rule)}
 .secnav a{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--pine);
- text-decoration:none;padding:6px 11px;border:1px solid var(--rule);border-radius:20px;background:rgba(255,255,255,.6)}
+ text-decoration:none;padding:6px 11px;border:1px solid var(--edge);border-radius:20px;background:rgba(255,255,255,.6)}
 .secnav a:active,.secnav a:hover{border-color:var(--pine)}
 /* Sixteen chips in a strip 358px wide: fourteen of them are off-screen, so without a
    marker the nav cannot tell you where you are in twenty-odd screens of page. The current
@@ -158,7 +171,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
 /* Underlined even at rest: beside the name in the same size and family, "Not you?" read
    as part of the name rather than as the way out. */
-.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
+.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--edge)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
  color:var(--pine);opacity:.8}
 /* Every control on the page is a custom button, so the browser default ring is all a
@@ -217,14 +230,14 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
    hover. Underlined at rest instead, the same device the step bar's "Not you?" uses, and
    at full strength: --glacier tops out at 4.43:1, still under the 4.5:1 this size needs. */
 .rv .rc{flex:none;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
- color:var(--pine);text-decoration:underline;text-decoration-color:var(--rule)}
+ color:var(--pine);text-decoration:underline;text-decoration-color:var(--edge)}
 .rv:hover .rc{text-decoration-color:var(--pine)}
 /* A blank is an answer too. It is said, not omitted - and said quietly, so a page of them
    does not read as a page of errors. */
 /* A blank is an answer too. It is said, not omitted - and said quietly by being italic,
    not by being faint: at opacity .6 this measured 3.26:1, and it is the value on most rows
    of a review somebody has not finished. */
-.rv .no{color:var(--pine);font-style:italic}
+.rv .no,.res .t b.no{color:var(--pine);font-style:italic;font-weight:400}
 
 /* For text that has to reach a screen reader and nothing else - a token count that is drawn
    as pips, and the live region that announces a chip's new state on every tap. */
@@ -261,7 +274,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 /* Removing a row is one tap and a row may be the only copy of what somebody sent, so the
    target for it is at least sized properly. The name beside it is now the main way into an
    edit, and was 32 tall. */
-.brow .x{width:44px;height:44px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
+.brow .x{width:44px;height:44px;background:none;border:1px solid var(--edge);color:var(--madder);font-size:16px;line-height:1}
 .brow .bedit{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
  background:none;border:none;padding:0;min-height:44px;text-align:left;color:var(--ink);font-size:15px;
  font-family:var(--sans);cursor:pointer}
@@ -282,7 +295,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .pinbox .pf{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px}
 .pinbox .pf span{font-size:12.5px;color:var(--ink);min-width:0}
 .pinbox .pf span b{font-weight:600}
-.pinbox .pf button{flex:none;background:none;border:1px solid var(--rule);color:var(--pine);
+.pinbox .pf button{flex:none;background:none;border:1px solid var(--edge);color:var(--pine);
  font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
  min-height:44px;padding:0 12px}
 .pinbox .pf button:hover{border-color:var(--pine)}
@@ -293,7 +306,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .insp.open{transform:translateY(0)}
 .insp .ihead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
 .insp .ihead b{font-family:var(--serif);font-size:18px;font-weight:500}
-.insp #iclose{background:none;border:1px solid var(--rule);color:var(--pine);width:32px;height:32px;font-size:18px;line-height:1}
+.insp #iclose{background:none;border:1px solid var(--edge);color:var(--pine);width:32px;height:32px;font-size:18px;line-height:1}
 .irow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--rule2)}
 .irow:last-child{border-bottom:none}
 .idot{width:11px;height:11px;border-radius:50%;flex:none}
@@ -304,7 +317,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .qcap{font-size:13px;color:var(--pine);background:rgba(255,255,255,.5);border:1px solid var(--rule);
  border-radius:3px;padding:9px 11px;margin:-10px 0 16px;min-height:38px}
 .pchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
-.pchip{padding:7px 12px;font-size:13px;border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--pine);border-radius:20px}
+.pchip{padding:7px 12px;font-size:13px;border:1px solid var(--edge);background:rgba(255,255,255,.5);color:var(--pine);border-radius:20px}
 .pchip.on{background:var(--pc,var(--pine));border-color:var(--pc,var(--pine));color:#fff}
 .pchip.alt{--pc:#131E1B}
 .qkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px}
@@ -1058,17 +1071,18 @@ const STEPS=[
   `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
    <div role="group" aria-labelledby="q-hh">`+
   HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
-  `<div class="note" style="margin-top:22px"><b>And where are you coming from?</b>
-   Not idle curiosity, and not used for anything else: which passport you hold and which
-   country you live in decide what is legally possible. Italy only sells to buyers from
-   outside the EU whose own country returns the favour; Switzerland is closed to
-   non-residents almost entirely; and a mortgage nearly always needs income in the country
-   you are buying in, which changes a deposit into a cash purchase. A word each is enough,
-   and you can leave them blank.</div>
+  /* The reason for asking stays above the inputs: why somebody's personal data is wanted
+     is not reference material and does not belong behind a disclosure, whatever it costs in
+     fold. It is 30 words now instead of 85, which is the part that was actually wrong. */
+  `<p class="hint" id="q-from" style="margin-top:22px"><b>And where are you coming from?</b>
+   Which passport you hold and which country you live in decide what is legally possible.
+   Both optional.</p>
+   <div role="group" aria-labelledby="q-from">
    <div class="sl"><label for="cz">Passport, or passports</label>
     <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
    <div class="sl"><label for="lv">Country you live in now</label>
-    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>`,
+    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>
+   </div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
@@ -1310,7 +1324,7 @@ function home(){
  <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
  countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
  <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
- <p class="lede">So: eleven questions, on your own, no right answers. ${lsFailed?
+ <p class="lede">So: ${nword(STEPS.length)} steps, on your own, no right answers. ${lsFailed?
  `Nothing saves on this device \u2014 see below \u2014 so do it in one sitting and copy your code at the end.`:
  `It saves as you go \u2014 stop anywhere and come back for your code later.`} You build your own version:
  what shape it takes, what has to be possible there, what you could put in, when. At the end you get a
@@ -1499,8 +1513,8 @@ function review(){
   <div class="kicker">${onBoard?"The board":"Nearly there"}${nm?" &middot; "+esc(nm):""}</div>
   <h2>${onBoard?`What ${esc(nm||"this row")} now says`:"Check your answers"}</h2>
   <p class="lede">${onBoard?
-   `This is what the board holds for ${esc(nm||"them")}, read back out of their code. Tap any line to
-    change it \u2014 that is quicker than walking the eleven questions again.`:
+   `This is what the board holds for ${esc(nm||"them")}, read back out of their code. Tap any line
+    to change it.`:
    `Read back out of the code itself, so this is exactly what the group will see. Tap any line
     to change it.`}</p>`;
 
@@ -2283,17 +2297,29 @@ function result(){
  const agr=(vals,range)=>{if(N<2)return 1;let t=0,c=0;
   for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){t+=Math.abs(vals[i]-vals[j]);c++;}
   return Math.max(0,Math.min(1,1-(t/c)/range));};
- const catAgr=vals=>{if(N<2)return 1;const t={};vals.forEach(v=>t[v]=(t[v]||0)+1);
-  return (Math.max(...Object.values(t))-1)/(N-1);};
+ /* Over raw values including "", a non-answer did not merely count as agreement: a large
+    enough block of blanks became the largest group and set the score. Tally only the
+    answers, and divide by how many of those there are. Under two answers there is no
+    agreement to measure, so it returns null and the caller drops the component rather than
+    inventing a number for it. */
+ let catSkipped=0;
+ const catAgr=vals=>{const a=vals.filter(v=>v!==""&&v!=null);
+  catSkipped+=vals.length-a.length;
+  if(a.length<2)return null;
+  const t={};a.forEach(v=>t[v]=(t[v]||0)+1);
+  return (Math.max(...Object.values(t))-1)/(a.length-1);};
+ /* average of the parts that have a value; null if none of them do */
+ const avgSome=xs=>{const a=xs.filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+  return a.length?avg(a):null;};
  const desire=v=>v===2?1:v===1?.5:v===3?-.5:0;
  const secScores=[
-  ["Shape of the place",catAgr(codes.map(c=>c.s||""))],
+  ["Shape of the place",catAgr(codes.map(c=>c.s))],
   ["Land & buildings",avg(SPEND.map(([k])=>agr(codes.map(c=>spv(c,k)),8)))],
   ["What's possible",avg(ACTS.flatMap(([g,it])=>it.map(([k])=>agr(codes.map(c=>desire((c.a&&c.a[k])||0)),1.5))))],
   ["Tolerances",avg(TOL.map(([k])=>agr(codes.map(c=>tov(c,k)),4)))],
   ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
-  ["Money & commitment",avg([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
-    agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u||"")),catAgr(codes.map(c=>c.d||""))])],
+  ["Money & commitment",avgSome([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
+    agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u)),catAgr(codes.map(c=>c.d))])],
   /* Region overlap, discounted by how far apart the pins are inside a shared region.
      Two people who both say "Italian Alps" but mean Piedmont and Friuli are not agreed.
      With no pins the discount is 1, so a pin-less board scores exactly as it did before. */
@@ -2310,7 +2336,10 @@ function result(){
     }
     t+=base;c2++;}return c2?t/c2:1;})()]
  ];
- const SCORE=Math.round(avg(secScores.map(x=>x[1]))*100);
+ /* A component that came back null had fewer than two answers to compare, so there is no
+    agreement to measure - it leaves the average and the list rather than being counted. */
+ const secLive=secScores.filter(x=>x[1]!==null&&x[1]!==undefined&&!isNaN(x[1]));
+ const SCORE=Math.round(avg(secLive.map(x=>x[1]))*100);
  const verdict=SCORE>=75?"You are largely of one mind.":SCORE>=55?"Broadly aligned, with real gaps.":
    SCORE>=40?"Genuinely divided \u2014 plenty to talk about.":"You are picturing different things.";
  const GW=280,GH=152,gcx=140,gcy=126,gr=96;
@@ -2326,9 +2355,12 @@ function result(){
   <text x="${(gcx-gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">0</text>
   <text x="${(gcx+gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">100</text></svg>`;
  h+=`${sec("How aligned are you")}<div class="chartwrap">${gauge}</div>
-  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>
+  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.${
+   catSkipped?` A question somebody did not answer is left out of this rather than counted
+   as agreement with everyone else who did not answer it, so ${catSkipped===1?"one answer is":
+   catSkipped+" answers are"} not in the number above.`:""}</p>
   ${cardHTML}`;
- secScores.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
+ secLive.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
   h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
    <div class="bar"><span style="width:${(v*100).toFixed(0)}%;background:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}"></span></div></div>`;});
 
@@ -2647,6 +2679,14 @@ function result(){
  STYLES.forEach(([k,a])=>{const n=codes.filter(c=>c.s===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.s===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
+ /* A blank shape now stays blank in the code rather than being written as "Separate
+    houses", so it matches no bar - and the bars quietly summed to fewer than N with nothing
+    saying where the rest went. Said, the way a retired region pick is. */
+ {const noS=codes.filter(c=>!c.s);
+  if(noS.length)h+=`<div class="res"${insAttr("Did not answer",
+    noS.map(c=>{const i=codes.indexOf(c);return [nameOf(i),PAL[i%PAL.length],"no answer"];}))}>
+   <div class="t"><b class="no">Did not answer</b><em>${noS.length}/${N}</em></div>
+   <div class="bar"><span style="width:${noS.length/N*100}%;background:var(--rule)"></span></div></div>`;}
  USES.forEach(([k,a])=>{const n=codes.filter(c=>c.u===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.u===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}${n===N?` <span class="tag agree">all of you</span>`:""}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--glacier)"></span></div></div>`;});
@@ -2737,8 +2777,16 @@ function result(){
   places actually found cost more than the old top band could describe. Counted here at the
   old range and shown as given, not moved into a band nobody picked \u2014 worth asking those
   people to answer again.</p>`;
- const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length;
- h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${N-yes-mb} no</em></div></div>`;
+ /* "no" used to be the remainder, so every code that carries no borrowing answer at all
+    was reported to the group as a No. recBin now writes the spare 2-bit value 3 for a blank
+    rather than inventing a Yes, and this is the other half of that: count the three answers
+    and say how many did not give one, the way the pooled rows already say "12/15 answered".
+    The money step will not let anyone past without answering, so a blank only arrives on an
+    imported code or an old draft - which is exactly the case where inventing an answer for
+    somebody who never gave one does the most damage. */
+ const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length,
+   nope=codes.filter(c=>c.d==="No").length, dunno=N-yes-mb-nope;
+ h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${nope} no${dunno?` &middot; ${dunno} didn't say`:""}</em></div></div>`;
 
  /* ---------- write-ins ---------- */
  const own={};
@@ -2807,7 +2855,7 @@ function result(){
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
  document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
-  sections:secScores.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
+  sections:secLive.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
   locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
   regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
     .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
