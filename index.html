@@ -1489,11 +1489,12 @@ function review(){
  const r=dec||pay, sound=!!dec&&!broke;
  const bad=sound?rvCheck(pay,dec):[];
  const onBoard=boardEdit>=0, nm=String(pay.n||"").trim();
- /* A row stored from a C1/C2/C3 code has no tr key at all: the trial-year question came
-    after it. Saying "this is where the question starts" of somebody who was never asked
-    puts words in their mouth, which is the whole thing this screen exists not to do. */
- const rawRow=onBoard?(boardGet()[boardEdit]||null):null;
- const neverAsked=!!rawRow&&!("tr" in rawRow);
+ /* The trial-year answer of an older code cannot be recovered: recRead sets tr to
+    TRIAL[0] for every C2 and C3 record, so a stored row reading "No view yet" may be a real
+    answer, an untouched default, or a code sent before the question existed - and nothing
+    kept tells them apart. (Only a C1 record omits the key, because unpackOne never sets it.
+    A guard on the key's absence therefore covers one format out of three and reads as
+    though it covers all of them, so there is no guard: the line says the ambiguity instead.) */
  const missing=RVREQ.filter(([k])=>!String(pay[k]||"").trim());
  const noTokens=SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
  const guessed=RVGUESS.filter(([k])=>!String(pay[k]||"").trim());
@@ -1583,8 +1584,8 @@ function review(){
     "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
   sec("Timing, and what would stop you")+
   rvRow("Renting together first",6,labOf(TRIAL,r.tr),
-   neverAsked?"Their code predates this question, so they were never asked it.":
-   (r.tr===TRIAL[0][0]?RVLEFT:""))+
+   r.tr!==TRIAL[0][0]?"":
+   (onBoard?"This is where the question starts, so it may mean they left it there \u2014 or that their code was sent before the question existed.":RVLEFT))+
   rvRow("Realistically, when",6,labOf(HORIZON,r.hz),pay.hz?"":RVMADE)+
   rvRow("What would make you walk away",6,r.st)+
   sec("Money")+
