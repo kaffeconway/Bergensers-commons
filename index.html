@@ -2,12 +2,12 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Fifteen friends working out where to buy a place together in Europe. Five minutes on your own, no right answers, then send back the short code it gives you.">
+<meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
 <meta property="og:title" content="Build your commons">
 <meta property="og:site_name" content="Bergensers Commons">
-<meta property="og:description" content="Fifteen friends working out where to buy a place together in Europe. Five minutes on your own, no right answers, then send back the short code it gives you.">
+<meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
 <meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
@@ -17,6 +17,19 @@ html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%;scroll-
 :root{color-scheme:light only;
  --paper:#EAEDE8; --ink:#131E1B; --pine:#22423A; --glacier:#35748A; --madder:#7C2E3E;
  --gold:#8A6A2F; --rule:rgba(19,30,27,.16); --rule2:rgba(19,30,27,.07);
+ /* --rule was doing two unrelated jobs. As the boundary of something you can tap it has to
+    reach 3:1 (WCAG SC 1.4.11) and does not - 1.38:1 against the paper, with the button's own
+    fill at 1.09:1, so nothing was really saying where a tappable area began. As a hairline
+    between rows it is decorative and 1.4.11 does not govern it. Pushing the single token to
+    the .48 that 3:1 needs would have taken every separator and card edge in the file with
+    it, and traded the soft editorial feel for something much harder. So: --edge on controls
+    only - .opt, .chip, inputs, textareas, buttons - and --rule left alone everywhere else. */
+ /* .54, not the .48 that reaches 3:1 on its own: a border composites over the control's OWN
+    fill before the page shows through it, so the figure that decides whether you can see
+    where a control begins is the border against the paper OUTSIDE. At .48 that is 2.81:1 on
+    a chip and 2.74:1 on a text input, which have different fills. .54 clears 3:1 on all of
+    them. */
+ --edge:rgba(19,30,27,.54);
  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -26,7 +39,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);f
 #app{max-width:620px;margin:0 auto;padding:20px 16px 60px}
 h1{font-family:var(--serif);font-weight:500;font-size:30px;line-height:1.08;margin:0 0 6px;letter-spacing:-.015em}
 h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;margin:0 0 4px}
-.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.7;margin-bottom:14px}
+.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.85;margin-bottom:14px}
 .lede{font-size:16px;color:var(--pine);margin:0 0 20px}
 .hint{font-size:13.5px;color:var(--pine);opacity:.8;margin:0 0 16px}
 .note{background:rgba(53,116,138,.09);border-left:2px solid var(--glacier);padding:12px 14px;
@@ -45,10 +58,10 @@ h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;marg
 button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .btn{display:block;width:100%;padding:14px 16px;font-size:16px;background:var(--pine);color:var(--paper);border:none;margin-top:10px}
 .btn:hover{background:#1a352e}
-.btn.ghost{background:none;color:var(--pine);border:1px solid var(--rule)}
+.btn.ghost{background:none;color:var(--pine);border:1px solid var(--edge)}
 .btn.ghost:hover{border-color:var(--pine)}
 .opt{display:block;width:100%;text-align:left;padding:13px 15px;margin-bottom:8px;background:rgba(255,255,255,.5);
- border:1px solid var(--rule);color:var(--ink);font-size:15.5px;line-height:1.35}
+ border:1px solid var(--edge);color:var(--ink);font-size:15.5px;line-height:1.35}
 .opt:hover{border-color:var(--pine)}
 .opt.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
 .opt small{display:block;font-size:12.5px;opacity:.75;margin-top:2px}
@@ -56,25 +69,52 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .tok .lb{flex:1;font-size:15px}
 .tok .lb small{display:block;font-size:12px;color:var(--pine);opacity:.7}
 .tok .pips{font-family:var(--mono);font-size:13px;color:var(--glacier);min-width:60px;text-align:right;letter-spacing:1px}
-.tok button{width:36px;height:36px;font-size:18px;background:none;border:1px solid var(--rule);color:var(--pine);line-height:1}
+.tok button{width:44px;height:44px;font-size:18px;background:none;border:1px solid var(--edge);color:var(--pine);line-height:1}
 .tok button:disabled{opacity:.22;cursor:default}
 .bank{position:sticky;top:0;background:var(--paper);padding:11px 0;font-family:var(--mono);font-size:12.5px;
  letter-spacing:.06em;color:var(--pine);border-bottom:1px solid var(--rule);z-index:5}
 .bank b{color:var(--madder);font-size:15px}
 .grp{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--pine);
- opacity:.65;margin:18px 0 8px}
-.chips{display:flex;flex-wrap:wrap;gap:7px}
-.chip{padding:9px 13px;font-size:14px;border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--ink)}
+ opacity:.85;margin:18px 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+/* 44 in the touch dimension (Apple's bar, and WCAG 2.2 SC 2.5.5) without widening the
+   grid: the extra height is padding, the row gap gives one pixel back. */
+/* The glyph has to come out of the chip's own width or the grid loses rows to it. Tightened
+   until the grid wraps into the same 23 rows it did before, so the only height this step
+   gains is the 8px per row that the 44px target costs. */
+.chip{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 9px 0 6px;font-size:14px;
+ border:1px solid var(--edge);background:rgba(255,255,255,.5);color:var(--ink)}
+/* Neutral and "nice to have" are 1.3:1 apart in greyscale, which is far under the 3:1 a
+   state needs to be identifiable, so that distinction was carried by hue alone (WCAG
+   SC 1.4.1). Deepening the fill enough to reach 3:1 would make "nice to have" look as
+   committed as "essential", so the cue is the legend's own glyph, carried on the chip. */
+.chip.plain{padding:0 9px}
+.chip .g{font-family:var(--mono);font-size:13px;line-height:1;width:9px;flex:none;text-align:center}
 .chip.nice{background:rgba(53,116,138,.16);border-color:var(--glacier)}
 .chip.must{background:var(--glacier);border-color:var(--glacier);color:#fff}
-.chip.no{opacity:.45;border-style:dashed;border-color:var(--madder);text-decoration:line-through}
-.key{display:flex;gap:12px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--pine);opacity:.8;margin:14px 0 0}
+/* Was opacity:.45 over the whole button, which took the label to 2.6:1 against its own
+   background - a Level AA text failure. Recessive by border and strikethrough instead,
+   with the label left at full strength. */
+.chip.no{border-style:dashed;border-color:var(--madder);background:rgba(124,46,62,.06);color:var(--pine)}
+.chip.no .l{text-decoration:line-through;text-decoration-color:var(--madder)}
+/* Above the grid, not below it: the key that explains 34 controls is no use after them. */
+.key{display:flex;gap:6px 14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--pine);
+ opacity:.85;margin:0 0 12px}
+.key span{display:inline-flex;align-items:center;gap:5px}
+.key i{font-style:normal;width:10px;text-align:center;opacity:.85}
 .sl{margin:16px 0 20px}
 .sl label{display:block;font-size:15px;margin-bottom:2px}
-.sl .ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--pine);opacity:.7;margin-top:3px}
-input[type=range]{width:100%;accent-color:var(--pine)}
+/* The 44px range box centres a 16px track, so without this the end labels sat 32px below
+   the track they describe and 20px above the next question's heading - the proximity
+   grouping inverted. The target stays 44; the spacing comes back. */
+.sl .ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;
+ color:var(--pine);opacity:.7;margin-top:-10px}
+/* The track draws at 16px, which is under the 24px AA floor (SC 2.5.8) for the one
+   control on the step. The box is raised to 44 and the track centres inside it, so the
+   thumb is unchanged and the reachable area is nearly three times the size. */
+input[type=range]{width:100%;accent-color:var(--pine);height:44px;background:none;margin:0}
 input[type=text],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
- border:1px solid var(--rule);border-radius:3px;color:var(--ink)}
+ border:1px solid var(--edge);border-radius:3px;color:var(--ink)}
 textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical}
 .dots{display:flex;gap:5px;margin-bottom:18px}
 .dots i{height:3px;flex:1;background:var(--rule);border-radius:2px}
@@ -85,20 +125,20 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .bar{height:8px;background:var(--rule2);border-radius:4px;overflow:hidden;display:flex;margin-top:5px}
 .bar span{display:block;height:8px}
 .res{padding:13px 0;border-bottom:1px solid var(--rule2)}
-.res .t{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.res .t b{font-weight:500;font-size:15.5px}
-.res .t em{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--pine);opacity:.75}
+.res .t{display:flex;justify-content:space-between;align-items:baseline;gap:10px;overflow-wrap:anywhere}
+.res .t b{font-weight:500;font-size:15.5px;overflow-wrap:anywhere}
+.res .t em{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--pine);opacity:.75;overflow-wrap:anywhere}
 .tag{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
  padding:2px 7px;border-radius:2px;margin-left:6px}
 .tag.agree{background:rgba(34,66,58,.14);color:var(--pine)}
 .tag.split{background:rgba(124,46,62,.14);color:var(--madder)}
-.sec{margin:30px 0 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
- color:var(--pine);opacity:.7;padding-bottom:6px;border-bottom:1px solid var(--rule);scroll-margin-top:50px}
+.sec{margin:30px 0 10px;font-weight:400;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+ color:var(--pine);opacity:.8;padding-bottom:6px;border-bottom:1px solid var(--rule);scroll-margin-top:50px}
 .who{font-family:var(--mono);font-size:11.5px;color:var(--pine);opacity:.8;margin-bottom:16px}
 .secnav{position:sticky;top:0;z-index:4;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
  white-space:nowrap;background:var(--paper);padding:9px 0;margin:16px 0 6px;border-bottom:1px solid var(--rule)}
 .secnav a{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--pine);
- text-decoration:none;padding:6px 11px;border:1px solid var(--rule);border-radius:20px;background:rgba(255,255,255,.6)}
+ text-decoration:none;padding:6px 11px;border:1px solid var(--edge);border-radius:20px;background:rgba(255,255,255,.6)}
 .secnav a:active,.secnav a:hover{border-color:var(--pine)}
 /* Sixteen chips in a strip 358px wide: fourteen of them are off-screen, so without a
    marker the nav cannot tell you where you are in twenty-odd screens of page. The current
@@ -106,7 +146,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .secnav a.on{background:var(--pine);color:var(--paper);border-color:var(--pine)}
 /* Hidden until you are far enough down to want it. It used to be fully opaque at the top
    of the page, where it does nothing and sits on top of a row you might be reading. */
-#totop{position:fixed;right:14px;bottom:18px;width:42px;height:42px;border-radius:50%;background:var(--pine);
+#totop{position:fixed;right:14px;bottom:18px;width:44px;height:44px;border-radius:50%;background:var(--pine);
  color:var(--paper);border:none;font-size:15px;box-shadow:0 2px 12px rgba(19,30,27,.28);z-index:50;
  opacity:0;pointer-events:none;transition:opacity .18s ease}
 #totop.on{opacity:.92;pointer-events:auto}
@@ -122,17 +162,26 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11em}
 .stepbar .whois .onboard{flex:none;padding:1px 6px;border:1px solid var(--rule);border-radius:2px;
  font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--glacier);opacity:.9}
+/* 46x22 was at the WCAG 2.2 AA floor for a target (SC 2.5.8, 24x24) and the way out of
+   the questionnaire is not the control to make hard to hit. The padding raises the hit
+   area to 44 tall; the type is unchanged. */
 .stepbar .exit{background:none;border:none;color:var(--pine);font-family:var(--mono);font-size:12px;
- letter-spacing:.04em;padding:4px 0;opacity:.75;cursor:pointer}
+ letter-spacing:.04em;padding:0;min-height:44px;display:inline-flex;align-items:center;
+ opacity:.75;cursor:pointer}
 .stepbar .exit:hover{opacity:1;text-decoration:underline}
 /* Underlined even at rest: beside the name in the same size and family, "Not you?" read
    as part of the name rather than as the way out. */
-.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--rule)}
+.stepbar .whois .exit{text-decoration:underline;text-decoration-color:var(--edge)}
 .stepbar .stepno{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
- color:var(--pine);opacity:.6}
+ color:var(--pine);opacity:.8}
 /* Every control on the page is a custom button, so the browser default ring is all a
    keyboard user has to go on. :focus-visible only, so a mouse or a tap shows nothing. */
 :focus-visible{outline:2px solid var(--glacier);outline-offset:2px}
+/* The heading takes focus on every screen change, so the change is announced and a keyboard
+   user starts from the top of the new screen rather than from the browser chrome. It is not
+   a control and cannot be operated, so it gets no ring - and Chromium matches :focus-visible
+   on it after a TAP but not after keyboard use, which is exactly the wrong way round. */
+#app h1[tabindex],#app h2[tabindex]{outline:none}
 .opt:focus-visible,.chip:focus-visible,.btn:focus-visible,.tok button:focus-visible{outline-offset:1px}
 .err{color:var(--madder);font-size:13.5px;margin-top:8px}
 .ok{color:var(--pine);font-size:13.5px;margin-top:8px}
@@ -142,18 +191,92 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  margin:0 0 14px;border-radius:0 3px 3px 0;font-size:13.5px;line-height:1.45}
 .foot{margin-top:26px;font-size:12.5px;color:var(--pine);opacity:.75;line-height:1.5}
 
+/* Reference material that calibrates an answer but is not the question. Closed by default
+   so the question is reachable first, and a <details> rather than a scripted toggle so it
+   is readable, keyboard-operable and printable with no JavaScript at all - its content is
+   in the DOM either way. */
+.more{border:1px solid var(--rule);border-left:2px solid var(--glacier);border-radius:0 3px 3px 0;
+ background:rgba(53,116,138,.06);margin:0 0 18px}
+.more>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;
+ min-height:44px;padding:0 14px;font-family:var(--mono);font-size:11px;letter-spacing:.09em;
+ text-transform:uppercase;color:var(--pine)}
+.more>summary::-webkit-details-marker{display:none}
+/* On the marker's own span, which is aria-hidden: generated content counts toward the
+   accessible name, so the summary was announced as "plus what do these numbers mean". */
+.more>summary .mk::before{content:"+";font-size:16px;line-height:1;text-align:center;opacity:.8}
+.more>summary .mk{width:12px;flex:none;text-align:center}
+/* A CSS string is not HTML: "&#8722;" would paint those seven characters over the summary
+   label rather than a minus sign. CSS escapes with a backslash, and \2212 is just as ASCII
+   as the entity is - the pure-ASCII rule needs the right escape for the language, not the
+   same escape everywhere. */
+.more[open]>summary .mk::before{content:"\2212"}
+.more[open]>summary{border-bottom:1px solid var(--rule)}
+.more>summary:hover{color:var(--ink)}
+/* The note keeps its own inner typography (.row / .clim / .cmphead / .tail / .src) and
+   gives up only its box, which the disclosure already draws. */
+.more .note{margin:0;background:none;border-left:none;border-radius:0;padding:13px 14px 15px}
+
+/* ---- check your answers ---- */
+.rv{display:flex;width:100%;align-items:baseline;gap:10px;text-align:left;min-height:44px;
+ padding:11px 0;margin:0;border:none;border-bottom:1px solid var(--rule2);background:none;
+ color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.4;cursor:pointer}
+.rv:hover{background:rgba(53,116,138,.05)}
+.rv .rv2{flex:1;min-width:0;overflow-wrap:anywhere}
+.rv .rk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;
+ text-transform:uppercase;color:var(--pine);opacity:.8;margin-bottom:3px}
+.rv .rs{display:block;font-size:12.5px;color:var(--pine);opacity:.85;margin-top:4px;line-height:1.45}
+/* The row is a button with no border and no fill, so this word is the whole visual claim
+   that it can be tapped - and it was at 2.45:1, with an underline that only appeared on
+   hover. Underlined at rest instead, the same device the step bar's "Not you?" uses, and
+   at full strength: --glacier tops out at 4.43:1, still under the 4.5:1 this size needs. */
+.rv .rc{flex:none;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+ color:var(--pine);text-decoration:underline;text-decoration-color:var(--edge)}
+.rv:hover .rc{text-decoration-color:var(--pine)}
+/* A blank is an answer too. It is said, not omitted - and said quietly, so a page of them
+   does not read as a page of errors. */
+/* A blank is an answer too. It is said, not omitted - and said quietly by being italic,
+   not by being faint: at opacity .6 this measured 3.26:1, and it is the value on most rows
+   of a review somebody has not finished. */
+.rv .no,.res .t b.no{color:var(--pine);font-style:italic;font-weight:400}
+
+/* For text that has to reach a screen reader and nothing else - a token count that is drawn
+   as pips, and the live region that announces a chip's new state on every tap. */
+.vh{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+ clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* Where this leaves us. Five lines, every one a count, at the top of a page that is
+   otherwise twenty screens of charts. The respondent count leads it, because at four
+   answers "Italian Alps 2" stated at the top of a page lends the number an authority the
+   data cannot carry, and the page's own "read these as prompts rather than findings"
+   caveat sits fifteen screens further down. */
+.sum{margin:0 0 20px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.sum .lede2{margin:12px 0 4px;font-size:14px;line-height:1.45;color:var(--pine)}
+.sum .lede2 b{color:var(--ink);font-weight:600}
+.sum .sr{display:flex;gap:11px;align-items:baseline;padding:8px 0;border-top:1px solid var(--rule2)}
+.sum .sk{flex:none;width:74px;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+ text-transform:uppercase;color:var(--pine);opacity:.8}
+.sum .sv{flex:1;min-width:0;font-size:14.5px;line-height:1.4;overflow-wrap:anywhere}
+.sum .sv b{font-weight:600}
+.sum .sv em{font-style:normal;color:var(--pine);opacity:.85}
 .card{border-left:2px solid var(--pine);background:rgba(255,255,255,.55);padding:11px 13px;margin:0 0 9px;border-radius:0 3px 3px 0}
 .card.split{border-left-color:var(--madder)}
 .card.agree{border-left-color:var(--glacier)}
 .card .ct{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;opacity:.7;margin-bottom:3px}
-.card p{margin:0;font-size:14.5px;line-height:1.45}
+/* Deal-breakers, "why" lines, activity write-ins and the off-list write-in are quoted back
+   whole, and somebody pasting a link into one of them laid the page out five times the
+   width of the phone. "anywhere" only takes effect when there is no other break
+   opportunity, so ordinary prose is unaffected. */
+.card p{margin:0;font-size:14.5px;line-height:1.45;overflow-wrap:anywhere}
 .board{border:1px solid var(--rule);border-radius:3px;background:rgba(255,255,255,.5);margin:0 0 14px;overflow:hidden}
 .brow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--rule2)}
 .brow:last-child{border-bottom:none}
 .bn{flex:1;font-size:15px}
-.brow .x{width:30px;height:30px;background:none;border:1px solid var(--rule);color:var(--madder);font-size:16px;line-height:1}
+/* Removing a row is one tap and a row may be the only copy of what somebody sent, so the
+   target for it is at least sized properly. The name beside it is now the main way into an
+   edit, and was 32 tall. */
+.brow .x{width:44px;height:44px;background:none;border:1px solid var(--edge);color:var(--madder);font-size:16px;line-height:1}
 .brow .bedit{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
- background:none;border:none;padding:7px 0;text-align:left;color:var(--ink);font-size:15px;
+ background:none;border:none;padding:0;min-height:44px;text-align:left;color:var(--ink);font-size:15px;
  font-family:var(--sans);cursor:pointer}
 .brow .bedit span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brow .bedit em{flex:none;font-family:var(--mono);font-style:normal;font-size:9.5px;letter-spacing:.13em;
@@ -172,8 +295,9 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .pinbox .pf{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px}
 .pinbox .pf span{font-size:12.5px;color:var(--ink);min-width:0}
 .pinbox .pf span b{font-weight:600}
-.pinbox .pf button{flex:none;background:none;border:1px solid var(--rule);color:var(--pine);
- font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:5px 9px}
+.pinbox .pf button{flex:none;background:none;border:1px solid var(--edge);color:var(--pine);
+ font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+ min-height:44px;padding:0 12px}
 .pinbox .pf button:hover{border-color:var(--pine)}
 .chart{display:block;width:100%;height:auto}
 .insp{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--pine);
@@ -182,7 +306,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .insp.open{transform:translateY(0)}
 .insp .ihead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
 .insp .ihead b{font-family:var(--serif);font-size:18px;font-weight:500}
-.insp #iclose{background:none;border:1px solid var(--rule);color:var(--pine);width:32px;height:32px;font-size:18px;line-height:1}
+.insp #iclose{background:none;border:1px solid var(--edge);color:var(--pine);width:32px;height:32px;font-size:18px;line-height:1}
 .irow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--rule2)}
 .irow:last-child{border-bottom:none}
 .idot{width:11px;height:11px;border-radius:50%;flex:none}
@@ -193,7 +317,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
 .qcap{font-size:13px;color:var(--pine);background:rgba(255,255,255,.5);border:1px solid var(--rule);
  border-radius:3px;padding:9px 11px;margin:-10px 0 16px;min-height:38px}
 .pchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
-.pchip{padding:7px 12px;font-size:13px;border:1px solid var(--rule);background:rgba(255,255,255,.5);color:var(--pine);border-radius:20px}
+.pchip{padding:7px 12px;font-size:13px;border:1px solid var(--edge);background:rgba(255,255,255,.5);color:var(--pine);border-radius:20px}
 .pchip.on{background:var(--pc,var(--pine));border-color:var(--pc,var(--pine));color:#fff}
 .pchip.alt{--pc:#131E1B}
 .qkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px}
@@ -207,7 +331,7 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  body{background:#fff}
 }
 .diffs{margin-top:8px;padding-left:10px;border-left:2px solid var(--rule)}
-.dl{display:block;margin:5px 0;font-size:12.5px;line-height:1.4}
+.dl{display:block;margin:5px 0;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
 .dl .dk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--pine);opacity:.65}
 .dl .dv{color:var(--ink);opacity:.9}
 .dl.agreeln{opacity:.75}
@@ -362,6 +486,17 @@ const TRIAL=[["unsure","No view yet","Happy to go with whatever the rest of you 
  ["good","A good idea, if it is practical","Worth doing unless it costs us the right place"],
  ["skip","Not necessary","I would rather go straight to buying"],
  ["against","Against it","A year of renting would drain money and momentum"]];
+/* The four states of an activity chip, in one place: the legend above the grid, the glyph
+   carried on the chip itself and the state a screen reader is told all read from here, so
+   they cannot drift apart. The glyph is the non-colour cue - neutral and "nice to have"
+   are 1.3:1 apart in greyscale, so hue alone was carrying that distinction. */
+const ACTSTATE=[["\u00b7","neutral"],["\u25e6","nice to have"],["\u25cf","essential"],["\u2715","ruled out"]];
+const ACTCLASS=["","nice","must","no"];
+/* A 0-4 slider is announced, and later reviewed, as a bare number unless something says
+   what the number means. These are the form's own end labels, so both places speak the
+   group's vocabulary rather than the storage. */
+const tolSay=(lo,hi,v)=>v<=0?lo:v>=4?hi:v===2?"in the middle":
+ (v===1?"closer to: "+lo:"closer to: "+hi);
 const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
  ["dk","Winter darkness","I need light","I can take a dark winter"],
  ["lang","New language","Prefer to get by","Happy to learn properly"],
@@ -391,6 +526,13 @@ const MEM={};
 let lsFailed=false;
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){lsFailed=true;MEM[k]=v;}}
 function lsGet(k){try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
+/* The home screen promises that answers save as you go. lsFailed is only ever set by a write
+   that has already failed, so before this the first screen made that promise blind and the
+   person found out on reload - the exact failure storeWarn() exists to prevent. One probe at
+   boot settles it. The key is deliberately un-prefixed: anything under "commons:" that is not
+   the board counts as somebody's saved draft. */
+(function probeStore(){try{localStorage.setItem("__commons_probe","1");
+ localStorage.removeItem("__commons_probe");}catch(e){lsFailed=true;}})();
 /* "commons:board" shares the prefix but is not somebody's answers \u2014 excluding it keeps
    "Open or edit mine" off the home screen for a device that has only ever collected codes. */
 const isPersonKey=k=>k.indexOf("commons:")===0&&k!==BOARD;
@@ -461,19 +603,92 @@ const PAL=["#22423A","#35748A","#7C2E3E","#8A6A2F","#4A6B5C","#5C4A7C","#2F6B5A"
  "#4A2F8A","#7A2F6B","#8A2F3E","#2F3E8A","#6B7A2F","#2F8A4A","#2F5C8A","#2F8A7A","#5C8A2F"];
 const nameOf=i=>((codes[i]&&codes[i].n)||("#"+(i+1)));
 const grp=s=>String(s).replace(/(.{20})(?=.)/g,"$1 ");
+/* A pooled figure runs to four and five digits, which is exactly where a reader starts
+   counting zeroes. Used by the summary and by the two pooled rows, so the same number is
+   written the same way in both places. */
+const num=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,",");
+const WORDNUM=["nobody","one","two","three","four","five","six","seven","eight","nine","ten",
+ "eleven","twelve","thirteen","fourteen","fifteen"];
+const nword=n=>WORDNUM[n]!==undefined?WORDNUM[n]:String(n);
 const storeWarn=()=>lsFailed?`<div class="warn" role="status">
  <b>This device is not letting the page save anything.</b> Private browsing or a content
  blocker will do this. Nothing here survives closing the tab, so
  copy the combined code somewhere safe before you leave.</div>`:"";
 const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+/* One status region for the whole app, made once and never torn down - a live region that is
+   rebuilt with its screen is not announced. Cleared first, because the same text twice
+   running is otherwise dropped. */
+let liveEl=null, liveClear=null;
+function liveInit(){try{
+ if(liveEl)return;
+ liveEl=document.createElement("p");liveEl.className="vh";
+ liveEl.setAttribute("role","status");liveEl.setAttribute("aria-live","polite");
+ document.body.appendChild(liveEl);}catch(e){}}
+function say(t){
+ try{
+  liveInit(); if(!liveEl)return;
+  liveEl.textContent="";
+  /* the same words twice running are otherwise dropped */
+  setTimeout(()=>{liveEl.textContent=String(t);},30);
+  /* and cleared again, or the last thing said on one screen sits in the accessibility
+     tree of the next one as ordinary page text */
+  if(liveClear)clearTimeout(liveClear);
+  liveClear=setTimeout(()=>{if(liveEl)liveEl.textContent="";},4000);
+ }catch(e){}
+}
+/* In the DOM before any screen renders. A live region inserted and filled in the same
+   breath is the case assistive technology is least reliable about, and the first tap is
+   the one where it matters most. */
+liveInit();
+/* Every answer control carries a data-fk. render() rebuilds the whole screen on each tap, so
+   without this a keyboard user is thrown back to the top of the document every time they
+   choose anything. Captured before the rebuild, restored after it; a key that no longer
+   exists (a step change, a new screen) simply finds nothing and does nothing. */
+let fk="", fkNext="";
+function markFocus(){try{const a=document.activeElement;
+ fk=fkNext||((a&&a.getAttribute)?(a.getAttribute("data-fk")||""):"");
+ fkNext="";
+ /* A <details> fires its toggle event asynchronously, so a disclosure opened a moment ago
+    may not have reached moreOpen yet. Reading .open here - synchronously, in the same task
+    as the rebuild that is about to replace it - is what makes it certain. */
+ document.querySelectorAll("[data-more]").forEach(d=>{moreOpen[d.dataset.more]=d.open;});
+ }catch(e){fk="";}}
+function restoreFocus(){
+ const k=fk; fk="";
+ try{
+  if(k){const l=document.querySelectorAll("[data-fk]");
+   for(let i=0;i<l.length;i++)if(l[i].getAttribute("data-fk")===k){
+    try{l[i].focus({preventScroll:true});}catch(e){l[i].focus();} return;}}
+  /* Nothing matched, so this is a different screen rather than a re-render of the same
+     one. Focus its heading: otherwise focus falls to <body>, the screen change is not
+     announced at all, and a keyboard user starts again from the browser chrome. */
+  const hh=document.querySelector("#app h1, #app h2");
+  if(hh){hh.setAttribute("tabindex","-1");
+   try{hh.focus({preventScroll:true});}catch(e){}}
+ }catch(e){}
+}
+/* A disclosure that is rebuilt with its step would slam shut while somebody is reading it
+   mid-answer, so the open ones are remembered by name. */
+let moreOpen={};
 /* The form offers CAPOFFER / RUNOFFER, not CAP / RUN: the two split bands are storage-only.
    One exception - if somebody's saved answer IS a split band, show it, marked, so they can
    see what they said before choosing again. Same order as a dropped region on the region
    step: shown, survives a pass where they change nothing, replaced when they re-answer. */
+/* Every one of these was a button that looked selected and said nothing: a screen reader
+   heard the same name in both states (WCAG SC 4.1.2). aria-pressed is the honest fit - they
+   are toggles in a group, not a radio group with the arrow-key behaviour that implies.
+   data-fk is the key render() uses to put keyboard focus back where it was. */
+const opt=(on,key,val,main,sub)=>`<button class="opt ${on?"on":""}" data-${key}="${esc(val)}"
+ data-fk="${esc(key+":"+val)}" aria-pressed="${on?"true":"false"}">${esc(main)}${
+  sub?`<small>${esc(sub)}</small>`:""}</button>`;
+const chipHTML=(k,a)=>{const v=S.act[k]||0;
+ return `<button class="chip ${ACTCLASS[v]}" data-act="${esc(k)}" data-fk="${esc("act:"+k)}"
+  aria-label="${esc(a+": "+ACTSTATE[v][1])}"><span class="g" aria-hidden="true">${ACTSTATE[v][0]}</span><span
+  class="l">${esc(a)}</span></button>`;};
 const bandBtns=(list,offer,split,cur,attr)=>
  (cur===split?[split]:[]).concat(offer).map(i=>
-  `<button class="opt ${cur===i?"on":""}" data-${attr}="${i}">${list[i]}${
-   i===split?"<small>this band has since been split \u2014 choose again below</small>":""}</button>`).join("");
+  opt(cur===i,attr,String(i),list[i],
+   i===split?"this band has since been split \u2014 choose again below":"")).join("");
 const spent=()=>SPEND.reduce((a,[k])=>a+S.sp[k],0);
 const B36="0123456789abcdefghijklmnopqrstuvwxyz";
 function packOne(o){
@@ -503,7 +718,7 @@ function unpackOne(str){
 function enc(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 function dec(c){c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return JSON.parse(decodeURIComponent(escape(atob(c))));}
-const ownList=()=>String(S.ow||"").split(/[\n;]+/).map(x=>x.trim()).filter(Boolean).slice(0,6);
+const ownList=()=>String(S.ow||"").split(/[\n;]+/).map(x=>cut(x.trim())).filter(Boolean).slice(0,6);
 /* A draft saved before the list changed can hold regions that are gone. Keep them in state,
    show them on the region step, and never count them toward the pick-two cap. */
 const liveRg=()=>(S.rg||[]).filter(r=>REGIONS.indexOf(r)>=0);
@@ -518,7 +733,30 @@ function BR(b){this.b=b;this.i=0;this.n=0;}
 BR.prototype.r=function(bits){let v=0;
  for(let k=0;k<bits;k++){const bit=((this.b[this.i]||0)>>(7-this.n))&1;v=(v<<1)|bit;
   this.n++;if(this.n===8){this.n=0;this.i++;}}return v;};
-const U8=t=>unescape(encodeURIComponent(String(t==null?"":t)));
+/* Every length limit on this page is a .slice(), which counts UTF-16 units, not
+   characters. An emoji is two of them, so a name cut at 24 or a deal-breaker cut at 240 can
+   end on half a surrogate pair - and encodeURIComponent throws URIError on half a pair. That
+   threw inside encode(), inside render(), so the screen simply never changed: eleven
+   questions answered, no code, and nothing said. Half a character is not a character, so it
+   is dropped where the cut is made. Written as a loop rather than a lookbehind regex,
+   which older in-app browsers do not have. */
+function cut(t,n){
+ const src=String(t==null?"":t), s=(n===undefined?src:src.slice(0,n));
+ let o="";
+ for(let i=0;i<s.length;i++){
+  const c=s.charCodeAt(i);
+  if(c>=0xD800&&c<=0xDBFF){
+   const d=s.charCodeAt(i+1);
+   if(d>=0xDC00&&d<=0xDFFF){o+=s.charAt(i)+s.charAt(i+1);i++;}
+   continue;                      /* a high surrogate with nothing after it */
+  }
+  if(c>=0xDC00&&c<=0xDFFF)continue; /* a low surrogate with nothing before it */
+  o+=s.charAt(i);
+ }
+ return o;
+}
+/* A backstop, so no path to the codec can throw even if a new one forgets cut(). */
+const U8=t=>unescape(encodeURIComponent(cut(t)));
 const uU8=t=>{try{return decodeURIComponent(escape(t));}catch(e){return t;}};
 const IDX=(list,v)=>{const i=list.findIndex(x=>x[0]===v);return i<0?0:i;};
 /* ---- fixed-block widths ----
@@ -551,9 +789,20 @@ const rgPicks=o=>(o.rg||[]).filter(r=>REGIONS.indexOf(r)>=0)
  .sort((a,b)=>REGIONS.indexOf(a)-REGIONS.indexOf(b)).slice(0,2);
 function recBin(o){
  const w=new BW();
- w.w(IDX(STYLES,o.s),3); w.w(IDX(USES,o.u),2); w.w(IDX(HOUSE,o.hh),2); w.w(IDX(HORIZON,o.hz),2);
+ /* IDX returns 0 for anything it cannot find, so a question left unanswered used to be
+    written into the code as its FIRST option - the code came back saying "Separate houses"
+    or "Yes" on behalf of somebody who had said nothing. Where the field has a spare value
+    it now carries the blank instead: STYLES uses five of the eight a 3-bit field holds, and
+    the borrowing answer three of the four in 2 bits. Neither is a format change - no array
+    moves, no width moves, and no code ever written could contain these values, so every
+    existing code decodes exactly as before. An older saved copy of this page reading a new
+    code falls back to its old guess, which is where it started.
+    USES, HOUSE and HORIZON have no spare value - four options in two bits - so a blank there
+    still travels as the first option. The review screen says so out loud rather than letting
+    it pass; only a C5 could actually fix it. */
+ w.w(o.s?IDX(STYLES,o.s):7,3); w.w(IDX(USES,o.u),2); w.w(IDX(HOUSE,o.hh),2); w.w(IDX(HORIZON,o.hz),2);
  w.w(typeof o.cp==="number"?o.cp:5,3); w.w(typeof o.rn==="number"?o.rn:4,3);
- w.w(Math.max(0,["Yes","Maybe","No"].indexOf(o.d)),2);
+ const di=["Yes","Maybe","No"].indexOf(o.d); w.w(di<0?3:di,2);
  SPEND.forEach(([k])=>w.w(Math.min(15,(o.sp&&o.sp[k])||0),4));
  ALLACTS.forEach(([k])=>w.w(Math.min(3,(o.a&&o.a[k])||0),2));
  TOL.forEach(([k])=>w.w(Math.min(7,(o.t&&o.t[k]!==undefined)?o.t[k]:2),3));
@@ -575,7 +824,7 @@ function recRead(str,REG,ext){
  const N_FIX=NFIX(ext?BITS_C4:BITS_CORE);
  const bytes=[];for(let i=0;i<N_FIX;i++)bytes.push(str.charCodeAt(i)&255);
  const r=new BR(bytes),o={sp:{},a:{},t:{},sk:{},rg:[]};
- o.s=(STYLES[r.r(3)]||STYLES[0])[0]; o.u=(USES[r.r(2)]||USES[0])[0];
+ const si=r.r(3); o.s=STYLES[si]?STYLES[si][0]:""; o.u=(USES[r.r(2)]||USES[0])[0];
  o.hh=(HOUSE[r.r(2)]||HOUSE[0])[0]; o.hz=(HORIZON[r.r(2)]||HORIZON[0])[0];
  o.cp=r.r(3); o.rn=r.r(3); o.d=["Yes","Maybe","No"][r.r(2)]||"";
  SPEND.forEach(([k])=>o.sp[k]=r.r(4));
@@ -661,17 +910,45 @@ function wireInspector(){
    let items=[];try{items=JSON.parse(el.dataset.items);}catch(e){}
    showInspector(el.dataset.title||"",items);};});
 }
-const payload=()=>({n:S.n,s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,st:String(S.stop||"").slice(0,240),
- sk:S.sk,wy:String(S.why||"").slice(0,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
- rw:liveRg().indexOf(OFFLIST)>=0?String(S.rw||"").trim().slice(0,60):"",
- cz:String(S.cz||"").trim().slice(0,40),lv:String(S.lv||"").trim().slice(0,40),
+const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,
+ st:cut(S.stop,240),
+ sk:S.sk,wy:cut(S.why,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
+ rw:liveRg().indexOf(OFFLIST)>=0?cut(String(S.rw||"").trim(),60):"",
+ cz:cut(String(S.cz||"").trim(),40),lv:cut(String(S.lv||"").trim(),40),
  tr:S.tr||TRIAL[0][0],pn:Object.assign({},S.pin||{})});
-function grabOwn(){const t=document.getElementById("own"); if(t)S.ow=t.value.slice(0,400);
- const q=document.getElementById("stop"); if(q)S.stop=q.value.slice(0,240);
- const w=document.getElementById("why"); if(w)S.why=w.value.slice(0,180);
- const g=document.getElementById("rgw"); if(g)S.rw=g.value.slice(0,60);
- const cz=document.getElementById("cz"); if(cz)S.cz=cz.value.slice(0,40);
- const lv=document.getElementById("lv"); if(lv)S.lv=lv.value.slice(0,40);}
+/* Everything a person can TYPE, captured before the screen is rebuilt under them. The name
+   was missing from this list because, until the review screen existed, step 0 was only ever
+   left through its own save(). It can now be left by "Back to my answers" and by "Home"
+   as well, and both of those went through here - so a corrected name typed from the review
+   was thrown away without a word. Guarded on non-empty: an emptied box must not wipe the
+   name that autosave() keys the saved draft on. */
+/* The one place the name is adopted. Renaming a row of the board onto a name another row
+   already carries leaves two rows the board, the charts and the results page cannot tell
+   apart - the collision nameSplit holds a pasted code back for, reached from the other
+   direction. It was always possible; the review screen made it two taps from the board
+   instead of twelve. Both ways off step 0 go through here, because "Next" validating and
+   "Back" quietly writing anyway is the same hole with a longer path to it. Returns an error
+   string, or null; a refused name is kept back and said on the next screen rather than
+   half-written. */
+let nameRefused="";
+function setName(v){
+ const n=cut(String(v||"").trim(),24);
+ if(!n)return "A name would help.";
+ if(boardEdit>=0){
+  const clash=boardGet().filter((x,i)=>i!==boardEdit&&sameName(x.n,n))[0];
+  if(clash){nameRefused=(clash.n||n)+" is already on the board, so that rename was not made. Add a last initial, so the two can be told apart.";
+   return nameRefused;}
+ }
+ nameRefused=""; S.n=n; return null;
+}
+function grabOwn(){const n=document.getElementById("nm");
+ if(n&&n.value.trim())setName(n.value);
+ const t=document.getElementById("own"); if(t)S.ow=cut(t.value,400);
+ const q=document.getElementById("stop"); if(q)S.stop=cut(q.value,240);
+ const w=document.getElementById("why"); if(w)S.why=cut(w.value,180);
+ const g=document.getElementById("rgw"); if(g)S.rw=cut(g.value,60);
+ const cz=document.getElementById("cz"); if(cz)S.cz=cut(cz.value,40);
+ const lv=document.getElementById("lv"); if(lv)S.lv=cut(lv.value,40);}
 
 /* ---------- the pin picker ----------
    A plain equirectangular fit with a cos(lat) correction on longitude. Over a window a
@@ -743,74 +1020,107 @@ function pinPicker(rg){
 /* ---------- steps ---------- */
 const STEPS=[
 {t:"Who's this?",k:"A first name, so the group can see whose is whose \u2014 and so you can come back and edit later.",
- r:()=>`<input type="text" id="nm" value="${esc(S.n)}" placeholder="First name" autocomplete="given-name">
-  <p class="hint" style="margin-top:14px">Your answers save on this device under this name. Nothing is uploaded anywhere.</p>`,
- save:()=>{S.n=(document.getElementById("nm").value||"").trim().slice(0,24); return S.n?null:"A name would help.";}},
+ r:()=>`<input type="text" id="nm" value="${esc(S.n)}" aria-label="Your first name"
+   placeholder="First name" autocomplete="given-name">
+  <p class="hint" style="margin-top:14px">${lsFailed?
+   `This device is not letting the page save anything, so do this in one sitting and copy
+    your code at the end.`:
+   `Your answers save on this device under this name. Nothing is uploaded anywhere.`}</p>`,
+ save:()=>setName(document.getElementById("nm").value)},
 
 {t:"What shape is it?",k:"Not where \u2014 what kind of place. Pick the one closest to how you picture it.",
- r:()=>STYLES.map(([k,a,b])=>`<button class="opt ${S.style===k?"on":""}" data-style="${k}">${a}<small>${b}</small></button>`).join(""),
+ r:()=>STYLES.map(([k,a,b])=>opt(S.style===k,"style",k,a,b)).join(""),
  save:()=>S.style?null:"Pick one."},
 
 {t:"Spend your twenty",k:"Twenty tokens, eight things worth having. You cannot have them all \u2014 that's the point.",
  r:()=>`<div class="bank">Tokens left: <b id="left">${BANK-spent()}</b> of ${BANK}</div>`+
   SPEND.map(([k,a,b])=>`<div class="tok">
-   <button data-sp="${k}" data-d="-1" ${S.sp[k]<=0?"disabled":""}>&minus;</button>
-   <div class="lb">${a}<small>${b}</small></div>
-   <span class="pips">${"\u25CF".repeat(S.sp[k])||"\u00B7"}</span>
-   <button data-sp="${k}" data-d="1" ${spent()>=BANK?"disabled":""}>+</button></div>`).join(""),
+   <button data-sp="${esc(k)}" data-d="-1" data-fk="${esc("sp-"+k)}"
+    aria-label="${esc("One less token on "+a)}" ${S.sp[k]<=0?"disabled":""}>&minus;</button>
+   <div class="lb">${esc(a)}<small>${esc(b)}</small></div>
+   <span class="pips" data-pips="${esc(k)}" aria-hidden="true">${"\u25CF".repeat(S.sp[k])||"\u00B7"}</span>
+   <span class="vh" data-pipsv="${esc(k)}">${esc(a+": "+S.sp[k]+" of "+BANK)}</span>
+   <button data-sp="${esc(k)}" data-d="1" data-fk="${esc("sp+"+k)}"
+    aria-label="${esc("One more token on "+a)}" ${spent()>=BANK?"disabled":""}>+</button></div>`).join(""),
  save:()=>spent()===0?"Spend at least a few.":null},
 
 {t:"What has to be possible?",k:"Tap once for nice to have, twice for essential. A third tap rules it out \u2014 only if you really mean it.",
- r:()=>ACTS.map(([g,items])=>`<div class="grp">${g}</div><div class="chips">`+
-   items.map(([k,a])=>{const v=S.act[k];const c=v===1?"nice":v===2?"must":v===3?"no":"";
-     return `<button class="chip ${c}" data-act="${k}">${a}</button>`;}).join("")+`</div>`).join("")+
-  `<div class="key"><span>\u00b7 neutral</span><span>\u25e6 nice to have</span><span>\u25cf essential</span><span>\u2715 ruled out</span></div>
-   <p class="hint" style="margin-top:12px">Leaving something neutral is fine. Most people rule out very little.</p>
+ r:()=>`<div class="key">${ACTSTATE.map(([g,a])=>
+    `<span><i aria-hidden="true">${g}</i>${esc(a)}</span>`).join("")}</div>`+
+  ACTS.map(([g,items])=>`<div class="grp">${esc(g)}</div><div class="chips">`+
+   items.map(([k,a])=>chipHTML(k,a)).join("")+`</div>`).join("")+
+  `<p class="hint" style="margin-top:12px">Leaving something neutral is fine. Most people rule out very little.</p>
    <div class="grp">Something we've missed?</div>
-   <textarea id="own" placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
+   <textarea id="own" aria-label="Anything we have missed \u2014 one per line"
+    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
    <p class="hint" style="margin-top:8px">These travel inside your code and show up in the group picture,
    so anything several of you add can go on the list properly next time.</p>`,
  save:()=>{grabOwn();return null;}},
 
 {t:"How much can you take?",k:"Slide toward whichever end feels true.",
- r:()=>TOL.map(([k,a,lo,hi])=>`<div class="sl"><label>${a}</label>
-   <input type="range" min="0" max="4" value="${S.tol[k]}" data-tol="${k}">
-   <div class="ends"><span>${lo}</span><span>${hi}</span></div></div>`).join(""),
+ r:()=>TOL.map(([k,a,lo,hi])=>`<div class="sl"><label for="tol-${esc(k)}">${esc(a)}</label>
+   <input type="range" min="0" max="4" id="tol-${esc(k)}" value="${S.tol[k]}" data-tol="${esc(k)}"
+    data-fk="${esc("tol:"+k)}" aria-valuetext="${esc(tolSay(lo,hi,S.tol[k]))}">
+   <div class="ends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`).join(""),
  save:()=>null},
 
 {t:"How would you use it?",k:"Be honest rather than aspirational.",
- r:()=>USES.map(([k,a])=>`<button class="opt ${S.use===k?"on":""}" data-use="${k}">${a}</button>`).join("")+
-  `<p class="hint" style="margin-top:20px"><b>Who would be coming with you?</b></p>`+
-  HOUSE.map(([k,a])=>`<button class="opt ${S.hh===k?"on":""}" data-hh="${k}">${a}</button>`).join("")+
-  `<div class="note" style="margin-top:22px"><b>And where are you coming from?</b>
-   Not idle curiosity, and not used for anything else: which passport you hold and which
-   country you live in decide what is legally possible. Italy only sells to buyers from
-   outside the EU whose own country returns the favour; Switzerland is closed to
-   non-residents almost entirely; and a mortgage nearly always needs income in the country
-   you are buying in, which changes a deposit into a cash purchase. A word each is enough,
-   and you can leave them blank.</div>
+ r:()=>`<p class="vh" id="q-use">How would you use it?</p>
+   <div role="group" aria-labelledby="q-use">`+
+  USES.map(([k,a])=>opt(S.use===k,"use",k,a)).join("")+
+  `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
+   <div role="group" aria-labelledby="q-hh">`+
+  HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
+  /* The reason for asking stays above the inputs: why somebody's personal data is wanted
+     is not reference material and does not belong behind a disclosure, whatever it costs in
+     fold. It is 30 words now instead of 85, which is the part that was actually wrong. */
+  `<p class="hint" id="q-from" style="margin-top:22px"><b>And where are you coming from?</b>
+   Which passport you hold and which country you live in decide what is legally possible.
+   Both optional.</p>
+   <div role="group" aria-labelledby="q-from">
    <div class="sl"><label for="cz">Passport, or passports</label>
     <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
    <div class="sl"><label for="lv">Country you live in now</label>
-    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>`,
+    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>
+   </div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
- r:()=>`<div class="note"><b>Renting together first.</b> The idea that came out of the September call:
-   live somewhere together for a year before any money goes into land. It was the strongest
-   proposal in the room and nobody has actually been asked about it, so this is the question
-   doing the most work on this page.</div>`+
-  TRIAL.map(([k,a,b])=>`<button class="opt ${S.tr===k?"on":""}" data-tr="${k}">${a}<small>${b}</small></button>`).join("")+
-  `<p class="hint" style="margin-top:20px"><b>Realistically, when?</b></p>`+
-  HORIZON.map(([k,a])=>`<button class="opt ${S.hz===k?"on":""}" data-hz="${k}">${a}</button>`).join("")+
+ r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first.</b> Living somewhere
+   together for a year before any money goes into land.</p>
+   <div role="group" aria-labelledby="q-tr">`+
+  TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+`</div>`+
+  `<details class="more" data-more="trial" ${moreOpen.trial?"open":""} style="margin-top:14px">
+   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came out of the September call. It was
+   the strongest proposal in the room and nobody has actually been asked about it, so this is the question
+   doing the most work on this page.</div></details>
+   <p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
+   <div role="group" aria-labelledby="q-hz">`+
+  HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`+
   `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
    a place you cannot leave, a number you cannot reach. Deal-breakers are worth more than preferences.</p>
-   <textarea id="stop" placeholder="Nothing yet, or... ">${esc(S.stop||"")}</textarea>`,
- save:()=>{const q=document.getElementById("stop");if(q)S.stop=q.value.slice(0,240);
+   <textarea id="stop" aria-label="What would make you walk away"
+    placeholder="Nothing yet, or... ">${esc(S.stop||"")}</textarea>`,
+ save:()=>{const q=document.getElementById("stop");if(q)S.stop=cut(q.value,240);
   return S.hz?null:"Pick a rough timeframe.";}},
 
-{t:"Money, roughly",k:"Two different things, often confused. Both are bands, not commitments.",
- r:()=>`<div class="note"><b>What the numbers mean.</b> Rough all-in cost of a house with some land, before
+{t:"Money, roughly",k:"Bands, not commitments. Rough prices and climate per region sit under the questions.",
+ r:()=>`  <p class="hint" id="q-cap" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 a one-time contribution
+   toward buying and fixing the place.</p><div role="group" aria-labelledby="q-cap">`+
+  bandBtns(CAP,CAPOFFER,CAPSPLIT,S.cap,"cap")+
+  `</div><p class="hint" id="q-run" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of
+   insurance, heating, maintenance, tax, repairs. This continues forever, and it is what usually breaks
+   these projects.</p><div role="group" aria-labelledby="q-run">`+
+  bandBtns(RUN,RUNOFFER,RUNSPLIT,S.run,"run")+
+  `</div><p class="hint" id="q-debt" style="margin-top:18px"><b>3. Would you borrow to take part?</b></p>
+   <div role="group" aria-labelledby="q-debt">`+
+  ["Yes","Maybe","No"].map(d=>opt(S.debt===d,"debt",d,d)).join("")+`</div>`+
+  /* 417 of this step's 475 words used to stand between the person and the first control they
+     could answer with. The content calibrates the answer and is worth keeping whole, so it
+     moves rather than shrinks: a disclosure directly beneath the questions, closed to begin
+     with, announced by the lede so nobody has to discover it. */
+  `<details class="more" data-more="money" ${moreOpen.money?"open":""} style="margin-top:24px">
+   <summary><span class="mk" aria-hidden="true"></span>What do these numbers mean?</summary><div class="note">Rough all-in cost of a house with some land, before
    renovation, and where each region's climate is heading. Orders of magnitude for calibration, not quotes,
    and the climate lines are direction of travel rather than forecasts.
    <span class="row"><b>Pyrenees</b> (Ari&egrave;ge, Hautes-Pyr&eacute;n&eacute;es) &middot; &euro;120&ndash;300k
@@ -846,19 +1156,13 @@ const STEPS=[
    five households means &euro;100k each, fifteen means &euro;33k each.</span>
    <span class="src">Prices: french-property.com, notaires de l'Is&egrave;re, immobiliare.it, idealista.it,
    ssb.no, Statistik Austria. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement
-   Climatique, Klima i Norge 2100.</span></div>
-  <p class="hint"><b>1. Up-front capital</b> \u2014 a one-time contribution toward buying and fixing the place.</p>`+
-  bandBtns(CAP,CAPOFFER,CAPSPLIT,S.cap,"cap")+
-  `<p class="hint" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of insurance, heating,
-   maintenance, tax, repairs. This continues forever, and it is what usually breaks these projects.</p>`+
-  bandBtns(RUN,RUNOFFER,RUNSPLIT,S.run,"run")+
-  `<p class="hint" style="margin-top:18px"><b>3.</b> Would you borrow to take part?</p>`+
-  ["Yes","Maybe","No"].map(d=>`<button class="opt ${S.debt===d?"on":""}" data-debt="${d}">${d}</button>`).join(""),
+   Climatique, Klima i Norge 2100.</span></div></details>`,
  save:()=>S.debt?null:"Answer the borrowing question too."},
 
 {t:"What could you bring?",k:"Not what you own \u2014 what you can do. A commons runs on skills more than money.",
  r:()=>`<div class="chips">`+SKILLS.map(([k,a])=>
-   `<button class="chip ${S.sk[k]?"must":""}" data-sk="${k}">${a}</button>`).join("")+`</div>
+   `<button class="chip plain ${S.sk[k]?"must":""}" data-sk="${esc(k)}" data-fk="${esc("sk:"+k)}"
+    aria-pressed="${S.sk[k]?"true":"false"}"><span class="l">${esc(a)}</span></button>`).join("")+`</div>
   `,
  save:()=>null},
 
@@ -868,7 +1172,7 @@ const STEPS=[
     ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more &mdash;
     the group narrowed to four regions on the September call, mostly on price. Choose again below;
     ${stale.length>1?"those picks":"that pick"} will not be carried into your code.</div>`:"")+
-   REGIONS.map(p=>`<button class="opt ${live.indexOf(p)>=0?"on":""}" data-rg="${esc(p)}">${p}</button>`).join("")+
+   REGIONS.map(p=>opt(live.indexOf(p)>=0,"rg",p,p)).join("")+
    (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
      <label for="rgw"><b>Where were you thinking?</b></label>
      <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
@@ -884,50 +1188,92 @@ const STEPS=[
   if(liveRg().length)S.rg=liveRg();
   return null;}},
 
-{t:"Last one, and it's optional",k:"Nothing to do with the questions above \u2014 this one is about the whole idea.",
- r:()=>`<p class="hint"><b>In one line: why do you want this at all?</b><br><br>
-   Skip it if you'd rather; nothing depends on it. If you do write something it gets quoted back to the group,
-   and it tends to be the part people actually remember.</p>
-   <textarea id="why" placeholder="Because...">${esc(S.why||"")}</textarea>`,
- save:()=>{const w=document.getElementById("why");if(w)S.why=w.value.slice(0,180);return null;}}
+{t:"Last one, and it's optional",k:"In one line: why do you want this at all?",
+ r:()=>`<textarea id="why" aria-label="Why do you want this at all"
+   placeholder="Because...">${esc(S.why||"")}</textarea>
+   <details class="more" data-more="why" ${moreOpen.why?"open":""} style="margin-top:14px">
+   <summary><span class="mk" aria-hidden="true"></span>Why this one is here</summary><div class="note">Nothing to do with the questions above
+   \u2014 this one is about the whole idea. Skip it if you'd rather; nothing depends on it. If you do
+   write something it gets quoted back to the group, and it tends to be the part people actually
+   remember.</div></details>`,
+ save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,180);return null;}}
 ];
 
 /* ---------- render ---------- */
-function render(){
+/* Every tap rebuilds the screen, which throws keyboard focus to the top of the document.
+   The key is read off the active element before the rebuild and matched back afterwards;
+   a key with nothing to match (a step change, a different screen) does nothing. */
+function render(){markFocus();paint();restoreFocus();}
+function paint(){
  if(mode==="home")return home();
+ if(mode==="review")return review();
  if(mode==="done")return done();
  if(mode==="combine")return combine();
  if(mode==="result")return result();
  if(mode==="resume")return resume();
  if(mode==="incoming")return incoming();
- const st=STEPS[step];
+ const st=STEPS[step], one=rvJump>=0;
+ /* Opened from the review screen to change one thing: the step says so, and both buttons go
+    back there rather than walking on through the other ten. */
  app.innerHTML=`<div class="stepbar"><button class="exit" id="exit">&larr; Home</button>
   ${step>0&&S.n?`<span class="whois"><b>${esc(S.n)}</b>
     ${boardEdit>=0?`<span class="onboard">on the board</span>`:""}
     <button class="exit" id="notyou">${boardEdit>=0?"Back to the board":"Not you?"}</button></span>`:""}
-   <span class="stepno">Step ${step+1} of ${STEPS.length}</span></div>
-  <div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>
+   <span class="stepno">${one?"Changing one answer":`Step ${step+1} of ${STEPS.length}`}</span></div>
+  ${one?"":`<div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>`}
   <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
-  <button class="btn" id="next">${step===STEPS.length-1?"Get my code":"Next"}</button>
-  ${step>0?`<button class="btn ghost" id="back">Back</button>`:""}
+  <button class="btn" id="next">${one?"Save and go back":
+    step===STEPS.length-1?"Check my answers":"Next"}</button>
+  ${(step>0||one)?`<button class="btn ghost" id="back">${one?"Back to my answers":"Back"}</button>`:""}
   <div class="err" id="err" role="status" aria-live="polite"></div>`;
  wire();
 }
+function paintChip(b){
+ const k=b.dataset.act, v=S.act[k]||0, lab=b.querySelector(".l");
+ const name=lab?lab.textContent:k;
+ b.className=("chip "+ACTCLASS[v]).replace(/\s+$/,"");
+ const g=b.querySelector(".g"); if(g)g.textContent=ACTSTATE[v][0];
+ /* The chip keeps focus through the repaint, and a change to the focused element's own
+    accessible name is announced. say() as well said the same words twice on every tap. */
+ b.setAttribute("aria-label",name+": "+ACTSTATE[v][1]);
+}
+function paintTokens(){
+ const el=document.getElementById("left"); if(el)el.textContent=BANK-spent();
+ const full=spent()>=BANK, was=document.activeElement;
+ document.querySelectorAll("[data-sp]").forEach(b=>{
+  const k=b.dataset.sp; b.disabled=(+b.dataset.d<0)?S.sp[k]<=0:full;});
+ document.querySelectorAll("[data-pips]").forEach(x=>{
+  x.textContent="\u25CF".repeat(S.sp[x.dataset.pips])||"\u00B7";});
+ document.querySelectorAll("[data-pipsv]").forEach(x=>{
+  const k=x.dataset.pipsv, t=SPEND.filter(y=>y[0]===k)[0];
+  x.textContent=(t?t[1]:k)+": "+S.sp[k]+" of "+BANK;});
+ /* A browser drops focus to the body when the focused control is disabled, so hand it to
+    the one beside it rather than to nowhere. */
+ if(was&&was.disabled&&was.dataset&&was.dataset.sp){
+  const sib=document.querySelector('[data-sp="'+was.dataset.sp+'"][data-d="'+(+was.dataset.d<0?1:-1)+'"]');
+  if(sib&&!sib.disabled)try{sib.focus({preventScroll:true});}catch(e){}}
+}
 function wire(){
  const q=(s,f)=>document.querySelectorAll(s).forEach(f);
+ q("[data-more]",d=>d.ontoggle=()=>{moreOpen[d.dataset.more]=d.open;});
  q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
 q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-hh]",b=>b.onclick=()=>{S.hh=b.dataset.hh;autosave();render();});
- q("[data-sk]",b=>b.onclick=()=>{S.sk[b.dataset.sk]=S.sk[b.dataset.sk]?0:1;autosave();render();});
- q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=t.value.slice(0,240);
+ /* aria-pressed already says which way a two-state toggle is, so no live message on top. */
+ q("[data-sk]",b=>b.onclick=()=>{const k=b.dataset.sk;S.sk[k]=S.sk[k]?0:1;autosave();
+   b.classList.toggle("must",!!S.sk[k]);b.setAttribute("aria-pressed",S.sk[k]?"true":"false");});
+ q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
    S.hz=b.dataset.hz;autosave();render();});
- q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=t.value.slice(0,240);
+ q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
    S.tr=b.dataset.tr;autosave();render();});
  q("[data-cap]",b=>b.onclick=()=>{S.cap=+b.dataset.cap;autosave();render();});
  q("[data-run]",b=>b.onclick=()=>{S.run=+b.dataset.run;autosave();render();});
  q("[data-debt]",b=>b.onclick=()=>{S.debt=b.dataset.debt;autosave();render();});
- q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();render();});
- q("[data-tol]",r=>r.oninput=()=>{S.tol[r.dataset.tol]=+r.value;autosave();});
+ q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();paintChip(b);});
+ q("[data-tol]",r=>r.oninput=()=>{const k=r.dataset.tol;S.tol[k]=+r.value;
+   const t=TOL.filter(x=>x[0]===k)[0];
+   if(t)r.setAttribute("aria-valuetext",tolSay(t[2],t[3],S.tol[k]));
+   autosave();});
  q("[data-pinrg]",sv=>sv.onclick=ev=>{
    const rg=sv.dataset.pinrg, win=RCWIN[rg]||MAPWIN, f=insetFit(win);
    const box=sv.getBoundingClientRect(); if(!box.width)return;
@@ -940,25 +1286,35 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-pinclr]",b=>b.onclick=()=>{grabOwn();if(S.pin)delete S.pin[b.dataset.pinclr];
    autosave();render();});
  q("[data-rg]",b=>b.onclick=()=>{grabOwn();const p=b.dataset.rg;
-   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p); else if(liveRg().length<2)S.rg.push(p);
+   if(S.rg.includes(p))S.rg=S.rg.filter(x=>x!==p);
+   else if(liveRg().length<2)S.rg.push(p);
+   /* Refusing a third pick by doing nothing at all leaves somebody who cannot see the two
+      filled buttons with no idea why the tap had no effect. */
+   else say("Two regions is the limit. Unpick one of them first.");
    autosave();render();});
  q("[data-sp]",b=>b.onclick=()=>{const k=b.dataset.sp,d=+b.dataset.d;
-   const v=S.sp[k]+d; if(v<0||v>10||(d>0&&spent()>=BANK))return; S.sp[k]=v; autosave(); render();});
+   const v=S.sp[k]+d; if(v<0||v>10||(d>0&&spent()>=BANK))return; S.sp[k]=v; autosave();
+   paintTokens();
+   const t=SPEND.filter(x=>x[0]===k)[0];
+   say((t?t[1]:k)+": "+v+(v===1?" token. ":" tokens. ")+(BANK-spent())+" left of "+BANK+".");});
  const nx=document.getElementById("next");
  if(nx)nx.onclick=()=>{const e=STEPS[step].save&&STEPS[step].save();
    if(e){document.getElementById("err").textContent=e;return;}
    autosave();
-   if(step===STEPS.length-1)mode="done"; else step++;
+   if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";}
+   else if(step===STEPS.length-1)mode="review"; else step++;
    window.scrollTo(0,0);render();};
  const bk=document.getElementById("back");
- if(bk)bk.onclick=()=>{grabOwn();autosave();step--;window.scrollTo(0,0);render();};
+ if(bk)bk.onclick=()=>{grabOwn();autosave();
+   if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";} else step--;
+   window.scrollTo(0,0);render();};
  const ex=document.getElementById("exit");
- if(ex)ex.onclick=()=>{grabOwn();autosave();mode="home";window.scrollTo(0,0);render();};
+ if(ex)ex.onclick=()=>{grabOwn();autosave();rvJump=-1;mode="home";window.scrollTo(0,0);render();};
  /* Deliberately does NOT autosave: autosave() writes to slug(S.n), so someone who opened the
     wrong name and started answering would otherwise overwrite that person's saved draft. */
  const ny=document.getElementById("notyou");
  if(ny)ny.onclick=()=>{const toBoard=boardEdit>=0;
-  boardEdit=-1;boardEditKey="";S=blank();step=0;mode=toBoard?"combine":"home";
+  boardEdit=-1;boardEditKey="";rvJump=-1;S=blank();step=0;mode=toBoard?"combine":"home";
   window.scrollTo(0,0);render();};
 }
 function home(){
@@ -968,22 +1324,25 @@ function home(){
  <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
  countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
  <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
- <p class="lede">So: five minutes, on your own, no right answers. You build your own version \u2014 what shape it
- takes, what has to be possible there, what you could put in, when. At the end you get a short code.
- Send it back and we can see where we already agree and where we quietly don't.</p>
+ <p class="lede">So: ${nword(STEPS.length)} steps, on your own, no right answers. ${lsFailed?
+ `Nothing saves on this device \u2014 see below \u2014 so do it in one sitting and copy your code at the end.`:
+ `It saves as you go \u2014 stop anywhere and come back for your code later.`} You build your own version:
+ what shape it takes, what has to be possible there, what you could put in, when. At the end you get a
+ short code. Send it back and we can see where we already agree and where we quietly don't.</p>
  <p class="lede">Answering does not commit you to anything. Saying "someday, no timeline" or naming a
  deal-breaker is just as useful as saying yes.</p>
  ${msg?`<div class="ok">${esc(msg)}</div>`:""}
+ ${storeWarn()}
  <button class="btn" id="start">Start building</button>
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
  <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
- <p class="foot">No account, no sign-in, nothing installed, nothing uploaded. Your answers are saved on this
- device under your name, so you can close the page and come back for your code later.</p>
+ <p class="foot">No account, no sign-in, nothing installed, nothing uploaded. Everything stays on this
+ device, under your first name.</p>
  <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
  call</a> &mdash; a short recap of what changed.</p>`;
  msg="";
  document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";pend=[];pendBoth=false;
-  S=blank();mode="build";step=0;render();};
+  rvJump=-1;S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
  document.getElementById("comb").onclick=()=>{mode="combine";render();};
 }
@@ -1001,8 +1360,8 @@ function incoming(){
   boardAppend(sp.fresh);
   msg=`${esc(o.n||"They")} added. ${boardGet().length} on the board.`;
   clean();mode="combine";render();};
- document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";clean();mode="done";render();};
- document.getElementById("hmx").onclick=()=>{boardEdit=-1;boardEditKey="";S=blank();clean();mode="home";render();};
+ document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;clean();mode="review";render();};
+ document.getElementById("hmx").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;S=blank();clean();mode="home";render();};
 }
 function resume(){
  const names=lsKeys().map(k=>{try{return JSON.parse(lsGet(k)).n;}catch(e){return null;}}).filter(Boolean);
@@ -1013,11 +1372,285 @@ function resume(){
  document.getElementById("hm").onclick=()=>{mode="home";render();};
  document.querySelectorAll("[data-nm]").forEach(b=>b.onclick=()=>{
    try{S=Object.assign(blank(),JSON.parse(lsGet(slug(b.dataset.nm))));}catch(e){return;}
-   S.rg=(S.rg||[]).map(rgNow); boardEdit=-1; boardEditKey="";
-   mode="done";window.scrollTo(0,0);render();});
+   S.rg=(S.rg||[]).map(rgNow); boardEdit=-1; boardEditKey=""; rvJump=-1;
+   mode="review";window.scrollTo(0,0);render();});
+}
+/* ---------- check your answers ----------
+   GOV.UK's "check your answers", with its two hard rules kept: every answer is on it,
+   including the ones left blank - a blank is information, so the line says "not answered"
+   rather than disappearing - and every line is a tap back to the step that set it, returning
+   here afterwards.
+
+   It is built by DECODING the code that has just been written, never from live state. That
+   makes it a round-trip check as well as a review: if the decode throws, or comes back
+   saying something the person did not say, that is put on the screen rather than handed over
+   as a code to send. */
+let rvJump=-1;
+/* Two bits holds exactly the four options these three questions offer, so there is no spare
+   value for "not answered" and a blank is written as the first option. Only a C5 could fix
+   that; until then the screen says it out loud. */
+const RVGUESS=[["u",USES,"How would you use it",5],["hh",HOUSE,"Who would be coming with you",5],
+ ["hz",HORIZON,"Realistically, when",6]];
+const RVREQ=[["n","First name",0],["s","What shape is it",1],["u","How would you use it",5],
+ ["hh","Who would be coming with you",5],["hz","Realistically, when",6],["d","Would you borrow",7]];
+const labOf=(list,k)=>{const x=list.filter(y=>y[0]===k)[0];return x?x[1]:"";};
+const NOANS='<span class="no">not answered</span>';
+/* Four answers start on a value that is also an option somebody can pick on purpose:
+   capital on "Rather not say", monthly on "Not sure yet", the trial year on "No view yet"
+   and every tolerance in the middle. The record cannot tell a choice from an untouched
+   default, so the line says so - but only when the value is the ambiguous one, or it would
+   be a caveat on a page of answers that do not need one. */
+const RVLEFT="This is where the question starts, so it may mean it was left there.";
+/* The two bands that were split stay in the arrays so older codes still decode to exactly
+   what the person said, and they are shown marked wherever they appear - on the form, on
+   the results page, and here. Never silently, and never moved into a band nobody picked. */
+const RVSPLIT="This band has since been split \u2014 tap to say which half.";
+/* Nothing was chosen, and unlike the four above, a code has no way to carry that: four
+   options in two bits leaves no spare value, so it writes the first one. The note at the
+   top of the screen says so once; the row says it where the answer is. */
+const RVMADE="Not chosen \u2014 a code cannot carry a blank here, so it says this.";
+/* Everything that reaches the markup is escaped here, once, so no caller can forget. */
+function rvRow(key,jump,plain,sub){
+ const has=plain!==undefined&&plain!==null&&String(plain)!=="";
+ /* The name has to carry the sub-line too. aria-label replaces the entire subtree, so a
+    note that is only in the markup reaches sighted readers and nobody else - and on this
+    screen the notes are the part that says an answer was invented, or that a band has been
+    split since. data-fk is here so returning from a jumped step lands back on this row. */
+ return `<button class="rv" data-jump="${jump}" data-fk="${esc("rv:"+jump)}"
+  aria-label="${esc("Change "+key+". "+(has?String(plain):"Not answered")+"."+(sub?" "+sub:""))}">
+  <span class="rv2"><span class="rk">${esc(key)}</span>${has?esc(plain):NOANS}${
+   sub?`<span class="rs">${esc(sub)}</span>`:""}</span>
+  <span class="rc" aria-hidden="true">change</span></button>`;
+}
+/* What counts as a mismatch, and what does not. Several fields legitimately come back
+   changed and comparing them flat would cry wolf on every single code: regions are stored in
+   REGIONS order, capped at two and without any retired pick; pins are quantised to about
+   four kilometres and only written for the regions actually picked; and the free text was
+   already cut to length by payload() before it was encoded. Each is therefore compared the
+   way it is actually stored. Everything else is compared flat, and a difference there is a
+   real one. */
+function rvCheck(p,d){
+ const out=[], eq=(a,b)=>String(a==null?"":a)===String(b==null?"":b);
+ /* A formatter that clamps - tolSay does - can render two different stored values as the
+    same words, and an alarm whose two sides read identically is not something anybody can
+    act on. When that happens the raw values are shown beside them. */
+ const add=(lab,mine,theirs,jump,rawA,rawB)=>{
+  let m=mine,t=theirs;
+  if(String(m)===String(t)&&rawA!==undefined){m=m+" ["+rawA+"]";t=t+" ["+rawB+"]";}
+  out.push({lab:lab,mine:m,theirs:t,jump:jump});};
+ const none="not answered";
+ if(!eq(p.n,d.n))add("First name",p.n||none,d.n||none,0);
+ if(!eq(p.s,d.s))add("What shape is it",labOf(STYLES,p.s)||none,labOf(STYLES,d.s)||none,1);
+ /* These three have no spare bit value for "not answered", so an unanswered one always
+    comes back as the first option. That is not a fault in the code and it is already said,
+    quietly and by name, in the "no answer yet" note - raising the alarm box for it as well
+    would put a red panel in front of everybody who simply has not finished. A real
+    disagreement, where the question WAS answered and the code says otherwise, still fires. */
+ if(p.u&&!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,5);
+ if(p.hh&&!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,5);
+ if(p.hz&&!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,6);
+ if(!eq(p.tr,d.tr))add("Renting together first",labOf(TRIAL,p.tr)||none,labOf(TRIAL,d.tr)||none,6);
+ if(!eq(p.d,d.d))add("Would you borrow",p.d||none,d.d||none,7);
+ if(p.cp!==d.cp)add("Up-front capital",CAP[p.cp]||none,CAP[d.cp]||none,7);
+ if(p.rn!==d.rn)add("Monthly running cost",RUN[p.rn]||none,RUN[d.rn]||none,7);
+ SPEND.forEach(([k,a])=>{const x=(p.sp&&p.sp[k])||0,y=(d.sp&&d.sp[k])||0;
+  if(x!==y)add("Tokens on "+a,String(x),String(y),2);});
+ ALLACTS.forEach(([k,a])=>{const x=(p.a&&p.a[k])||0,y=(d.a&&d.a[k])||0;
+  if(x!==y)add(a,ACTSTATE[x][1],ACTSTATE[y][1],3);});
+ TOL.forEach(([k,a,lo,hi])=>{const x=(p.t&&p.t[k]!==undefined)?p.t[k]:2,
+   y=(d.t&&d.t[k]!==undefined)?d.t[k]:2;
+  if(x!==y)add(a,tolSay(lo,hi,x),tolSay(lo,hi,y),4,x,y);});
+ SKILLS.forEach(([k,a])=>{const x=(p.sk&&p.sk[k])?1:0,y=(d.sk&&d.sk[k])?1:0;
+  if(x!==y)add(a,x?"offered":"not offered",y?"offered":"not offered",8);});
+ [["st","What would make you walk away",6],["wy","Why you want this",10],
+  ["rw","Where you were thinking",9],["cz","Passport",5],["lv","Country you live in",5]]
+  .forEach(([k,lab,j])=>{if(!eq(p[k],d[k]))add(lab,p[k]||"nothing",d[k]||"nothing",j);});
+ const want=rgPicks(p), got=(d.rg||[]).slice();
+ if(want.join("|")!==got.join("|"))
+  add("Where",want.length?want.join(", "):"nothing picked",got.length?got.join(", "):"nothing picked",9);
+ const ow1=(p.ow||[]).join(" / "), ow2=(d.ow||[]).join(" / ");
+ if(ow1!==ow2)add("Anything you added",ow1||"nothing",ow2||"nothing",3);
+ want.forEach(rg=>{const a=(p.pn||{})[rg], b=(d.pn||{})[rg];
+  if(!a&&!b)return;
+  if(!a||!b){add("Pin in "+(SHORT[rg]||rg),a?"placed":"none placed",b?"placed":"none placed",9);return;}
+  /* the quantisation is about 4 km a step, so anything under 6 km apart is the storage */
+  if(kmApart(a,b)>6)add("Pin in "+(SHORT[rg]||rg),a[0].toFixed(2)+", "+a[1].toFixed(2),
+    b[0].toFixed(2)+", "+b[1].toFixed(2),9);});
+ return out;
+}
+function review(){
+ const pay=payload();
+ let code="", dec=null, broke="";
+ try{code=encode(pay);}catch(e){broke="it could not be written at all";}
+ if(code){try{const v=decode(code);dec=Array.isArray(v)?v[0]:v;}
+  catch(e){broke="it came back unreadable";}}
+ /* With no readable code there is nothing decoded to review, so the screen falls back to
+    what was actually answered - and says which it is showing. */
+ const r=dec||pay, sound=!!dec&&!broke;
+ const bad=sound?rvCheck(pay,dec):[];
+ const onBoard=boardEdit>=0, nm=String(pay.n||"").trim();
+ /* A row stored from a C1/C2/C3 code has no tr key at all: the trial-year question came
+    after it. Saying "this is where the question starts" of somebody who was never asked
+    puts words in their mouth, which is the whole thing this screen exists not to do. */
+ const rawRow=onBoard?(boardGet()[boardEdit]||null):null;
+ const neverAsked=!!rawRow&&!("tr" in rawRow);
+ const missing=RVREQ.filter(([k])=>!String(pay[k]||"").trim());
+ const noTokens=SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
+ const guessed=RVGUESS.filter(([k])=>!String(pay[k]||"").trim());
+
+ const sec=t=>`<h3 class="sec">${esc(t)}</h3>`;
+ const sp=SPEND.map(([k,a])=>({a:a,v:(r.sp&&r.sp[k])||0})).sort((x,y)=>y.v-x.v);
+ const spTot=sp.reduce((a,x)=>a+x.v,0);
+ const byState=[[],[],[],[]];
+ ALLACTS.forEach(([k,a])=>byState[Math.min(3,(r.a&&r.a[k])||0)].push(a));
+ const picks=(r.rg||[]).filter(x=>REGIONS.indexOf(x)>=0);
+ const stale=(pay.rg||[]).filter(x=>REGIONS.indexOf(x)<0);
+ const sks=SKILLS.filter(([k])=>r.sk&&r.sk[k]).map(x=>x[1]);
+
+ let h=`<div class="stepbar">
+  <button class="exit" id="exit">${onBoard?"&larr; The board":"&larr; Home"}</button>
+  <span class="stepno">${onBoard?"Their answers":"Check your answers"}</span></div>
+  <div class="kicker">${onBoard?"The board":"Nearly there"}${nm?" &middot; "+esc(nm):""}</div>
+  <h2>${onBoard?`What ${esc(nm||"this row")} now says`:"Check your answers"}</h2>
+  <p class="lede">${onBoard?
+   `This is what the board holds for ${esc(nm||"them")}, read back out of their code. Tap any line
+    to change it.`:
+   `Read back out of the code itself, so this is exactly what the group will see. Tap any line
+    to change it.`}</p>`;
+
+ const nameSaid=!!nameRefused;
+ if(nameRefused){
+  h+=`<div class="warn" role="status">${esc(nameRefused)}</div>`;
+  nameRefused="";
+ }
+ if(broke){
+  h+=`<div class="warn" role="status"><b>This code is not readable.</b> Written and read back,
+   ${esc(broke)}. That is a fault in this page rather than in the answers, and the answers
+   themselves are not lost. Please say so before sending anything on. What follows is what was
+   answered, not what the code says.</div>`;
+ } else if(bad.length){
+  h+=`<div class="warn" role="status">
+   <b>This code does not read back the way it was answered.</b>
+   <div class="diffs">${bad.map(x=>`<span class="dl"><span class="dk">${esc(x.lab)}</span>
+    <span class="dv">${esc(x.mine)} &mdash; the code says ${esc(x.theirs)}</span></span>`).join("")}</div>
+   Something is wrong with this page, not with the answers. Please say so before sending this
+   code on. Every line below is what the code actually carries.</div>`;
+ }
+ if(missing.length||noTokens){
+  const list=missing.map(x=>x[1]).concat(noTokens?["Spend your twenty"]:[]);
+  /* Which three of these a code cannot leave blank, and what it says instead, is on the
+     rows themselves now - saying it twice on one screen is once too many. */
+  h+=`<div class="note"><b>${list.length===1?"One question has":list.length+" questions have"}
+   no answer yet.</b> ${list.map(x=>esc(x)).join(", ")}. Tap the line to answer.</div>`;
+ }
+ if(stale.length){
+  h+=`<div class="retired"><b>${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"}
+   no longer on the shortlist</b>, so the code cannot carry ${stale.length>1?"them":"it"}. Nothing here
+   has dropped ${stale.length>1?"those picks":"that pick"} \u2014 they stay until a live region is
+   chosen on the region step.</div>`;
+ }
+
+ h+=sec("Who")+
+  rvRow("First name",0,r.n)+
+  rvRow("Passport, or passports",5,r.cz)+
+  rvRow("Country you live in now",5,r.lv)+
+  sec("The place")+
+  rvRow("What shape is it",1,labOf(STYLES,r.s))+
+  rvRow("Gut feeling on where",9,picks.join(", "),
+   picks.indexOf(OFFLIST)>=0?(String(r.rw||"").trim()?"You named: "+String(r.rw).trim():"You did not say where"):"")+
+  rvRow("Whereabouts, more precisely",9,
+   picks.length?picks.map(rg=>{const q=(r.pn||{})[rg];const ar=q?subArea(q):"";
+    return (SHORT[rg]||rg)+": "+(q?(ar?ar+", ":"")+q[0].toFixed(2)+"N "+q[1].toFixed(2)+"E":"no pin placed");
+   }).join(" \u00b7 "):"",
+   picks.some(rg=>(r.pn||{})[rg])?"A pin is stored to about four kilometres, so it moves a little.":
+    (picks.length?"A pin is optional \u2014 the region alone is a real answer.":""))+
+  sec("Being there")+
+  rvRow("How would you use it",5,labOf(USES,r.u),pay.u?"":RVMADE)+
+  rvRow("Who would be coming with you",5,labOf(HOUSE,r.hh),pay.hh?"":RVMADE)+
+  sec("What matters")+
+  rvRow("Spend your twenty",2,spTot?sp.slice(0,3).map(x=>x.a+" "+x.v).join(", "):"",
+   spTot?"Then "+sp.slice(3).map(x=>x.a+" "+x.v).join(", ")+"."+
+    (spTot<BANK?" "+(BANK-spTot)+" of "+BANK+" left unspent.":" All "+BANK+" spent."):"")+
+  rvRow("What has to be possible",3,
+   byState[0].length===ALLACTS.length?"":(byState[2].length?byState[2].join(", "):"nothing marked essential"),
+   byState[0].length===ALLACTS.length?"":
+    "Nice to have: "+(byState[1].join(", ")||"none")+". Ruled out: "+(byState[3].join(", ")||"none")+
+    ". "+byState[0].length+" left neutral.")+
+  rvRow("Anything you added",3,(r.ow||[]).join(", "))+
+  rvRow("How much you can take",4,
+   TOL.map(([k,a,lo,hi])=>a+": "+tolSay(lo,hi,(r.t&&r.t[k]!==undefined)?r.t[k]:2)).join(" \u00b7 "),
+   TOL.some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
+    "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
+  sec("Timing, and what would stop you")+
+  rvRow("Renting together first",6,labOf(TRIAL,r.tr),
+   neverAsked?"Their code predates this question, so they were never asked it.":
+   (r.tr===TRIAL[0][0]?RVLEFT:""))+
+  rvRow("Realistically, when",6,labOf(HORIZON,r.hz),pay.hz?"":RVMADE)+
+  rvRow("What would make you walk away",6,r.st)+
+  sec("Money")+
+  rvRow("Up-front capital",7,CAP[r.cp]||"",
+   r.cp===CAPSPLIT?RVSPLIT:r.cp===5?RVLEFT:"")+
+  rvRow("Monthly running cost",7,RUN[r.rn]||"",
+   r.rn===RUNSPLIT?RVSPLIT:r.rn===4?RVLEFT:"")+
+  rvRow("Would you borrow to take part",7,r.d)+
+  sec("What you bring, and why")+
+  rvRow("What you could bring",8,sks.join(", "))+
+  rvRow("Why you want this at all",10,r.wy);
+
+ /* "Don't block" does not mean "carry on as though nothing happened": when the code does
+    not read back, the way on is still there but it stops being the confident answer, and
+    going back through the questions takes its place. */
+ const iffy=!!(broke||bad.length);
+ const code_=onBoard?
+  `<button class="btn" id="rvok">Save and go back to the board</button>
+   <button class="btn ghost" id="rvcode">${iffy?"Show the code anyway":
+     `Show the code for ${esc(nm||"them")}`}</button>`:
+  `<button class="btn${iffy?" ghost":""}" id="rvok">${iffy?"Show the code anyway":
+    "That's right \u2014 get my code"}</button>`;
+ /* When the code does not read back, walking the questions stops being the afterthought
+    and takes the top of the list, rather than sitting under the code saying much the same. */
+ const again=`<button class="btn${iffy&&!onBoard?"":" ghost"}" id="rvall">Go through the questions one by one</button>`;
+ h+=((iffy&&!onBoard)?again+code_:code_+again)+`
+  ${storeWarn()}
+  <p class="foot">${onBoard?
+   `Every tap already wrote itself back to ${nm?esc(nm)+(nm.slice(-1)==="s"?"'":"'s"):"their"} row,
+    so there is nothing here left to save \u2014 this is what it now says.`:
+   `Nothing has been sent anywhere. The code on the next screen is the only thing that leaves
+    this device.`}</p>`;
+ app.innerHTML=h;
+ /* A live region inserted with its text already in it is not announced - the same rule
+    say() was built for, and this screen was breaking it. The box stays where it is. */
+ if(iffy||nameSaid)setTimeout(()=>{const w=document.querySelector("#app .warn");
+  if(w)say(w.textContent.replace(/\s+/g," ").trim());},60);
+ document.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>{
+  rvJump=+b.dataset.jump; step=rvJump; mode="build"; window.scrollTo(0,0); render();});
+ document.getElementById("exit").onclick=()=>{
+  rvJump=-1; mode=onBoard?"combine":"home"; window.scrollTo(0,0); render();};
+ document.getElementById("rvok").onclick=()=>{
+  rvJump=-1; mode=onBoard?"combine":"done"; window.scrollTo(0,0); render();};
+ const rc=document.getElementById("rvcode");
+ if(rc)rc.onclick=()=>{rvJump=-1;mode="done";window.scrollTo(0,0);render();};
+ document.getElementById("rvall").onclick=()=>{
+  rvJump=-1; step=0; mode="build"; window.scrollTo(0,0); render();};
 }
 function done(){
- const code=encode(payload());
+ let code=null; try{code=encode(payload());}catch(e){}
+ if(code===null){
+  /* cut() should have made this unreachable. If it happens anyway, the screen says so
+     rather than throwing inside render() and leaving whatever was there before - which is
+     what it did, silently, for anybody whose name was cut through an emoji. */
+  app.innerHTML=`<div class="kicker">Something went wrong</div>
+   <h2>Your code could not be written</h2>
+   <p class="lede">That is a fault in this page, not in your answers. ${lsFailed?
+    `They are only in this tab, so do not close it \u2014 tell Joseph now.`:
+    `They are safe on this device under <b>${esc(S.n)}</b>, so nothing is lost.`}
+   Please say so, with what you typed, before doing anything else.</p>
+   <button class="btn" id="again">Check or change my answers</button>
+   <button class="btn ghost" id="hm">Home</button>`;
+  document.getElementById("again").onclick=()=>{rvJump=-1;mode="review";window.scrollTo(0,0);render();};
+  document.getElementById("hm").onclick=()=>{mode="home";render();};
+  return;
+ }
  try{history.replaceState(null,"","#c="+code);}catch(e){}
  app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>Here is your code</h2>
  <p class="lede">Copy it and send it to the group chat. That's the whole thing.</p>
@@ -1025,7 +1658,7 @@ function done(){
  <p class="hint" style="margin-top:8px">A link stays on one line in a chat and whoever is collecting just taps it.</p>
  <div class="code" id="cd">${grp(code)}</div>
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
- <button class="btn ghost" id="again">Change my answers</button>
+ <button class="btn ghost" id="again">Check or change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
  <div class="ok" id="st" role="status" aria-live="polite"></div>
  ${lsFailed?`<div class="warn" role="status">
@@ -1052,8 +1685,8 @@ function done(){
  }
  document.getElementById("cp").onclick=()=>copy(code,"Code",true);
  document.getElementById("cl").onclick=()=>copy(location.href,"Link");
- document.getElementById("again").onclick=()=>{mode="build";step=0;window.scrollTo(0,0);render();};
- document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";mode="combine";render();};
+ document.getElementById("again").onclick=()=>{rvJump=-1;mode="review";window.scrollTo(0,0);render();};
+ document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;mode="combine";render();};
 }
 /* One collision at a time. Showing what each version actually answered is the only way the
    collector can tell a resend from a namesake - the name alone is what got them here. */
@@ -1138,7 +1771,8 @@ function combine(){
  back to the board.</p>`:""}
  ${undoRow?`<div class="ok" role="status" aria-live="polite">Removed
    <b>${esc(undoRow.rec.n||"anon")}</b>. <button class="lnk" id="undo">Put them back</button></div>`:""}
- <textarea id="tx" placeholder="Paste new codes here \u2014 one per line"></textarea>
+ <textarea id="tx" aria-label="Paste new codes here, one per line"
+  placeholder="Paste new codes here \u2014 one per line"></textarea>
  <button class="btn" id="add">Add to the board</button>
  ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
    `<p class="hint" style="margin-top:12px">Some of these answers picked a region from the earlier list.
@@ -1166,7 +1800,7 @@ function combine(){
   const i=+x.dataset.ed, o=boardGet()[i]; if(!o)return;
   undoRow=null;
   S=stateFrom(o); boardEdit=i; boardEditKey=String(o.n||"").toLowerCase().trim();
-  mode="build"; step=0; window.scrollTo(0,0); render();});
+  rvJump=-1; mode="review"; step=0; window.scrollTo(0,0); render();});
  const clr=document.getElementById("clr");
  if(clr)clr.onclick=()=>{undoRow=null;if(clr.dataset.sure){boardSet([]);render();}
   else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
@@ -1561,7 +2195,11 @@ function result(){
  const pinMap=c=>{const m={};Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
  try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
  let secList=[];
- const sec=label=>{const id="sec"+secList.length;secList.push({id,label});return `<div class="sec" id="${id}">${label}</div>`;};
+ /* h3, not a div: these are the only structure over twenty-odd screens, and a screen
+    reader navigating by heading used to get one stop for the whole page. .sec already sets
+    the size and spacing; font-weight is pinned in the rule so nothing moves. */
+ const sec=label=>{const id="sec"+secList.length;secList.push({id,label});
+  return `<h3 class="sec" id="${id}">${label}</h3>`;};
 
  /* ---------- headline findings ---------- */
  const rows=[];
@@ -1582,30 +2220,106 @@ function result(){
  const knownM=avg(codes.map(c=>spv(c,"known")));
  if(knownM<2) cards.push(["Stated versus revealed",`<b>Somewhere we know</b> scored only ${knownM.toFixed(1)} of 20. Sentiment about a place tends to rank high in conversation and low when it costs something. Worth being honest about.`,"split"]);
 
+ /* ---------- where this leaves us ----------
+    Five lines about the thing the group exists to decide, at the top of a page that
+    otherwise opens with findings about the questionnaire. Every line is a count or a pool
+    the page already computes further down; nothing here is interpretation, and there is no
+    adjective in it. A tie prints as a tie rather than picking a winner, and a question
+    nobody answered says so rather than disappearing. */
+ const lead=pairs=>{const live=pairs.filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+  if(!live.length)return null;
+  const top=live[0][1];
+  return {tied:live.filter(x=>x[1]===top),rest:live.filter(x=>x[1]<top)};};
+ /* One label already contains a comma of its own - "Someday, no timeline" - so neither the
+    count nor the next item can be attached to it with one. Parentheses bind the count to
+    its name whatever the name is, and a middot separates the items. */
+ const leadTxt=L=>{
+  if(!L)return null;
+  const names=L.tied.map(x=>`<b>${esc(x[0])}</b>`);
+  const head=L.tied.length===1?`${names[0]} (${L.tied[0][1]})`:
+   `${names.slice(0,-1).join(", ")} and ${names[names.length-1]} (${L.tied[0][1]} each)`;
+  return head+(L.rest.length?` <em>&mdash; then ${
+    L.rest.map(x=>esc(x[0])+" ("+x[1]+")").join(" &middot; ")}</em>`:"");};
+ const sumRows=[];
+ const srow=(k,v)=>sumRows.push(`<div class="sr"><span class="sk">${esc(k)}</span>
+   <span class="sv">${v}</span></div>`);
+ /* Regions: ranked among the four on the shortlist, with picks from the earlier list
+    counted separately rather than ranked against regions nobody can choose now. */
+ {const t={};codes.forEach(c=>rgOf(c).forEach(x=>{t[x]=(t[x]||0)+1;}));
+  const liveL=leadTxt(lead(REGIONS.map(r=>[SHORT[r]||r,t[r]||0])));
+  const gone=RETIRED.map(r=>[r,t[r]||0]).filter(x=>x[1]);
+  srow("Where",(liveL||"<em>nobody picked a region</em>")+
+   (gone.length?` <em>&middot; ${gone.reduce((a,x)=>a+x[1],0)} for regions since dropped</em>`:""));}
+ /* The trial year sits second: it is the proposal the September call put highest and the
+    one nothing else on this page can settle. "No view" is the stored default as well as a
+    real answer, and the record cannot tell those apart, so the line says so. */
+ {const f=codes.filter(c=>c.tr==="must"||c.tr==="good").length,
+    ag=codes.filter(c=>c.tr==="skip"||c.tr==="against").length,
+    nv=N-f-ag;
+  srow("Trial year",(f||ag)?
+   `<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
+   `<em>${N===2?"both of you":"all "+nword(N)+" of you"} left it at "no view", which is
+    also where it starts</em>`);}
+ {const t={};codes.forEach(c=>{if(c.hz)t[c.hz]=(t[c.hz]||0)+1;});
+  srow("When",leadTxt(lead(HORIZON.map(([k,a])=>[a,t[k]||0])))||"<em>nobody gave a timeframe</em>");}
+ /* Pooled from CAPEUR / RUNEUR, the same ranges the two rows further down use. */
+ {const cs=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]),
+    rs=codes.filter(c=>typeof c.rn==="number"&&RUNEUR[c.rn]);
+  const cap=cs.length?`<b>&euro;${num(cs.reduce((a,c)=>a+CAPEUR[c.cp][0],0))}&ndash;${
+     num(cs.reduce((a,c)=>a+CAPEUR[c.cp][1],0))}k</b> up front`:"",
+   run=rs.length?`<b>&euro;${num(rs.reduce((a,c)=>a+RUNEUR[c.rn][0],0))}&ndash;${
+     num(rs.reduce((a,c)=>a+RUNEUR[c.rn][1],0))}</b> a month`:"";
+  const who2=cs.length===rs.length?`${cs.length} of ${N} put a number on both`:
+   `${cs.length} of ${N} gave a capital band, ${rs.length} a monthly one`;
+  srow("Money",(cap||run)?[cap,run].filter(Boolean).join(", ")+` <em>&mdash; ${who2}</em>`:
+   `<em>nobody put a number on it</em>`);}
+ {const st=codes.filter(c=>c.st&&c.st.trim()).length;
+  srow("Stoppers",st?`<b>${st}</b> of ${N} named a deal-breaker`:
+   `<em>nobody named a deal-breaker</em>`);}
+
  let h=`<div class="kicker">${N} of you</div><h2>Where you stand</h2>
+  ${sec("Where this leaves us")}<div class="sum">
+   <p class="lede2"><b>${N} answer${N===1?"":"s"} so far.</b> Every line is a count of those
+   ${nword(N)}, not of the group.</p>${sumRows.join("")}</div>
   <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
   <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>
   ${N>PAL.length?`<p class="hint">With more than ${PAL.length} of you, a couple of colors repeat above &mdash; go by the names, not just the dots.</p>`:""}`;
  /* Three is what anyone reads before scrolling past. The rest are still on the page
-    lower down as their own sections, so nothing is actually lost by capping here. */
- h+=cards.slice(0,3).map(([t,b,k])=>`<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
+    lower down as their own sections, so nothing is actually lost by capping here. They are
+    held back until the alignment gauge: they say which axis is most settled and which most
+    divided, which is that gauge broken up, not a finding about where to buy. Above it they
+    sat between the five lines and the number they are about. */
+ const cardHTML=cards.slice(0,3).map(([t,b,k])=>
+   `<div class="card ${k}"><div class="ct">${t}</div><p>${b}</p></div>`).join("");
  h+="__SECNAV__";
 
  /* ---------- alignment score ---------- */
  const agr=(vals,range)=>{if(N<2)return 1;let t=0,c=0;
   for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){t+=Math.abs(vals[i]-vals[j]);c++;}
   return Math.max(0,Math.min(1,1-(t/c)/range));};
- const catAgr=vals=>{if(N<2)return 1;const t={};vals.forEach(v=>t[v]=(t[v]||0)+1);
-  return (Math.max(...Object.values(t))-1)/(N-1);};
+ /* Over raw values including "", a non-answer did not merely count as agreement: a large
+    enough block of blanks became the largest group and set the score. Tally only the
+    answers, and divide by how many of those there are. Under two answers there is no
+    agreement to measure, so it returns null and the caller drops the component rather than
+    inventing a number for it. */
+ let catSkipped=0;
+ const catAgr=vals=>{const a=vals.filter(v=>v!==""&&v!=null);
+  catSkipped+=vals.length-a.length;
+  if(a.length<2)return null;
+  const t={};a.forEach(v=>t[v]=(t[v]||0)+1);
+  return (Math.max(...Object.values(t))-1)/(a.length-1);};
+ /* average of the parts that have a value; null if none of them do */
+ const avgSome=xs=>{const a=xs.filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+  return a.length?avg(a):null;};
  const desire=v=>v===2?1:v===1?.5:v===3?-.5:0;
  const secScores=[
-  ["Shape of the place",catAgr(codes.map(c=>c.s||""))],
+  ["Shape of the place",catAgr(codes.map(c=>c.s))],
   ["Land & buildings",avg(SPEND.map(([k])=>agr(codes.map(c=>spv(c,k)),8)))],
   ["What's possible",avg(ACTS.flatMap(([g,it])=>it.map(([k])=>agr(codes.map(c=>desire((c.a&&c.a[k])||0)),1.5))))],
   ["Tolerances",avg(TOL.map(([k])=>agr(codes.map(c=>tov(c,k)),4)))],
   ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
-  ["Money & commitment",avg([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
-    agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u||"")),catAgr(codes.map(c=>c.d||""))])],
+  ["Money & commitment",avgSome([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
+    agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u)),catAgr(codes.map(c=>c.d))])],
   /* Region overlap, discounted by how far apart the pins are inside a shared region.
      Two people who both say "Italian Alps" but mean Piedmont and Friuli are not agreed.
      With no pins the discount is 1, so a pin-less board scores exactly as it did before. */
@@ -1622,7 +2336,10 @@ function result(){
     }
     t+=base;c2++;}return c2?t/c2:1;})()]
  ];
- const SCORE=Math.round(avg(secScores.map(x=>x[1]))*100);
+ /* A component that came back null had fewer than two answers to compare, so there is no
+    agreement to measure - it leaves the average and the list rather than being counted. */
+ const secLive=secScores.filter(x=>x[1]!==null&&x[1]!==undefined&&!isNaN(x[1]));
+ const SCORE=Math.round(avg(secLive.map(x=>x[1]))*100);
  const verdict=SCORE>=75?"You are largely of one mind.":SCORE>=55?"Broadly aligned, with real gaps.":
    SCORE>=40?"Genuinely divided \u2014 plenty to talk about.":"You are picturing different things.";
  const GW=280,GH=152,gcx=140,gcy=126,gr=96;
@@ -1638,8 +2355,12 @@ function result(){
   <text x="${(gcx-gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">0</text>
   <text x="${(gcx+gr).toFixed(0)}" y="${gcy+16}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="8" fill="#22423A" opacity=".5">100</text></svg>`;
  h+=`${sec("How aligned are you")}<div class="chartwrap">${gauge}</div>
-  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.</p>`;
- secScores.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
+  <p class="hint" style="margin-top:-8px">${verdict} Watch this move as more codes arrive.${
+   catSkipped?` A question somebody did not answer is left out of this rather than counted
+   as agreement with everyone else who did not answer it, so ${catSkipped===1?"one answer is":
+   catSkipped+" answers are"} not in the number above.`:""}</p>
+  ${cardHTML}`;
+ secLive.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
   h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
    <div class="bar"><span style="width:${(v*100).toFixed(0)}%;background:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}"></span></div></div>`;});
 
@@ -1958,6 +2679,14 @@ function result(){
  STYLES.forEach(([k,a])=>{const n=codes.filter(c=>c.s===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.s===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
+ /* A blank shape now stays blank in the code rather than being written as "Separate
+    houses", so it matches no bar - and the bars quietly summed to fewer than N with nothing
+    saying where the rest went. Said, the way a retired region pick is. */
+ {const noS=codes.filter(c=>!c.s);
+  if(noS.length)h+=`<div class="res"${insAttr("Did not answer",
+    noS.map(c=>{const i=codes.indexOf(c);return [nameOf(i),PAL[i%PAL.length],"no answer"];}))}>
+   <div class="t"><b class="no">Did not answer</b><em>${noS.length}/${N}</em></div>
+   <div class="bar"><span style="width:${noS.length/N*100}%;background:var(--rule)"></span></div></div>`;}
  USES.forEach(([k,a])=>{const n=codes.filter(c=>c.u===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.u===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}${n===N?` <span class="tag agree">all of you</span>`:""}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--glacier)"></span></div></div>`;});
@@ -2034,12 +2763,12 @@ function result(){
  const said=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]);
  if(said.length){const lo=said.reduce((a,c)=>a+CAPEUR[c.cp][0],0),hi=said.reduce((a,c)=>a+CAPEUR[c.cp][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled up-front capital</b><em>${said.length}/${N} answered</em></div>
-   <p class="hint" style="margin:4px 0 0">Roughly &euro;${lo}k&ndash;${hi}k before borrowing. A house with land runs
+   <p class="hint" style="margin:4px 0 0">Roughly &euro;${num(lo)}k&ndash;${num(hi)}k before borrowing. A house with land runs
    &euro;120k&ndash;1.2M depending on region, so this is ${hi<150?"early days":"a real start"}.</p></div>`;}
  const rs=codes.filter(c=>typeof c.rn==="number"&&RUNEUR[c.rn]);
  if(rs.length){const lo=rs.reduce((a,c)=>a+RUNEUR[c.rn][0],0),hi=rs.reduce((a,c)=>a+RUNEUR[c.rn][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled monthly</b><em>${rs.length}/${N} answered</em></div>
-   <p class="hint" style="margin:4px 0 0">About &euro;${lo}&ndash;${hi} a month between you.</p></div>`;}
+   <p class="hint" style="margin:4px 0 0">About &euro;${num(lo)}&ndash;${num(hi)} a month between you.</p></div>`;}
  const splitBands=[];
  if(codes.some(c=>c.cp===CAPSPLIT))splitBands.push(`<b>${esc(CAP[CAPSPLIT])}</b> up front`);
  if(codes.some(c=>c.rn===RUNSPLIT))splitBands.push(`<b>${esc(RUN[RUNSPLIT])}</b> a month`);
@@ -2048,8 +2777,16 @@ function result(){
   places actually found cost more than the old top band could describe. Counted here at the
   old range and shown as given, not moved into a band nobody picked \u2014 worth asking those
   people to answer again.</p>`;
- const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length;
- h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${N-yes-mb} no</em></div></div>`;
+ /* "no" used to be the remainder, so every code that carries no borrowing answer at all
+    was reported to the group as a No. recBin now writes the spare 2-bit value 3 for a blank
+    rather than inventing a Yes, and this is the other half of that: count the three answers
+    and say how many did not give one, the way the pooled rows already say "12/15 answered".
+    The money step will not let anyone past without answering, so a blank only arrives on an
+    imported code or an old draft - which is exactly the case where inventing an answer for
+    somebody who never gave one does the most damage. */
+ const yes=codes.filter(c=>c.d==="Yes").length,mb=codes.filter(c=>c.d==="Maybe").length,
+   nope=codes.filter(c=>c.d==="No").length, dunno=N-yes-mb-nope;
+ h+=`<div class="res"><div class="t"><b>Would borrow</b><em>${yes} yes &middot; ${mb} maybe &middot; ${nope} no${dunno?` &middot; ${dunno} didn't say`:""}</em></div></div>`;
 
  /* ---------- write-ins ---------- */
  const own={};
@@ -2118,7 +2855,7 @@ function result(){
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
  document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
-  sections:secScores.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
+  sections:secLive.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
   locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
   regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
     .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
