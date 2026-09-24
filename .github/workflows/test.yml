@@ -1,0 +1,50 @@
+# Runs the test suite in tests/ on every push, to any branch, and on every pull request.
+#
+# What it guards is what CLAUDE.md says must not break, checked against the index.html in
+# the commit rather than against anyone's memory of the rules: every share code ever sent
+# (C1, C2, C3 and C4) still decodes to what that person actually picked, a grouped code
+# pasted as one blob still imports as one code, the board never replaces somebody's answer
+# without asking, the map labels stay clear of the bubbles, the triangle caption still
+# matches the numbers under it, the file stays pure ASCII, and the pin picker in a real
+# browser stores the place that was tapped. See the header of each tests/*.test.mjs file
+# for exactly what it covers and what it does not.
+#
+# This workflow only tests. It does not deploy and it does not gate deploys: GitHub Pages
+# still publishes main on its own, straight from the branch, whether this passes or not.
+# A red run here means a push went live with a failing check, not that it was held back.
+# Whether tests should block publishing is a separate decision, not made here.
+#
+# The Node tests need nothing installed. The one browser test needs the 'playwright'
+# package (pinned in package.json) and its Chromium, installed below.
+
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the pinned test dependency
+        run: npm ci
+
+      - name: Install Chromium for the browser test
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the suite
+        run: npm test

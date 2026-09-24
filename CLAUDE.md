@@ -382,12 +382,16 @@ Keyboard focus is styled with `:focus-visible` only (a 2px glacier outline), so 
 a tap shows nothing and a keyboard user gets a visible ring. Every control here is a custom
 button, so without it there is only the browser default to go on.
 
-There's no test suite. Before committing a change to the codec or paste logic, sanity-
-check with a quick Node script: extract the `<script>` contents, `new Function(...)`
-them with stub DOM globals, and roundtrip a sample answer through `encode`/`decode`.
-This has caught real bugs before (see the strict-validation and hyphen fixes above) —
-don't skip it for anything touching
-`packOne`/`packC4`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
+The test suite lives in `tests/` and runs with `npm test` (Node's built-in runner; the
+only dependency is `playwright`, for `browser.test.mjs`). `.github/workflows/test.yml` runs
+it on every push and pull request. It **reports only** — Pages still publishes `main`
+whether it passes or not. `tests/harness.mjs` extracts the `<script>` contents and runs
+them under `new Function(...)` with stub DOM globals, which is the check this section
+used to describe doing by hand; set `INDEX_HTML` to point the suite at another copy of
+the file. It has caught real bugs before (see the strict-validation and hyphen fixes
+above) — run it for anything touching
+`packOne`/`packC4`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`, and add to it rather
+than checking by hand.
 
 Things worth asserting every time the codec changes: a new answer roundtrips through C4
 with its regions, write-in, pins and trial-year answer intact; a **C3** and a **C2** code
