@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light only">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="x-dns-prefetch-control" content="off">
+<meta name="description" content="Commons World: walk and fly around a listing, on terrain built from open map data.">
+<title>Commons World</title>
+<link rel="icon" href="data:,">
+<style>
+html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%}
+:root{color-scheme:light only;
+ --paper:#EAEDE8; --ink:#131E1B; --pine:#22423A; --glacier:#35748A; --madder:#7C2E3E;
+ --gold:#8A6A2F; --rule:rgba(19,30,27,.16); --rule2:rgba(19,30,27,.07);
+ --edge:rgba(19,30,27,.54);
+ --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+ --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+ --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+ --panel:rgba(234,237,232,.95); --shadow:0 2px 14px rgba(19,30,27,.22); --plot:#B8552F;
+ --gap:12px; --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+ --safe-l:env(safe-area-inset-left,0px); --safe-r:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;
+ overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;left:0;top:0;width:100%;height:100vh;height:100dvh;background:#c9d6dc}
+#view{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#view:focus{outline:none}
+#view:active{cursor:grabbing}
+.locked #view{cursor:none}
+:focus-visible{outline:2px solid var(--glacier);outline-offset:2px}
+/* the canvas fills the viewport, so its ring goes inside the edge or it would be clipped */
+#view:focus-visible{outline:2px solid var(--glacier);outline-offset:-3px}
+button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:border-color .12s,background .12s}
+a{color:var(--glacier)}
+
+/* ---- header ---- */
+#bar{position:fixed;left:0;right:0;top:0;z-index:20;display:flex;align-items:flex-start;justify-content:space-between;
+ gap:10px;padding:calc(var(--gap) + var(--safe-t)) calc(var(--gap) + var(--safe-r)) 0 calc(var(--gap) + var(--safe-l));
+ pointer-events:none}
+#bar > *{pointer-events:auto}
+.brand{background:var(--panel);border:1px solid var(--rule);border-radius:3px;box-shadow:var(--shadow);
+ padding:7px 12px 8px;min-width:0;max-width:min(460px,52vw)}
+.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.85}
+#title{font-family:var(--serif);font-weight:500;font-size:19px;line-height:1.2;margin:1px 0 0;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;gap:6px;flex:none}
+.pill{min-height:44px;min-width:44px;padding:0 14px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+ text-transform:uppercase;background:var(--panel);color:var(--pine);border:1px solid var(--edge);box-shadow:var(--shadow)}
+.pill:hover{border-color:var(--pine)}
+.pill[aria-pressed="true"],.pill[aria-expanded="true"]{background:var(--pine);color:var(--paper);border-color:var(--pine)}
+#progress{position:fixed;left:0;right:0;top:0;height:3px;z-index:30;background:transparent}
+#progress span{display:block;height:3px;width:0;background:var(--glacier);transition:width .2s}
+#progress.done{opacity:0;transition:opacity .6s .4s}
+#status{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:15;margin:0;
+ font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--pine);background:var(--panel);
+ border:1px solid var(--rule);border-radius:20px;padding:5px 12px;max-width:calc(100% - 32px);text-align:center}
+#status:empty{display:none}
+#status.bad{color:var(--madder);border-color:var(--madder)}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#hint{position:fixed;left:calc(var(--gap) + var(--safe-l));bottom:calc(var(--gap) + var(--safe-b));z-index:15;margin:0;
+ max-width:360px;font-size:12.5px;color:var(--pine);background:var(--panel);border:1px solid var(--rule);
+ border-radius:3px;padding:8px 11px;box-shadow:var(--shadow)}
+#crosshair{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;
+ background:rgba(234,237,232,.9);box-shadow:0 0 0 1px rgba(19,30,27,.6);z-index:12;pointer-events:none}
+#house-label{position:fixed;left:0;top:0;z-index:11;min-height:28px;padding:3px 9px;font-family:var(--mono);font-size:10.5px;
+ letter-spacing:.12em;text-transform:uppercase;color:var(--paper);background:var(--madder);border:1px solid rgba(234,237,232,.7);
+ border-radius:2px;box-shadow:0 1px 6px rgba(19,30,27,.3);white-space:nowrap;will-change:transform}
+
+/* ---- credits ---- */
+#credits{position:fixed;right:calc(var(--gap) + var(--safe-r));bottom:calc(var(--gap) + var(--safe-b));z-index:30;
+ display:flex;align-items:flex-end;gap:6px;flex-direction:row-reverse;max-width:min(430px,calc(100% - 2 * var(--gap)))}
+#credits-toggle{flex:none;width:32px;height:32px;min-width:32px;border-radius:50%;padding:0;background:var(--panel);
+ color:var(--pine);border:1px solid var(--edge);font-family:var(--serif);font-style:italic;font-weight:600;font-size:16px;
+ line-height:1;box-shadow:var(--shadow)}
+#credits-body{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:7px 10px;
+ font-size:11.5px;line-height:1.4;color:var(--ink);box-shadow:var(--shadow);max-height:30vh;overflow:auto}
+#credits-body ul{margin:0;padding:0;list-style:none}
+#credits-body li{margin:0 0 3px}
+#credits-body p{margin:4px 0 0}
+#credits.collapsed #credits-body{display:none}
+
+/* ---- panels ---- */
+.panel{position:fixed;z-index:25;background:rgba(234,237,232,.97);border:1px solid var(--rule);border-radius:3px;
+ box-shadow:0 6px 28px rgba(19,30,27,.28);overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#specs{right:calc(var(--gap) + var(--safe-r));top:calc(70px + var(--safe-t));width:min(410px,calc(100% - 2 * var(--gap)));
+ max-height:calc(100dvh - 140px - var(--safe-t) - var(--safe-b));padding:0 18px 18px}
+#help{left:calc(var(--gap) + var(--safe-l));top:calc(70px + var(--safe-t));width:min(360px,calc(100% - 2 * var(--gap)));
+ max-height:calc(100dvh - 140px);padding:14px 18px}
+.panel-top{position:sticky;top:0;display:flex;justify-content:flex-end;margin:0 -18px;padding:10px 18px 6px;background:var(--paper);
+ border-bottom:1px solid var(--rule2);z-index:1}
+.close{min-height:36px;padding:0 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+ background:none;color:var(--pine);border:1px solid var(--edge)}
+.close:hover{border-color:var(--pine)}
+.panel h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;margin:2px 0 4px}
+.panel h2:focus{outline:none}
+.panel h2:focus-visible{outline:2px solid var(--glacier)}
+.panel h3{margin:22px 0 8px;font-weight:400;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+ color:var(--pine);padding-bottom:6px;border-bottom:1px solid var(--rule)}
+.panel h3.big{font-family:var(--serif);font-size:20px;letter-spacing:0;text-transform:none;color:var(--ink);margin-top:28px}
+.panel h3[title]{cursor:help}
+.panel p{margin:8px 0;font-size:13.5px}
+.panel .addr{font-size:14.5px;margin:2px 0}
+.panel .muted{color:var(--pine);opacity:.85;font-size:12.5px}
+.panel .src{font-size:11px;color:var(--pine);opacity:.7}
+.panel .warn{font-size:12.5px;color:var(--madder)}
+.panel .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--pine);opacity:.8;margin:14px 0 4px}
+.panel dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:5px 12px;margin:0;font-size:13.5px}
+.panel dt{color:var(--pine)}
+.panel dd{margin:0;overflow-wrap:anywhere}
+.panel dd small{display:block;font-size:11.5px;color:var(--pine);opacity:.8}
+.panel dd.none{color:var(--pine);opacity:.65;font-style:italic}
+.panel ul{margin:6px 0;padding-left:18px;font-size:13px}
+.panel ul.plain{list-style:none;padding:0}
+.panel ul.peaks{list-style:none;padding:0}
+.panel ul.peaks li{padding:7px 0;border-bottom:1px solid var(--rule2)}
+.panel ul.peaks .line{display:block;font-size:12.5px}
+.panel table.num{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
+.panel table.num th,.panel table.num td{text-align:right;padding:4px 4px;border-bottom:1px solid var(--rule2);font-weight:400}
+.panel table.num th[scope=row],.panel table.num thead th:first-child{text-align:left;color:var(--pine)}
+.panel table.num thead th{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--pine)}
+.panel details.method{margin:4px 0 8px;font-size:12.5px;background:rgba(53,116,138,.07);border-left:2px solid var(--glacier);padding:6px 10px}
+.panel details.method summary{cursor:pointer;color:var(--glacier);font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;min-height:28px;line-height:28px}
+.panel details.method p{font-size:12.5px}
+.panel ol.bars{list-style:none;margin:6px 0;padding:0;font-size:11.5px}
+.panel ol.bars li{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:8px;margin:2px 0}
+.panel ol.bars .m{font-family:var(--mono);color:var(--pine)}
+.panel ol.bars .b{position:relative;height:9px;background:var(--rule2);border-radius:2px;overflow:hidden}
+.panel ol.bars i{position:absolute;left:0;top:0;height:9px;border-radius:2px}
+.panel ol.bars i.t{background:rgba(138,106,47,.45)}
+.panel ol.bars i.c{background:var(--gold);height:5px;top:2px}
+.panel ol.bars .v{font-family:var(--mono);text-align:right;color:var(--pine);white-space:nowrap;min-width:78px}
+.btnlink{display:inline-block;margin-top:6px;padding:10px 14px;background:var(--pine);color:var(--paper);text-decoration:none;
+ border-radius:3px;font-size:14px}
+.btnlink:hover{background:#1a352e}
+#help dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px;margin:6px 0 0}
+#help dt{font-family:var(--mono);font-size:11.5px;color:var(--pine);white-space:nowrap}
+#help dd{margin:0}
+
+/* ---- touch controls ---- */
+#touch{position:fixed;inset:0;z-index:14;pointer-events:none}
+#stick{position:absolute;left:calc(22px + var(--safe-l));bottom:calc(64px + var(--safe-b));width:128px;height:128px;border-radius:50%;
+ background:rgba(234,237,232,.32);border:1px solid rgba(234,237,232,.75);box-shadow:0 0 0 1px rgba(19,30,27,.18);
+ pointer-events:auto;touch-action:none}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;
+ background:rgba(234,237,232,.9);border:1px solid var(--edge);box-shadow:var(--shadow)}
+#vert{position:absolute;right:calc(18px + var(--safe-r));bottom:calc(64px + var(--safe-b));display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+#vert button{width:56px;height:56px;border-radius:50%;background:var(--panel);color:var(--pine);border:1px solid var(--edge);
+ font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;box-shadow:var(--shadow);touch-action:none}
+#vert[hidden]{display:none}
+.touch #hint{display:none}
+.touch #credits{right:auto;left:calc(var(--gap) + var(--safe-l));top:calc(72px + var(--safe-t));bottom:auto;flex-direction:row;align-items:flex-start}
+.touch #status{bottom:calc(14px + var(--safe-b))}
+
+/* ---- errors ---- */
+#error{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--paper)}
+#error[hidden]{display:none}
+#error .box{max-width:560px}
+#error h2{font-family:var(--serif);font-weight:500;font-size:26px;margin:0 0 10px}
+#error p{margin:0 0 10px;font-size:15px;color:var(--pine)}
+#error code{font-family:var(--mono);font-size:13px;background:rgba(19,30,27,.06);padding:1px 4px;border-radius:2px;overflow-wrap:anywhere}
+
+@media (max-width:600px){
+ :root{--gap:10px}
+ .brand{max-width:calc(100vw - 170px);padding:6px 10px 7px}
+ #title{font-size:16px}
+ .pill{padding:0 10px}
+ #specs{left:0;right:0;bottom:0;top:auto;width:100%;max-height:74dvh;border-radius:10px 10px 0 0;
+  padding:0 16px calc(18px + var(--safe-b));background:var(--paper)}
+ .panel-top{margin:0 -16px;padding:10px 16px 6px}
+ #help{left:var(--gap);right:var(--gap);width:auto}
+}
+@media (max-height:460px){
+ #specs{top:calc(60px + var(--safe-t));max-height:calc(100dvh - 72px)}
+ #stick{bottom:calc(22px + var(--safe-b))}
+ #vert{bottom:calc(22px + var(--safe-b))}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+@media (prefers-color-scheme: dark){
+  html,body{background:#EAEDE8 !important;color:#131E1B !important}
+  input,textarea,select,button{color-scheme:light}
+}
+</style>
+<script type="importmap">
+{"imports": {"three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/"}}
+</script>
+</head>
+<body>
+<div id="stage"><canvas id="view" tabindex="0" aria-label="The world view. Use W A S D or the arrow keys to move, F to switch between walking and flying."></canvas></div>
+<div id="progress" aria-hidden="true"><span></span></div>
+
+<header id="bar">
+  <div class="brand">
+    <div class="kicker">Commons World</div>
+    <div id="title">Loading&#8230;</div>
+  </div>
+  <nav class="actions" aria-label="View">
+    <button id="btn-specs" class="pill" type="button" aria-controls="specs" aria-expanded="false">Specs</button>
+    <button id="btn-mode" class="pill" type="button" aria-pressed="false" title="Switch between walking and flying (F)">Fly</button>
+    <button id="btn-help" class="pill" type="button" aria-controls="help" aria-expanded="false" aria-label="Controls">?</button>
+  </nav>
+</header>
+
+<p id="status"></p>
+<p id="announce" class="sr-only" role="status" aria-live="polite"></p>
+<p id="hint" hidden>Click the view to look around (Esc lets go). W A S D or arrows to move, F to fly. Click the house for its specs.</p>
+<div id="crosshair" hidden></div>
+<button id="house-label" type="button" hidden>House</button>
+
+<aside id="specs" class="panel" hidden aria-labelledby="specs-title">
+  <div class="panel-top"><button id="specs-close" class="close" type="button">Close</button></div>
+  <div id="specs-body"></div>
+</aside>
+
+<section id="help" class="panel" hidden aria-labelledby="help-title">
+  <div class="panel-top"><button id="help-close" class="close" type="button">Close</button></div>
+  <h2 id="help-title">Getting about</h2>
+  <dl id="help-keys">
+    <dt>Click the view</dt><dd>Look around with the mouse. Esc lets go. Dragging also looks.</dd>
+    <dt>W A S D, arrows</dt><dd>Walk or fly.</dd>
+    <dt>F</dt><dd>Switch between walking and flying.</dd>
+    <dt>Space</dt><dd>Jump; while flying, go up.</dd>
+    <dt>Shift</dt><dd>Run; while flying, go down.</dd>
+    <dt>The house</dt><dd>Click it for its specs, or use the Specs button.</dd>
+  </dl>
+  <dl id="help-touch" hidden>
+    <dt>Left circle</dt><dd>Move with your thumb.</dd>
+    <dt>Drag elsewhere</dt><dd>Look around.</dd>
+    <dt>Fly</dt><dd>Switch between walking and flying; then Up and Down.</dd>
+    <dt>The house</dt><dd>Tap it for its specs, or use the Specs button.</dd>
+  </dl>
+  <p class="muted">Terrain within 1.5 km is drawn in blocks from the 1 m height model; beyond that it is smooth and fades into haze. Trees and buildings are measured from the surface model. The boundary line is approximate.</p>
+</section>
+
+<div id="credits">
+  <button id="credits-toggle" type="button" aria-expanded="true" aria-controls="credits-body" aria-label="Credits" title="Credits">i</button>
+  <div id="credits-body"></div>
+</div>
+
+<div id="touch" hidden>
+  <div id="stick" aria-hidden="true"><div id="knob"></div></div>
+  <div id="vert" hidden>
+    <button id="btn-up" type="button" aria-label="Fly up">Up</button>
+    <button id="btn-down" type="button" aria-label="Fly down">Down</button>
+  </div>
+</div>
+
+<div id="error" role="alert" hidden>
+  <div class="box"><div class="kicker">Commons World</div><h2 id="error-title">This world cannot be shown</h2><p id="error-text"></p></div>
+</div>
+<noscript><p style="padding:20px">Commons World needs JavaScript and WebGL.</p></noscript>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
