@@ -10,7 +10,7 @@
 // Only the synthetic world (world/out/synthetic, id zz-synthetic) and the fixtures in
 // this folder are used: nothing here describes a real place.
 
-import { test, before } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -94,8 +94,10 @@ test('the JavaScript CWH1 decoder matches commons_world.codec exactly', { timeou
 });
 
 // The retired block-winding test (TT1 in terrain.test.mjs replaces it) used to put the mesh
-// helpers on the shared page; the smooth-grid test below still reads them.
-before(async () => {
+// helpers on the shared page; the smooth-grid test below still reads them. (A before() hook
+// would run ahead of the harness's, before there is a browser.)
+beforeEach(async (t) => {
+  if (!t.name.startsWith('smooth grid faces up')) return;
   const { page } = await mainPage();
   await page.addScriptTag({ content: MESH_HELPERS });
 });
