@@ -1,19 +1,34 @@
 /* Commons World: height chunks on the page side.
  *
- * Keeps every chunk the manifest lists, loads them nearest-first through a pool of
- * workers (worker.js), picks each chunk's drawing detail from the camera distance
- * (with hysteresis) and re-meshes when that changes. It also answers ground-height
- * questions straight from the decoded heights, which is what walking uses.
+ * Keeps every chunk the manifest lists and loads them nearest-first through a pool of
+ * stateless workers (worker.js).
+ *   - h1 (within 1.5 km) is an adaptive TIN per chunk, with a tolerance that grows with
+ *     distance: tau(d) = max(tmin, px K d), px a CSS-pixel target and K radians per CSS
+ *     pixel. The page keeps each chunk's error map beside its heights, and re-meshes a
+ *     chunk when the camera has moved more than max(16 m, a quarter of its distance) since
+ *     the camera its mesh was made for. Each h1 chunk has its own textured material
+ *     (terrainmat.js).
+ *   - h5 and h20 are smooth grids whose stride is picked from the camera distance (with
+ *     hysteresis).
+ * Worker replies are installed a few per frame (the install throttle), so a burst of
+ * replies never uploads in one frame. Ground-height questions are answered from the data
+ * the page holds, for exactly the surface that is drawn; that is what walking, trees,
+ * the fence and picking use.
  */
 import * as THREE from 'three';
+import { makeChunkMaterial, ensureNoise, setFade, setHorizon, setPlot, sharedTextures, disposeShared,
+         rockWeight } from './terrainmat.js';
 
-// Drawing detail by camera distance, in metres (PLAN.md section 4).
+// Drawing detail, per profile (PLAN.md section 4).
+// tin: px, the CSS-pixel target; tmin, the finest tolerance (m); snapMin and snapFrac, the
+//   refresh rule; heldCap, the h1 triangles held before px is raised; errors, 'exact' or
+//   'bound' (cheaper, more triangles); install, what may be installed per frame; tier, the
+//   material's quality; fade, (detail fade start, end, far-colour fade start, end) in m.
 export const PROFILES = {
   phone: {
     name: 'phone',
-    // steps: the height step (m) for each block size. The task fixes 1 m; 4 m steps for 4 m
-    // blocks would roughly halve the block triangles here (see world/README.md).
-    blocks: { sizes: [1, 2, 4], at: [150, 400], steps: [1, 1, 1] },
+    tin: { px: 2, tmin: 0.05, snapMin: 16, snapFrac: 0.25, heldCap: 250000, errors: 'exact',
+           install: { chunks: 4, triangles: 150000 }, tier: 'phone', fade: [42, 420, 280, 1050] },
     h5: { strides: [1, 2, 4, 8], at: [450, 1000, 2000] },
     h20: { strides: [1, 2, 4], at: [3000, 5500] },
     treesNear: 200,
@@ -21,7 +36,8 @@ export const PROFILES = {
   },
   laptop: {
     name: 'laptop',
-    blocks: { sizes: [1, 2, 4], at: [400, 800], steps: [1, 1, 1] },
+    tin: { px: 1, tmin: 0.05, snapMin: 16, snapFrac: 0.25, heldCap: 600000, errors: 'exact',
+           install: { chunks: 8, triangles: 400000 }, tier: 'laptop', fade: [60, 600, 400, 1500] },
     h5: { strides: [1, 2, 4, 8], at: [700, 1500, 3000] },
     h20: { strides: [1, 2, 4], at: [4000, 7000] },
     treesNear: 450,
@@ -30,41 +46,17 @@ export const PROFILES = {
 };
 const HYSTERESIS = 40;          // metres beyond a threshold before going coarser
 const JOBS_PER_WORKER = 2;      // a fetch in flight while another chunk meshes
+const PLOT_TEXELS = { phone: 256, laptop: 512 };   // the plot's signed-distance texture
+const PLOT_MARGIN = 20;         // metres round the parcels' box
+const TILE = 16, TILES = 15, NV = 241;
+const RK = 1 / (2 * Math.SQRT2 - 2);   // 1.2071: the nested bounding radius per metre of hypotenuse
+const SIDES = [[0, 1], [1, 0], [0, -1], [-1, 0]];   // N, E, S, W as (di, dj); j counts northward
+const H5_STRIDES = [1, 2, 4, 8];
 
 function parseKey(key) {
   const m = /^(-?\d+)_(-?\d+)$/.exec(key);
   if (!m) throw new Error('bad chunk key ' + JSON.stringify(key));
   return [Number(m[1]), Number(m[2])];
-}
-
-const SEA_FLOOR = -2;           // metres; worker.js uses the same for sea cells
-
-/* The lowest top a chunk can draw along one of its own edges, at any block size up to
- * `group`: for each metre along the edge (0 N and 2 S run west to east, 1 E and 3 W
- * north to south), the minimum 1 m top over the group-by-group block that touches it.
- * A coarse block's top is the rounded mean of its land samples, so it is never below that
- * minimum; sea counts as the sea floor. data is a decoded chunk with its apron. */
-export function edgeFloor(data, side, group) {
-  const h = data.header, W = h.width, K = W - 2, base = h.base, v = data.v, cls = data.classes;
-  const out = new Int16Array(K);
-  const top = (r, q) => {
-    const t = r * W + q, dm = base + v[t], c = cls ? cls[t] : 0;
-    return c === 5 || (dm <= 0 && c !== 4) ? SEA_FLOOR : Math.floor((dm + 5) / 10);
-  };
-  for (let g0 = 0; g0 < K; g0 += group) {
-    let low = Infinity;
-    const span = Math.min(group, K - g0);
-    for (let a = 0; a < span; a++) {           // along the edge
-      for (let d = 0; d < Math.min(group, K); d++) {   // inward from it
-        const k = 1 + g0 + a;
-        const t = side === 0 ? top(1 + d, k) : side === 2 ? top(K - d, k)
-          : side === 1 ? top(k, K - d) : top(k, 1 + d);
-        if (t < low) low = t;
-      }
-    }
-    for (let a = 0; a < span; a++) out[g0 + a] = low;
-  }
-  return out;
 }
 
 function safeRelative(path) {
@@ -76,36 +68,122 @@ function safeRelative(path) {
   return path;
 }
 
+/* Today's resize rule in main.js, which owns the camera: the profile's base field of view
+ * (70 degrees on a phone, 62 on a laptop), widened in portrait to keep about 55 degrees
+ * across, at most 90. Returns K = 2 tan(fov / 2) / the CSS height: radians per CSS pixel.
+ * Used until main.js calls setView(). */
+export function defaultK(profile) {
+  const w = (typeof innerWidth === 'number' && innerWidth) || 1280, h = (typeof innerHeight === 'number' && innerHeight) || 720;
+  const base = profile && profile.name === 'phone' ? 70 : 62;
+  const across = 2 * Math.atan(Math.tan(27.5 * Math.PI / 180) / (w / h)) * 180 / Math.PI;
+  const fov = Math.min(90, Math.max(base, across));
+  return 2 * Math.tan(fov * Math.PI / 360) / h;
+}
+
+// ------------------------------------------------------------------ the TIN, page side
+/* Corner (a, b) of a decoded h1 chunk, row a from the north: the mean of its four samples
+ * in metres, at most -3 m when two or more are sea, rounded to float32. The worker's rule
+ * (worker.js tinCorners), in the same order, so the heights equal the drawn vertices. */
+export function cornerHeight(data, a, b) {
+  const h = data.header, W = h.width, base = h.base, v = data.v, cls = data.classes, t0 = a * W + b;
+  let sum = 0, ns = 0;
+  for (let u = 0; u < 4; u++) {
+    const t = u === 0 ? t0 : u === 1 ? t0 + 1 : u === 2 ? t0 + W : t0 + W + 1;
+    const dm = base + v[t], c = cls ? cls[t] : 0;
+    sum += dm / 10;
+    if (c === 5 || (dm <= 0 && c !== 4)) ns++;
+  }
+  let y = sum / 4;
+  if (ns >= 2) y = Math.min(y, -3);
+  return { y: Math.fround(y), sea: ns >= 2 };
+}
+
+/* The leaf triangle of a TIN tile holding tile-local point (u, v), both in [0, 16], by
+ * walking the split bits worker.js set (at most 9 steps): root id 3 (u > v) or 2, then
+ * child (c, a, m) = id + 2^(k+1) or (b, c, m) = id + 2^k, whichever side of c-m the point
+ * is on. Returns [ax, ay, bx, by, cx, cy, id] in tile-local (x, row). */
+export function tinLeaf(split, tile, u, v) {
+  let ax, ay, bx, by, cx, cy, id;
+  if (u > v) { ax = 0; ay = 0; bx = TILE; by = TILE; cx = TILE; cy = 0; id = 3; }
+  else { ax = TILE; ay = TILE; bx = 0; by = 0; cx = 0; cy = TILE; id = 2; }
+  let bit = 2;
+  while (id < 512 && (split[tile * 64 + ((id - 2) >> 3)] & (1 << ((id - 2) & 7)))) {
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    const side = (mx - cx) * (v - cy) - (my - cy) * (u - cx);
+    const sideA = (mx - cx) * (ay - cy) - (my - cy) * (ax - cx);
+    if (side * sideA >= 0) { const nx = cx, ny = cy; bx = ax; by = ay; ax = nx; ay = ny; cx = mx; cy = my; id += 2 * bit; }
+    else { ax = bx; ay = by; bx = cx; by = cy; cx = mx; cy = my; id += bit; }
+    bit *= 2;
+  }
+  return [ax, ay, bx, by, cx, cy, id];
+}
+const FULL_SPLIT = new Uint8Array(TILES * TILES * 64).fill(255);
+
+// Height over a leaf of chunk data at chunk-local (lx, lz); {y, sea} with y = max(0, s).
+function leafHeight(data, split, lx, lz) {
+  const tx = Math.min(TILES - 1, Math.max(0, Math.floor(lx / TILE))), ty = Math.min(TILES - 1, Math.max(0, Math.floor(lz / TILE)));
+  const u = lx - TILE * tx, v = lz - TILE * ty, X = TILE * tx, Y = TILE * ty;
+  const [ax, ay, bx, by, cx, cy] = tinLeaf(split, ty * TILES + tx, u, v);
+  const A = cornerHeight(data, Y + ay, X + ax), B = cornerHeight(data, Y + by, X + bx), C = cornerHeight(data, Y + cy, X + cx);
+  if (A.sea && B.sea && C.sea) return { y: 0, sea: true };
+  const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+  const wa = ((by - cy) * (u - cx) + (cx - bx) * (v - cy)) / d;
+  const wb = ((cy - ay) * (u - cx) + (ax - cx) * (v - cy)) / d;
+  const s = wa * A.y + wb * B.y + (1 - wa - wb) * C.y;
+  return { y: Math.max(0, s), sea: s <= 0 };
+}
+
 export class ChunkManager {
   constructor({ scene, manifest, worldBase, profile, plotRings, onChange, onError, useCache = true }) {
     this.scene = scene;
     this.manifest = manifest;
     this.worldBase = worldBase;
     this.profile = profile;
+    this.tin = profile.tin || PROFILES[profile.name === 'phone' ? 'phone' : 'laptop'].tin;
     this.onChange = onChange || (() => {});
     this.onError = onError || (() => {});
     this.useCache = useCache;
     this.oe = manifest.crs.origin_e;
     this.on = manifest.crs.origin_n;
+    this.offset = Number(manifest.crs.grid_north_offset_deg) || 0;
+    this.plotRings = (plotRings || []).filter((r) => r.length >= 6);
     this.levels = {};
     this.chunks = [];
     this.byKey = {};
     this.queue = [];
-    this.inflight = 0;
+    this.inflight = 0;          // jobs posted and not yet installed, discarded or failed
+    this.posted = 0;            // jobs a worker is still working on
     this.seq = 0;
     this.pending = new Map();
+    this.pendingInstalls = [];
     this.dispatchLog = [];
     this.loadedCount = 0;
     this.failed = 0;
-    this.seamRemeshes = 0;
     this.cam = new THREE.Vector3();
+    this.jobs = { load: 0, mesh: 0 };
+    this.levelSeamRemeshes = 0;
+    this.levelVersion = 0;      // bumped when an h5 chunk loads
+    this.maxInstallsPerFrame = 0;
+    this.maxInstallTrisPerFrame = 0;
+    this.discarded = 0;
+    this.pxScale = 1;           // the heldCap safety net: px x this
+    this.lastRaise = -Infinity;
+    this.underHalfSince = null;
+    this.force = null;          // tinForce(): {tau} or {px}
+    this.viewK = null;          // setView()
+    this.K = defaultK(profile);
+    this.plot = null;
+    this.plotPosted = false;
+    this.drain = null;
+    this.disposed = false;
     this.group = new THREE.Group();
     this.group.name = 'terrain';
     scene.add(this.group);
-    this.blockMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.smoothMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.blockMaterial.toneMapped = false;
     this.smoothMaterial.toneMapped = false;
+    ensureNoise();
+    setFade(this.tin.fade);
+    if (scene.fog && scene.fog.color) setHorizon(scene.fog.color);
 
     for (const lv of manifest.levels) {
       if (!['h1', 'h5', 'h20'].includes(lv.name)) continue;   // unknown levels are ignored
@@ -123,7 +201,8 @@ export class ChunkManager {
           x0: i * side - this.oe,                // local x of the square's west edge
           z0: -((j + 1) * side - this.on),       // local z of the square's north edge
           min: entry.min, max: entry.max,
-          status: 'queued', data: null, mesh: null, lod: 0, busy: false, dirty: false
+          status: 'queued', data: null, mesh: null, lod: 0, busy: false, queuedMesh: false,
+          seqNext: 0, installedSeq: 0, busySeq: 0, forceStale: false
         };
         this.chunks.push(c);
         this.byKey[level.name + ':' + key] = c;
@@ -152,9 +231,17 @@ export class ChunkManager {
         this.onError(new Error('chunk worker failed: ' + (ev.message || 'unknown error')));
       };
       w.jobs = 0;
-      w.postMessage({ type: 'init', id: 0, originE: this.oe, originN: this.on, rings: plotRings || [] });
+      w.postMessage({ type: 'init', id: 0, originE: this.oe, originN: this.on, rings: this.plotRings });
       this.workers.push(w);
     }
+    // While the tab is hidden requestAnimationFrame does not fire: the install drain moves
+    // to setTimeout, and back.
+    this._onVisibility = () => {
+      if (!this.drain) return;
+      this._cancelDrain();
+      this._scheduleDrain();
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisibility);
   }
 
   // ------------------------------------------------------------ distances and detail
@@ -174,9 +261,10 @@ export class ChunkManager {
     return best === Infinity ? 1e9 : Math.sqrt(best + dy * dy);
   }
 
+  // The h5 or h20 stride for a chunk (h1 has none: its detail is the tolerance).
   detailFor(c, cam, current) {
-    const rule = c.level.name === 'h1' ? this.profile.blocks : this.profile[c.level.name];
-    const values = c.level.name === 'h1' ? rule.sizes : rule.strides;
+    const rule = this.profile[c.level.name];
+    const values = rule.strides;
     const d = this.distance(c, cam);
     const fine = rule.at.filter((t) => d >= t).length;
     const lag = rule.at.filter((t) => d >= t + HYSTERESIS).length;
@@ -186,7 +274,6 @@ export class ChunkManager {
     else if (fine < cur) idx = fine;
     else if (lag > cur) idx = lag;
     else idx = cur;
-    // A smooth chunk must not use a stride coarser than its holes allow.
     return values[Math.min(idx, values.length - 1)];
   }
 
@@ -201,55 +288,97 @@ export class ChunkManager {
     };
   }
 
-  // ------------------------------------------------------------ worker jobs
-  _post(msg, transfer) {
-    let best = this.workers[0];
-    for (const w of this.workers) if (w.jobs < best.jobs) best = w;
-    const id = ++this.seq;
-    msg.id = id;
-    best.jobs++;
-    this.inflight++;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, worker: best });
-      best.postMessage(msg, transfer || []);
-    });
+  // ------------------------------------------------------------ h1 tolerance and borders
+  // The effective pixel target (the profile's, or tinForce's, times the heldCap factor).
+  px() { return (this.force && this.force.px !== undefined ? this.force.px : this.tin.px) * this.pxScale; }
+
+  // The tolerance for a job on chunk c now: {tau} or {px, K, tmin, cam} (cam chunk-local).
+  tolFor(c) {
+    if (this.force && this.force.tau !== undefined) return { tau: this.force.tau };
+    return { px: this.px(), K: this.K, tmin: this.tin.tmin, cam: [this.cam.x - c.x0, this.cam.y, this.cam.z - c.z0] };
   }
 
-  _reply(data) {
-    const p = this.pending.get(data.id);
-    if (!p) return;              // the init acknowledgement
-    this.pending.delete(data.id);
-    p.worker.jobs--;
-    this.inflight--;
-    if (data.ok) p.resolve(data); else p.reject(new Error(data.error));
+  neighbourKey(c, side) { return (c.i + SIDES[side][0]) + '_' + (c.j + SIDES[side][1]); }
+
+  /* Per side: 'h1' where an h1 land chunk is across it, 'sea' for an h1 sea square, else
+   * 'outer' (the h5 hole's edge), with the lowest the loaded h5 chunk draws along the side
+   * at any of its strides, per metre, or null until that chunk has loaded. */
+  bordersFor(c) {
+    const lv = c.level, out = [];
+    for (let s = 0; s < 4; s++) {
+      const k = this.neighbourKey(c, s);
+      if (lv.present.has(k)) out.push({ kind: 'h1', floor: null });
+      else if (lv.sea.has(k)) out.push({ kind: 'sea', floor: null });
+      else out.push({ kind: 'outer', floor: this.outerFloor(c, s) });
+    }
+    return out;
   }
 
+  // The h5 chunk that draws the square across side s of h1 chunk c, if loaded.
+  h5Across(c, s) {
+    const S = c.level.side, cx = c.x0 + S / 2 + SIDES[s][0] * S, cz = c.z0 + S / 2 - SIDES[s][1] * S;
+    const h5 = this.chunkAt('h5', cx, cz);
+    return h5 && h5.data ? h5 : null;
+  }
+
+  // Point k (0..240) along side s of chunk c, local metres (N and S west to east, E and W north to south).
+  sidePoint(c, s, k) {
+    const S = c.level.side;
+    if (s === 0) return [c.x0 + k, c.z0];
+    if (s === 1) return [c.x0 + S, c.z0 + k];
+    if (s === 2) return [c.x0 + k, c.z0 + S];
+    return [c.x0, c.z0 + k];
+  }
+
+  outerFloor(c, s) {
+    const h5 = this.h5Across(c, s);
+    if (!h5) return null;
+    const out = new Float32Array(NV);
+    for (let k = 0; k < NV; k++) {
+      const [x, z] = this.sidePoint(c, s, k);
+      let low = Infinity;
+      for (const st of H5_STRIDES) low = Math.min(low, this._smoothAtStride(h5, x, z, st).y);
+      out[k] = low;
+    }
+    return out;
+  }
+
+  /* An h5 chunk has loaded: re-mesh any facing h1 chunk whose skirt bottom lies above the
+   * new floor minus 0.5 anywhere (the tiles design's derived floor). */
+  checkLevelSeams(h5) {
+    const S5 = h5.level.side;
+    for (const c of this.chunks) {
+      if (c.level.name !== 'h1' || c.status !== 'ready') continue;
+      // only chunks whose outer neighbour squares this h5 chunk covers
+      let near = false;
+      for (let s = 0; s < 4 && !near; s++) {
+        const S = c.level.side, cx = c.x0 + S / 2 + SIDES[s][0] * S, cz = c.z0 + S / 2 - SIDES[s][1] * S;
+        if (cx >= h5.x0 && cx < h5.x0 + S5 && cz >= h5.z0 && cz < h5.z0 + S5) near = true;
+      }
+      if (near) this._checkSkirtFloors(c);
+    }
+  }
+
+  _checkSkirtFloors(c) {
+    if (!c.bottoms || c.forceStale) return false;
+    const b = this.bordersFor(c);
+    for (let s = 0; s < 4; s++) {
+      if (b[s].kind !== 'outer' || !b[s].floor) continue;
+      const bot = c.bottoms[s], f = b[s].floor;
+      for (let k = 0; k < NV; k++) {
+        if (Number.isFinite(bot[k]) && bot[k] > f[k] - 0.5 + 1e-4) {
+          this.levelSeamRemeshes++;
+          this._queueMesh(c, true);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // ------------------------------------------------------------ h5 and h20 options
   jobOptions(c, detail) {
     const lv = c.level;
-    if (lv.name === 'h1') {
-      const present = (di, dj) => {
-        const k = (c.i + di) + '_' + (c.j + dj);
-        return lv.present.has(k) || lv.sea.has(k);
-      };
-      // What each land neighbour can draw along the shared edge, when it is loaded: the
-      // border walls reach below it at any block size (see edgeFloor). A neighbour that is
-      // not loaded yet is settled later by checkSeams().
-      const floors = [], floorsUsed = [];
-      for (let s = 0; s < 4; s++) {
-        const nb = this.neighbour(c, s);
-        floors.push(nb && nb.data ? this.floorOf(nb, (s + 2) % 4) : null);
-        floorsUsed.push(!nb || !!nb.data);
-      }
-      return {
-        mode: 'blocks',
-        floorsUsed,
-        opts: {
-          lod: detail, x0: c.x0, z0: c.z0, tint: true, step: this.stepFor(detail),
-          edgeAbsent: [!present(0, 1), !present(1, 0), !present(0, -1), !present(-1, 0)],
-          floors
-        }
-      };
-    }
     // holes where the next finer level covers (its chunks and its sea squares)
     const finer = lv.name === 'h5' ? this.levels.h1 : this.levels.h5;
     let holes = null, grid = 1, holeCells = lv.samples;
@@ -272,62 +401,36 @@ export class ChunkManager {
     };
   }
 
-  stepFor(size) {
-    const b = this.profile.blocks, k = b.sizes.indexOf(size);
-    return b.steps && k >= 0 ? b.steps[k] : 1;
+  // ------------------------------------------------------------ worker jobs
+  /* Post a job to the least busy worker. `installs`: the job's reply is installed (or
+   * discarded) later, and inflight falls then, exactly once (_done); otherwise it falls at
+   * the reply. queue.length + inflight therefore counts every job whose effect is not in
+   * place yet, which is what settle() waits on. */
+  _post(msg, installs) {
+    let best = this.workers[0];
+    for (const w of this.workers) if (w.jobs < best.jobs) best = w;
+    const id = ++this.seq;
+    msg.id = id;
+    best.jobs++;
+    this.posted++;
+    this.inflight++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject, worker: best, installs: !!installs });
+      best.postMessage(msg);
+    });
   }
 
-  // ------------------------------------------------------------ h1 seams
-  // side: 0 N, 1 E, 2 S, 3 W (as in worker.js). The land h1 chunk across that edge, or null.
-  neighbour(c, side) {
-    const di = side === 1 ? 1 : side === 3 ? -1 : 0, dj = side === 0 ? 1 : side === 2 ? -1 : 0;
-    return this.byKey[c.level.name + ':' + (c.i + di) + '_' + (c.j + dj)] || null;
+  _reply(data) {
+    const p = this.pending.get(data.id);
+    if (!p) return;              // the init acknowledgement
+    this.pending.delete(data.id);
+    p.worker.jobs--;
+    this.posted--;
+    if (!p.installs) this.inflight--;
+    if (data.ok) p.resolve(data); else p.reject(new Error(data.error));
   }
 
-  // edgeFloor() of a loaded chunk's own edge, at the profile's largest block size; cached,
-  // since the data never changes once loaded.
-  floorOf(c, side) {
-    if (!c.floors) c.floors = [null, null, null, null];
-    if (!c.floors[side]) c.floors[side] = edgeFloor(c.data, side, Math.max(...this.profile.blocks.sizes));
-    return c.floors[side];
-  }
-
-  /* A chunk meshed before a neighbour loaded estimated that neighbour from its one-sample
-   * apron, which cannot see a drop inside the neighbour's coarse blocks. Once the neighbour
-   * is loaded, compare what it can draw with how far down this chunk's border walls reach,
-   * and re-mesh only where a gap could show. */
-  checkSeams(c) {
-    if (c.level.name !== 'h1' || c.status !== 'ready' || c.busy || c.queuedMesh || !c.edgeBottom || !c.floorsUsed) return;
-    for (let s = 0; s < 4; s++) {
-      if (c.floorsUsed[s]) continue;
-      const nb = this.neighbour(c, s);
-      if (!nb) { c.floorsUsed[s] = true; continue; }
-      if (!nb.data) continue;
-      const f = this.floorOf(nb, (s + 2) % 4), b = c.edgeBottom[s];
-      let gap = false;
-      for (let k = 0; k < f.length; k++) if (f[k] < b[k]) { gap = true; break; }
-      if (!gap) { c.floorsUsed[s] = true; continue; }
-      c.queuedMesh = true;
-      this.seamRemeshes++;
-      this.queue.push({ c, kind: 'remesh' });
-      return;
-    }
-  }
-
-  // Sides whose loaded neighbour could still draw below this chunk's border walls (tests).
-  seamDebts() {
-    const out = [];
-    for (const c of this.chunks) {
-      if (c.level.name !== 'h1' || !c.edgeBottom) continue;
-      for (let s = 0; s < 4; s++) {
-        const nb = this.neighbour(c, s);
-        if (!nb || !nb.data) continue;
-        const f = this.floorOf(nb, (s + 2) % 4), b = c.edgeBottom[s];
-        for (let k = 0; k < f.length; k++) if (f[k] < b[k]) { out.push({ key: c.key, side: s, at: k, floor: f[k], wall: b[k] }); break; }
-      }
-    }
-    return out;
-  }
+  _done() { this.inflight--; }
 
   start(cam) {
     this.cam.copy(cam);
@@ -336,102 +439,316 @@ export class ChunkManager {
   }
 
   update(cam) {
+    if (this.disposed) return;
     this.cam.copy(cam);
+    if (this.viewK === null) this._setK(defaultK(this.profile));
+    this._heldCheck();
     for (const c of this.chunks) {
-      if (c.status !== 'ready' || c.busy) continue;
-      const want = this.detailFor(c, cam, c.lod);
-      if (want !== c.lod && !c.queuedMesh) {
-        c.queuedMesh = true;
-        this.queue.push({ c, kind: 'mesh' });
+      if (c.status !== 'ready' || c.queuedMesh) continue;
+      if (c.level.name === 'h1') {
+        if (c.forceStale || (this._stale(c) && !this.floorAlready(c))) this._queueMesh(c, false);
+      } else {
+        if (c.busy) continue;
+        const want = this.detailFor(c, cam, c.lod);
+        if (want !== c.lod) { c.queuedMesh = true; this.queue.push({ c, kind: 'mesh' }); }
       }
     }
     this.pump();
   }
 
+  _queueMesh(c, force) {
+    if (force) c.forceStale = true;
+    if (c.queuedMesh || c.status !== 'ready') return;
+    c.queuedMesh = true;
+    this.queue.push({ c, kind: 'mesh' });
+  }
+
+  /* The refresh rule: stale when the camera has moved more than max(snapMin, snapFrac D)
+   * from the camera the installed mesh was made for, D the distance to the chunk's box. A
+   * uniform tolerance does not depend on the camera, so it never goes stale. */
+  _stale(c) {
+    const t = c.tolInfo;
+    if (!t) return false;
+    if (t.tau !== undefined) return false;
+    const moved = Math.hypot(this.cam.x - t.cam[0], this.cam.y - t.cam[1], this.cam.z - t.cam[2]);
+    return moved > Math.max(this.tin.snapMin, this.tin.snapFrac * this.distance(c, this.cam));
+  }
+
+  /* Skip a re-mesh that would change nothing that matters: the installed mesh is the
+   * 450-triangle floor (no split), no root would split at the current camera, and no skirt
+   * would need to be deeper (every border segment's tolerance now is at most its tolerance
+   * when installed). The tolerance settings must be the installed ones. */
+  floorAlready(c) {
+    const t = c.tolInfo;
+    if (!t || !c.floorMesh || !c.E || t.tau !== undefined) return false;
+    const now = this.tolFor(c);
+    if (now.tau !== undefined || now.px !== t.px || now.K !== t.K || now.tmin !== t.tmin) return false;
+    const k = now.px * now.K, tmin = now.tmin;
+    let yVis = 0;
+    for (let q = 0; q < c.tileMax.length; q++) if (c.tileMax[q] > yVis) yVis = c.tileMax[q];
+    const cx = now.cam[0], cz = now.cam[2], dyNow = Math.max(0, now.cam[1] - yVis);
+    const ox = t.cam[0] - c.x0, oz = t.cam[2] - c.z0, dyOld = Math.max(0, t.cam[1] - yVis);
+    const tau = (dh, dy) => Math.max(tmin, k * Math.hypot(dh, dy));
+    const L = TILE * Math.SQRT2;
+    for (let ty = 0; ty < TILES; ty++) {
+      for (let tx = 0; tx < TILES; tx++) {
+        const mx = tx * TILE + 8, mz = ty * TILE + 8, e = c.E[mz * NV + mx];
+        if (e > 0 && e > tau(Math.max(0, Math.hypot(mx - cx, mz - cz) - RK * L), dyNow) * 100) return false;
+      }
+    }
+    const near = (x0, z0, x1, z1, px, pz) => {
+      const sx = Math.max(Math.min(px, Math.max(x0, x1)), Math.min(x0, x1)), sz = Math.max(Math.min(pz, Math.max(z0, z1)), Math.min(z0, z1));
+      return Math.hypot(sx - px, sz - pz);
+    };
+    for (let s = 0; s < 4; s++) {
+      for (let q = 0; q < TILES; q++) {
+        const a = q * TILE, b = a + TILE;
+        const seg = s === 0 ? [a, 0, b, 0] : s === 1 ? [240, a, 240, b] : s === 2 ? [a, 240, b, 240] : [0, a, 0, b];
+        const tn = tau(near(seg[0], seg[1], seg[2], seg[3], cx, cz), dyNow);
+        const to = tau(near(seg[0], seg[1], seg[2], seg[3], ox, oz), dyOld);
+        if (tn > to + 1e-9) return false;
+      }
+    }
+    return true;
+  }
+
   pump() {
+    if (this.disposed) return;
     const cap = this.workers.length * JOBS_PER_WORKER;
-    while (this.inflight < cap && this.queue.length) {
-      // nearest first, measured from where the camera is now; finer levels win ties
-      let bi = 0, bd = Infinity;
+    while (this.posted < cap && this.queue.length) {
+      // nearest first, measured from where the camera is now; finer levels win ties; at most
+      // one job in flight per chunk
+      let bi = -1, bd = Infinity;
       for (let k = 0; k < this.queue.length; k++) {
         const job = this.queue[k];
+        if (job.c.busy) continue;
         const bias = job.c.level.name === 'h1' ? 0 : job.c.level.name === 'h5' ? 60 : 180;
         const d = this.distance(job.c, this.cam) + bias + (job.kind === 'mesh' ? 30 : 0);
         if (d < bd) { bd = d; bi = k; }
       }
+      if (bi < 0) break;
       const job = this.queue.splice(bi, 1)[0];
       this._run(job);
     }
   }
 
   async _run(job) {
-    const c = job.c;
-    const detail = this.detailFor(c, this.cam, job.kind === 'load' ? 0 : c.lod);
-    if (job.kind === 'mesh' && detail === c.lod) {   // the camera came back before it ran
-      c.queuedMesh = false;
+    const c = job.c, isH1 = c.level.name === 'h1';
+    let detail, msg, tolInfo = null;
+    if (job.kind === 'mesh') c.queuedMesh = false;
+    if (isH1) {
+      const tol = this.tolFor(c), borders = this.bordersFor(c);
+      detail = tol.tau !== undefined ? { tau: tol.tau } : { px: tol.px };
+      tolInfo = tol.tau !== undefined ? { tau: tol.tau } : { px: tol.px, K: tol.K, tmin: tol.tmin, cam: [this.cam.x, this.cam.y, this.cam.z] };
+      tolInfo.levelVersion = this.levelVersion;
+      const opts = Object.assign({}, tol, { borders });
+      if (job.kind === 'load') {
+        opts.errors = this.tin.errors;
+        msg = { type: 'load', url: c.url, useCache: this.useCache, expect: this.expectedHeader(c), mode: 'tin', opts };
+      } else {
+        c.forceStale = false;
+        msg = { type: 'mesh', mode: 'tin', data: c.data, E: c.E, opts };
+      }
+    } else {
+      detail = this.detailFor(c, this.cam, job.kind === 'load' ? 0 : c.lod);
+      if (job.kind === 'mesh' && detail === c.lod) return;   // the camera came back before it ran
+      const o = this.jobOptions(c, detail);
+      msg = job.kind === 'load'
+        ? { type: 'load', url: c.url, useCache: this.useCache, expect: this.expectedHeader(c), mode: o.mode, opts: o.opts }
+        : { type: 'mesh', data: c.data, mode: o.mode, opts: o.opts };
+    }
+    const seq = ++c.seqNext;
+    msg.seq = seq;
+    c.busy = true;
+    c.busySeq = seq;
+    if (job.kind === 'load') c.status = 'loading';
+    this.dispatchLog.push({ key: c.key, level: c.level.name, kind: job.kind, detail });
+    if (isH1) this.jobs[job.kind]++;
+    const reply = this._post(msg, true);
+    if (job.kind === 'load' && !this.plotPosted) this._postPlot();
+    let res;
+    try {
+      res = await reply;
+    } catch (err) {
+      this._fail(c, job.kind, err);
+      this.pump();
       return;
     }
-    c.busy = true;
-    const o = this.jobOptions(c, detail);
-    this.dispatchLog.push({ key: c.key, level: c.level.name, kind: job.kind, detail });
-    let ok = false;
-    try {
-      let res;
-      if (job.kind === 'load') {
-        c.status = 'loading';
-        res = await this._post({ type: 'load', url: c.url, useCache: this.useCache,
-                                 expect: this.expectedHeader(c), mode: o.mode, opts: o.opts });
-        c.data = { header: res.header, v: res.v, classes: res.classes };
-      } else {
-        c.queuedMesh = false;
-        res = await this._post({ type: 'mesh', data: c.data, mode: o.mode, opts: o.opts });
-      }
-      this._install(c, res.mesh, detail);
-      c.floorsUsed = o.floorsUsed || null;
-      c.edgeBottom = res.mesh.edgeBottom || null;
-      if (job.kind === 'load') {
-        c.status = 'ready';
-        c.level.count++;
-        this.loadedCount++;
-      }
-      ok = true;
-      this.onChange(c, job.kind);
-    } catch (err) {
-      if (job.kind === 'load') { c.status = 'error'; this.failed++; }
-      this.onError(new Error(c.level.name + ' ' + c.key + ': ' + err.message));
-    } finally {
+    this._enqueue({ c, res, kind: job.kind, detail, seq, tolInfo });
+    this.pump();
+  }
+
+  _fail(c, kind, err) {
+    if (c.busySeq) { c.busy = false; c.busySeq = 0; }
+    this._done();
+    if (this.disposed) return;
+    if (kind === 'load') { c.status = 'error'; this.failed++; }
+    this.onError(new Error(c.level.name + ' ' + c.key + ': ' + err.message));
+  }
+
+  // ------------------------------------------------------------ the install throttle
+  _enqueue(entry) {
+    const c = entry.c;
+    if (this.disposed) { this._done(); return; }
+    if (c.reorderNext && entry.kind === 'mesh') {
+      // test hook: hold this reply back until the chunk's next one has arrived
+      c.reorderNext = false;
+      c.held = entry;
       c.busy = false;
-      if (ok && c.level.name === 'h1') {
-        // this chunk against its loaded neighbours, and they against it
-        this.checkSeams(c);
-        for (let s = 0; s < 4; s++) { const nb = this.neighbour(c, s); if (nb) this.checkSeams(nb); }
-      }
-      this.pump();
+      c.busySeq = 0;
+      return;
+    }
+    this.pendingInstalls.push(entry);
+    if (c.held) { this.pendingInstalls.push(c.held); c.held = null; }
+    this._scheduleDrain();
+  }
+
+  _scheduleDrain() {
+    if (this.drain || this.disposed) return;
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (hidden || typeof requestAnimationFrame !== 'function') {
+      this.drain = { timeout: setTimeout(() => { this.drain = null; this._drain(); }, 0) };
+    } else {
+      this.drain = { raf: requestAnimationFrame(() => { this.drain = null; this._drain(); }) };
     }
   }
 
-  _install(c, m, detail) {
+  _cancelDrain() {
+    if (!this.drain) return;
+    if (this.drain.timeout !== undefined) clearTimeout(this.drain.timeout);
+    if (this.drain.raf !== undefined) cancelAnimationFrame(this.drain.raf);
+    this.drain = null;
+  }
+
+  // Install within the frame's budget: install.chunks replies and install.triangles triangles
+  // (at least one reply per frame, whatever its size).
+  _drain() {
+    if (this.disposed) return;
+    const budget = this.tin.install;
+    let n = 0, tris = 0;
+    while (this.pendingInstalls.length && n < budget.chunks) {
+      const e = this.pendingInstalls[0], t = e.res.mesh ? e.res.mesh.triangles : 0;
+      if (n > 0 && tris + t > budget.triangles) break;
+      this.pendingInstalls.shift();
+      if (this._install(e)) { n++; tris += t; }
+    }
+    if (n > this.maxInstallsPerFrame) this.maxInstallsPerFrame = n;
+    if (tris > this.maxInstallTrisPerFrame) this.maxInstallTrisPerFrame = tris;
+    this._heldCheck();
+    if (this.pendingInstalls.length) this._scheduleDrain();
+    this.pump();
+  }
+
+  // Returns false when the reply was stale and discarded.
+  _install(e) {
+    const c = e.c, res = e.res, m = res.mesh, isH1 = c.level.name === 'h1';
+    if (c.busySeq === e.seq) { c.busy = false; c.busySeq = 0; }
+    if (e.seq <= c.installedSeq) {           // an older reply than the one installed
+      this.discarded++;
+      this._done();
+      return false;
+    }
+    c.installedSeq = e.seq;
+    if (e.kind === 'load') c.data = { header: res.header, v: res.v, classes: res.classes };
+    if (isH1 && e.kind === 'load') {
+      c.E = res.E; c.tileMin = res.tileMin; c.tileMax = res.tileMax;
+      const levels = [res.classes || new Uint8Array(242 * 242)].concat(res.tex.classMips);
+      const classTex = new THREE.DataTexture(levels[0], 242, 242, THREE.RedFormat, THREE.UnsignedByteType);
+      let w = 242;
+      classTex.mipmaps = levels.map((data) => { const mm = { data, width: w, height: w }; w = Math.max(1, w >> 1); return mm; });
+      classTex.generateMipmaps = false;
+      classTex.minFilter = THREE.NearestFilter;
+      classTex.magFilter = THREE.NearestFilter;
+      classTex.unpackAlignment = 1;
+      classTex.colorSpace = THREE.NoColorSpace;
+      classTex.needsUpdate = true;
+      const normalTex = new THREE.DataTexture(res.tex.normal, NV, NV, THREE.RGFormat, THREE.UnsignedByteType);
+      normalTex.generateMipmaps = true;
+      normalTex.minFilter = THREE.LinearMipmapLinearFilter;
+      normalTex.magFilter = THREE.LinearFilter;
+      normalTex.unpackAlignment = 1;
+      normalTex.colorSpace = THREE.NoColorSpace;
+      normalTex.needsUpdate = true;
+      c.tex = { classTex, normalTex, normal: res.tex.normal, classBytes: levels.reduce((s, l) => s + l.length, 0) };
+      c.material = makeChunkMaterial({ classTex, normalTex }, this.tin.tier);
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(m.nor, 3, true));
-    g.setAttribute('color', new THREE.BufferAttribute(m.col, 3, true));
+    if (m.col) g.setAttribute('color', new THREE.BufferAttribute(m.col, 3, true));
     g.setIndex(new THREE.BufferAttribute(m.idx, 1));
-    const s = c.level.side, y0 = m.yMin, y1 = m.yMax;
-    g.boundingBox = new THREE.Box3(new THREE.Vector3(0, y0, 0), new THREE.Vector3(s, y1, s));
+    const s = c.level.side;
+    g.boundingBox = new THREE.Box3(new THREE.Vector3(0, m.yMin, 0), new THREE.Vector3(s, m.yMax, s));
     g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
     const old = c.mesh;
-    const mesh = new THREE.Mesh(g, c.level.name === 'h1' ? this.blockMaterial : this.smoothMaterial);
+    const mesh = new THREE.Mesh(g, isH1 ? c.material : this.smoothMaterial);
     mesh.name = c.level.name + ':' + c.key;
     mesh.position.set(c.x0, 0, c.z0);
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
+    mesh.castShadow = false;
+    mesh.receiveShadow = isH1;
     mesh.userData.triangles = m.triangles;
-    mesh.userData.tint = m.tint || null;
     mesh.visible = m.triangles > 0;
+    if (isH1) {
+      mesh.userData.snap = e.tolInfo.cam ? e.tolInfo.cam.slice() : null;
+      mesh.userData.seq = e.seq;
+      mesh.userData.split = res.split;
+      c.split = res.split;
+      c.bottoms = m.bottoms;
+      c.floorMesh = !!m.floor;
+      c.tolInfo = e.tolInfo;
+      c.lod = 'tin';
+    } else {
+      c.lod = e.detail;
+    }
     this.group.add(mesh);
     if (old) { this.group.remove(old); old.geometry.dispose(); }
     c.mesh = mesh;
-    c.lod = detail;
+    if (e.kind === 'load') {
+      c.status = 'ready';
+      c.level.count++;
+      this.loadedCount++;
+    }
+    this._done();
+    try {
+      this.onChange(c, e.kind);
+    } catch (err) {
+      this.onError(err);
+    }
+    if (c.level.name === 'h5' && e.kind === 'load') { this.levelVersion++; this.checkLevelSeams(c); }
+    if (isH1 && e.tolInfo.levelVersion !== this.levelVersion) this._checkSkirtFloors(c);
+    return true;
+  }
+
+  // The heldCap safety net: above the cap, px rises x1.25 (up to 4x); after 5 s under half
+  // the cap it steps back down.
+  _heldCheck() {
+    const held = this.heldTriangles(), cap = this.tin.heldCap, now = performance.now();
+    if (held > cap) {
+      this.underHalfSince = null;
+      if (this.pxScale < 4 && now - this.lastRaise > 1000) {
+        this.pxScale = Math.min(4, this.pxScale * 1.25);
+        this.lastRaise = now;
+        this._markStale();
+      }
+    } else if (this.pxScale > 1 && held < cap / 2) {
+      if (this.underHalfSince === null) this.underHalfSince = now;
+      else if (now - this.underHalfSince > 5000) {
+        this.pxScale = Math.max(1, this.pxScale / 1.25);
+        this.underHalfSince = now;
+        this._markStale();
+      }
+    } else {
+      this.underHalfSince = null;
+    }
+  }
+
+  _markStale() { for (const c of this.chunks) if (c.level.name === 'h1' && c.status === 'ready') c.forceStale = true; }
+
+  _setK(K) {
+    if (!(K > 0)) return;
+    if (Math.abs(K - this.K) / this.K > 0.02) { this.K = K; this._markStale(); }
   }
 
   // ------------------------------------------------------------ queries
@@ -453,6 +770,13 @@ export class ChunkManager {
     return out;
   }
 
+  heldTriangles() {
+    let n = 0;
+    for (const c of this.chunks) if (c.mesh && c.level.name === 'h1') n += c.mesh.userData.triangles;
+    return n;
+  }
+
+  // Keys '<level>@<lod>': every h1 chunk under 'h1@tin', h5 and h20 by stride.
   lodSummary() {
     const out = {};
     for (const c of this.chunks) {
@@ -461,20 +785,6 @@ export class ChunkManager {
       out[k] = (out[k] || 0) + 1;
     }
     return out;
-  }
-
-  plotTint() {
-    const by = {};
-    for (const c of this.chunks) {
-      const t = c.mesh && c.mesh.userData.tint;
-      if (!t || !t.cells) continue;
-      const k = String(t.cell);
-      if (!by[k]) by[k] = { cell: t.cell, cells: 0, strong: 0, area: 0 };
-      by[k].cells += t.cells;
-      by[k].strong += t.strong;
-      by[k].area += t.cells * t.cell * t.cell;
-    }
-    return by;
   }
 
   chunkAt(levelName, x, z) {
@@ -492,20 +802,15 @@ export class ChunkManager {
     return lv.sea.has(Math.floor(e / lv.side) + '_' + Math.floor(n / lv.side));
   }
 
-  /* Height of the top the walker stands on at local (x, z), or null when the data is
-   * not loaded yet. Inside h1: the 1 m block top (round half up), sea at 0. Beyond: the
-   * h5, then h20, surface exactly as drawn (see _smoothAt). Never a raycast. */
+  /* The ground as drawn at local (x, z): {y, sea, level}, or null where nothing is loaded.
+   * h1: the installed TIN, exactly (the leaf found from the split bits, interpolated over
+   * its corners' float32 heights), with y = max(0, s) and the water at 0. Beyond: the h5,
+   * then h20, surface exactly as drawn (_smoothAt). Never a raycast. */
   groundAt(x, z) {
     const h1 = this.chunkAt('h1', x, z);
-    if (h1 && h1.data) {
-      const e = x + this.oe, n = this.on - z, S = h1.level.side;
-      const q = Math.floor(e - h1.i * S) + 1;
-      const r = Math.ceil((h1.j + 1) * S - n);
-      const W = h1.data.header.width, t = r * W + q;
-      const dm = h1.data.header.base + h1.data.v[t];
-      const cls = h1.data.classes ? h1.data.classes[t] : 0;
-      if (cls === 5 || (dm <= 0 && cls !== 4)) return { y: 0, sea: true, level: 'h1' };
-      return { y: Math.floor((dm + 5) / 10), sea: false, level: 'h1' };
+    if (h1 && h1.data && h1.split) {
+      const r = leafHeight(h1.data, h1.split, x - h1.x0, z - h1.z0);
+      return { y: r.y, sea: r.sea, level: 'h1' };
     }
     if (this.isSeaSquare('h1', x, z)) return { y: 0, sea: true, level: 'h1' };
     for (const name of ['h5', 'h20']) {
@@ -516,14 +821,38 @@ export class ChunkManager {
     return null;
   }
 
+  // What trees, the fence, picking and the walker stand on: the height of the drawn ground.
+  surfaceAt(x, z) {
+    const g = this.groundAt(x, z);
+    return g ? g.y : null;
+  }
+
+  /* A test hook: the tau = 0 surface. h1: linear over the 1 m corners, split along the same
+   * diagonal as the TIN's finest level, max(0, s); h5 and h20: _smoothAt. Independent of the
+   * installed h1 meshes. */
+  refSurfaceAt(x, z) {
+    const h1 = this.chunkAt('h1', x, z);
+    if (h1 && h1.data) return leafHeight(h1.data, FULL_SPLIT, x - h1.x0, z - h1.z0).y;
+    if (this.isSeaSquare('h1', x, z)) return 0;
+    for (const name of ['h5', 'h20']) {
+      const c = this.chunkAt(name, x, z);
+      if (c && c.data) return this._smoothAt(c, x, z).y;
+      if (this.isSeaSquare(name, x, z)) return 0;
+    }
+    return null;
+  }
+
   /* The smooth surface as worker.js meshSmooth draws it at the chunk's current stride:
    * triangles (nw, sw, se) and (nw, se, ne) over cell corners, each corner the mean of the
    * four samples around it, pushed to -3 m when two or more of them are sea. Flying is held
-   * above this, so the eye never dips under the ground that is shown (a bilinear read of
-   * the sample centres sat up to a few metres below it on convex slopes). */
+   * above this, so the eye never dips under the ground that is shown. */
   _smoothAt(c, x, z) {
+    return this._smoothAtStride(c, x, z, c.mesh && c.lod > 0 ? c.lod : 1);
+  }
+
+  _smoothAtStride(c, x, z, s) {
     const h = c.data.header, W = h.width, K = W - 2, base = h.base, v = c.data.v, cls = c.data.classes;
-    const s = c.mesh && c.lod > 0 ? c.lod : 1, step = s * h.cell, nq = K / s;
+    const step = s * h.cell, nq = K / s;
     const lx = x - c.x0, lz = z - c.z0;
     const b = Math.max(0, Math.min(nq - 1, Math.floor(lx / step)));
     const a = Math.max(0, Math.min(nq - 1, Math.floor(lz / step)));
@@ -543,99 +872,271 @@ export class ChunkManager {
     return { y: Math.max(0, y), sea: y <= 0, level: c.level.name };
   }
 
-  /* The lowest ground any block size can draw over the box (local metres): the box is
-   * widened to whole blocks of the largest size, a coarse block's top is never below the
-   * lowest 1 m land top in it, and sea shows the water at 0. null while an h1 chunk the
-   * box needs is not loaded, or where the box leaves h1. */
-  lowestTop(xa, za, xb, zb) {
+  /* The lowest ground drawn anywhere over the box (local metres), at every tolerance: the
+   * minimum of tileMin over every 16 m h1 tile the box touches (every drawn triangle lies in
+   * one tile and interpolates that tile's corners); an h1 sea square counts as the water at
+   * 0. null while an h1 chunk the box needs is not loaded, or where the box leaves h1. */
+  lowestGround(xa, za, xb, zb) {
     const lv = this.levels.h1;
     if (!lv) return null;
-    const G = Math.max(...this.profile.blocks.sizes), S = lv.side;
-    const e0 = Math.floor((xa + this.oe) / G) * G, e1 = Math.ceil((xb + this.oe) / G) * G;
-    const n0 = Math.floor((this.on - zb) / G) * G, n1 = Math.ceil((this.on - za) / G) * G;
+    const S = lv.side;
+    const e0 = Math.floor((xa + this.oe) / TILE), e1 = Math.floor((xb + this.oe) / TILE);
+    const n0 = Math.floor((this.on - zb) / TILE), n1 = Math.floor((this.on - za) / TILE);
     let low = Infinity;
-    for (let n = n0; n < n1; n++) {
-      const j = Math.floor(n / S);
-      for (let e = e0; e < e1; e++) {
-        const i = Math.floor(e / S);
+    for (let tn = n0; tn <= n1; tn++) {
+      for (let te = e0; te <= e1; te++) {
+        const i = Math.floor(te * TILE / S), j = Math.floor(tn * TILE / S);
         const c = this.byKey['h1:' + i + '_' + j];
         if (!c) {
           if (lv.sea.has(i + '_' + j)) { if (low > 0) low = 0; continue; }
           return null;
         }
-        if (!c.data) return null;
-        // the sample whose cell is [e, e+1) x [n, n+1)
-        const W = c.data.header.width, t = ((j + 1) * S - n) * W + (e - i * S + 1);
-        const dm = c.data.header.base + c.data.v[t], cls = c.data.classes ? c.data.classes[t] : 0;
-        const top = cls === 5 || (dm <= 0 && cls !== 4) ? 0 : Math.floor((dm + 5) / 10);
-        if (top < low) low = top;
+        if (!c.tileMin) return null;
+        const tx = te - i * (S / TILE), ty = (j + 1) * (S / TILE) - 1 - tn;
+        const v = c.tileMin[ty * TILES + tx];
+        if (v < low) low = v;
       }
     }
     return low === Infinity ? null : low;
   }
 
-  /* The drawn block top at (x, z) for the chunk's current block size; mirrors worker.js
-   * so the plot fence sits on what is drawn. */
-  drawnTopAt(x, z) {
-    const c = this.chunkAt('h1', x, z);
-    if (!c || !c.data) return null;
-    const L = c.lod || 1, W = c.data.header.width, base = c.data.header.base;
-    const lx = x - c.x0, lz = z - c.z0;
-    const A = Math.min(c.level.samples / L - 1, Math.max(0, Math.floor(lz / L)));
-    const B = Math.min(c.level.samples / L - 1, Math.max(0, Math.floor(lx / L)));
-    let sea = 0, sum = 0, land = 0;
-    for (let a = 0; a < L; a++) {
-      for (let b = 0; b < L; b++) {
-        const t = (1 + A * L + a) * W + 1 + B * L + b;
-        const dm = base + c.data.v[t], cls = c.data.classes ? c.data.classes[t] : 0;
-        if (cls === 5 || (dm <= 0 && cls !== 4)) sea++;
-        else { sum += dm; land++; }
+  /* A CPU mirror of the shader's unwarped class lookup: {cls, rock, level}. cls from the
+   * class band; rock in [0, 1] from the 1 m corner normal (bilinear, as the texture is
+   * sampled) and the onset table. */
+  materialAt(x, z) {
+    for (const name of ['h1', 'h5', 'h20']) {
+      const c = this.chunkAt(name, x, z);
+      if (!c || !c.data) continue;
+      const d = c.data, W = d.header.width, cell = d.header.cell || c.level.cell;
+      const lx = (x - c.x0) / cell, lz = (z - c.z0) / cell;
+      const col = Math.min(W - 2, Math.floor(lx)) + 1, row = Math.min(W - 2, Math.floor(lz)) + 1;
+      const cls = d.classes ? d.classes[row * W + col] : 0;
+      let ny;
+      if (name === 'h1' && c.tex) {
+        const nt = c.tex.normal, px = Math.min(NV - 1, Math.max(0, lx)), pz = Math.min(NV - 1, Math.max(0, lz));
+        const b0 = Math.min(NV - 2, Math.floor(px)), a0 = Math.min(NV - 2, Math.floor(pz)), fu = px - b0, fv = pz - a0;
+        const at = (a, b, k) => nt[(a * NV + b) * 2 + k] / 255 * 2 - 1;
+        const bil = (k) => (1 - fv) * ((1 - fu) * at(a0, b0, k) + fu * at(a0, b0 + 1, k)) + fv * ((1 - fu) * at(a0 + 1, b0, k) + fu * at(a0 + 1, b0 + 1, k));
+        const nx = bil(0), nz = bil(1);
+        ny = Math.sqrt(Math.max(0, 1 - nx * nx - nz * nz));
+      } else {
+        const a = Math.min(W - 2, Math.round(lz)), b = Math.min(W - 2, Math.round(lx)), t = a * W + b, v = d.v;
+        const gx = ((v[t + 1] + v[t + W + 1]) - (v[t] + v[t + W])) / (20 * cell), gz = ((v[t + W] + v[t + W + 1]) - (v[t] + v[t + 1])) / (20 * cell);
+        ny = 1 / Math.sqrt(gx * gx + 1 + gz * gz);
+      }
+      return { cls, rock: rockWeight(cls, ny), level: name };
+    }
+    return null;
+  }
+
+  /* The plot mark, integrated from the signed distances the page keeps (the values the
+   * shader reads), sampled every 0.25 m, bilinear: the washed area (sd < 0), the polygon
+   * area of the rings (holes subtracted), and the area of the thinnest line (|sd| < 0.3). */
+  plotMark() {
+    const p = this.plot;
+    let polygonArea = 0;
+    const rings = this.plotRings;
+    const inside = (ring, x, z) => {
+      let inn = false;
+      for (let a = 0, b = ring.length / 2 - 1; a < ring.length / 2; b = a++) {
+        const xa = ring[2 * a], za = ring[2 * a + 1], xb = ring[2 * b], zb = ring[2 * b + 1];
+        if ((za > z) !== (zb > z) && x < (xb - xa) * (z - za) / (zb - za) + xa) inn = !inn;
+      }
+      return inn;
+    };
+    rings.forEach((r, k) => {
+      let a2 = 0;
+      for (let a = 0, b = r.length / 2 - 1; a < r.length / 2; b = a++) a2 += r[2 * b] * r[2 * a + 1] - r[2 * a] * r[2 * b + 1];
+      let depth = 0;
+      rings.forEach((o, q) => { if (q !== k && inside(o, r[0], r[1])) depth++; });
+      polygonArea += (depth % 2 ? -1 : 1) * Math.abs(a2) / 2;
+    });
+    if (!p) return { area: 0, polygonArea, lineArea: 0 };
+    const [x0, z0, x1, z1] = p.bbox, n = p.n, dx = (x1 - x0) / n, dz = (z1 - z0) / n, h = 0.25;
+    let area = 0, lineArea = 0;
+    for (let z = z0 + h / 2; z < z1; z += h) {
+      const fz = Math.min(n - 1, Math.max(0, (z - z0) / dz - 0.5)), j0 = Math.min(n - 2, Math.floor(fz)), tz = fz - j0;
+      for (let x = x0 + h / 2; x < x1; x += h) {
+        const fx = Math.min(n - 1, Math.max(0, (x - x0) / dx - 0.5)), i0 = Math.min(n - 2, Math.floor(fx)), tx = fx - i0;
+        const s = p.sdf, r0 = j0 * n + i0, r1 = r0 + n;
+        const sd = (1 - tz) * ((1 - tx) * s[r0] + tx * s[r0 + 1]) + tz * ((1 - tx) * s[r1] + tx * s[r1 + 1]);
+        if (sd < 0) area += h * h;
+        if (Math.abs(sd) < 0.3) lineArea += h * h;
       }
     }
-    if (sea * 2 > L * L || land === 0) return 0;
-    const step = this.stepFor(L);
-    return step * Math.floor((sum + 5 * step * land) / (10 * step * land));
+    return { area, polygonArea, lineArea };
   }
 
-  /* The height of whatever ground is drawn at (x, z): the block top at the chunk's current
-   * size within h1 (sea and its water plane at 0), else the smooth surface as drawn. null
-   * where nothing is known. Used to tell whether the ground hides something (picking). */
-  surfaceAt(x, z) {
-    const top = this.drawnTopAt(x, z);
-    if (top !== null) return top;
-    const g = this.groundAt(x, z);
-    return g ? g.y : null;
+  _postPlot() {
+    this.plotPosted = true;
+    if (!this.plotRings.length) return;
+    let b = null;
+    for (const r of this.plotRings) {
+      for (let k = 0; k < r.length; k += 2) {
+        if (!b) b = [r[k], r[k + 1], r[k], r[k + 1]];
+        b[0] = Math.min(b[0], r[k]); b[1] = Math.min(b[1], r[k + 1]); b[2] = Math.max(b[2], r[k]); b[3] = Math.max(b[3], r[k + 1]);
+      }
+    }
+    const bbox = [b[0] - PLOT_MARGIN, b[1] - PLOT_MARGIN, b[2] + PLOT_MARGIN, b[3] + PLOT_MARGIN];
+    const n = PLOT_TEXELS[this.tin.tier] || 512;
+    this._post({ type: 'plotSdf', bbox, texels: n }, true).then((res) => {
+      if (this.disposed) { this._done(); return; }
+      const half = new Uint16Array(n * n), back = new Float32Array(n * n);
+      for (let k = 0; k < n * n; k++) { half[k] = THREE.DataUtils.toHalfFloat(res.sdf[k]); back[k] = THREE.DataUtils.fromHalfFloat(half[k]); }
+      const t = new THREE.DataTexture(half, n, n, THREE.RedFormat, THREE.HalfFloatType);
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      t.generateMipmaps = false;
+      t.colorSpace = THREE.NoColorSpace;
+      t.name = 'cwT-plot';
+      t.needsUpdate = true;
+      this.plot = { bbox, n, sdf: back, texture: t };
+      setPlot(t, bbox);
+      this._done();
+    }, (err) => {
+      this._done();
+      if (!this.disposed) this.onError(new Error('plot outline: ' + err.message));
+    });
   }
 
-  // ------------------------------------------------------------ test hooks
-  decode(url) { return this._post({ type: 'decode', url }); }
+  /* The horizon as drawn (or, with surface 'reference', over the tau = 0 surface) from
+   * (x, z), eye metres above that ground: index k is true bearing k x 0.5 degrees, the
+   * value the highest angle in degrees, marching 1 m in h1, 5 m in h5 and 20 m in h20 out
+   * to maxM, with the earth's curvature and refraction as facts/horizon.py (a drop of
+   * d^2 (1 - 0.13) / 2R); a ray that finds no ground reads 0. */
+  drawnHorizon(x, z, { eye = 1.5, maxM = 11000, surface = 'drawn' } = {}) {
+    const surf = surface === 'reference' ? (a, b) => this.refSurfaceAt(a, b) : (a, b) => this.surfaceAt(a, b);
+    const g0 = surf(x, z);
+    const out = new Float64Array(720);
+    if (g0 === null) return out;
+    const eyeY = g0 + eye, R = 6371000;
+    const step = (px, pz) => (this.chunkAt('h1', px, pz) || this.isSeaSquare('h1', px, pz) ? 1
+      : this.chunkAt('h5', px, pz) || this.isSeaSquare('h5', px, pz) ? 5 : 20);
+    for (let k = 0; k < 720; k++) {
+      const g = (k * 0.5 + this.offset) * Math.PI / 180, dx = Math.sin(g), dz = -Math.cos(g);
+      let best = -Infinity;
+      for (let d = 1; d <= maxM;) {
+        const px = x + dx * d, pz = z + dz * d, y = surf(px, pz);
+        if (y !== null) {
+          const a = Math.atan((y - d * d * (1 - 0.13) / (2 * R) - eyeY) / d);
+          if (a > best) best = a;
+        }
+        d += step(px, pz);
+      }
+      out[k] = Number.isFinite(best) ? best * 180 / Math.PI : 0;
+    }
+    return out;
+  }
 
+  // ------------------------------------------------------------ transition shims
+  drawnTopAt(x, z) { return this.surfaceAt(x, z); }                                     // SHIM(G2)
+  lowestTop(xa, za, xb, zb) { return this.lowestGround(xa, za, xb, zb); }               // SHIM(G2)
+  plotTint() { return {}; }                                                              // SHIM(G2)
+
+  // ------------------------------------------------------------ views, stats and test hooks
+  /* K = 2 tan(fov / 2) / cssHeight; every h1 chunk goes stale when it changes by more
+   * than 2 %. */
+  setView(fovDeg, cssHeight) {
+    this.viewK = 2 * Math.tan(fovDeg * Math.PI / 360) / Math.max(1, cssHeight);
+    this._setK(this.viewK);
+  }
+
+  terrainInfo() {
+    const keys = new Set();
+    let materials = 0, textures = 0, textureBytes = 0;
+    for (const c of this.chunks) {
+      if (!c.material) continue;
+      materials++;
+      keys.add(c.material.customProgramCacheKey());
+      if (c.tex) {
+        textures += 2;
+        let nb = 0;
+        for (let w = NV; ; w = Math.max(1, w >> 1)) { nb += w * w * 2; if (w === 1) break; }
+        textureBytes += c.tex.classBytes + nb;
+      }
+    }
+    for (const t of sharedTextures()) {
+      textures++;
+      const img = t.image, bpp = t.type === THREE.HalfFloatType ? 2 : 4;
+      let nb = img.width * img.height * bpp;
+      if (t.generateMipmaps) nb = Math.round(nb * 4 / 3);
+      textureBytes += nb;
+    }
+    return { programs: keys.size, materials, textures, textureBytes };
+  }
+
+  tinStats() {
+    let maxSnapAgeM = 0;
+    for (const c of this.chunks) {
+      if (c.level.name !== 'h1' || !c.tolInfo || !c.tolInfo.cam) continue;
+      const t = c.tolInfo.cam;
+      maxSnapAgeM = Math.max(maxSnapAgeM, Math.hypot(this.cam.x - t[0], this.cam.y - t[1], this.cam.z - t[2]));
+    }
+    return {
+      px: this.px(), tmin: this.tin.tmin, heldCap: this.tin.heldCap, held: this.heldTriangles(),
+      jobs: { load: this.jobs.load, mesh: this.jobs.mesh }, maxSnapAgeM, levelSeamRemeshes: this.levelSeamRemeshes,
+      maxInstallsPerFrame: this.maxInstallsPerFrame, maxInstallTrisPerFrame: this.maxInstallTrisPerFrame,
+      pxScale: this.pxScale, K: this.K, discarded: this.discarded, force: this.force
+    };
+  }
+
+  /* A test hook: {tau: m} pins every h1 chunk to a uniform tolerance, {px} sets the pixel
+   * target, null releases. Every h1 chunk goes stale. */
+  tinForce(opt) {
+    this.force = opt ? Object.assign({}, opt) : null;
+    this._markStale();
+  }
+
+  // Re-mesh every loaded h1 chunk for this camera, so meshes do not depend on the path the
+  // camera took (used by settle()).
+  forceSnapshots(cam) {
+    if (cam) this.cam.copy(cam);
+    for (const c of this.chunks) if (c.level.name === 'h1' && c.status === 'ready') this._queueMesh(c, true);
+    this.pump();
+  }
+
+  // A test hook: hold chunk `key`'s next mesh reply back until the one after it has arrived.
+  _reorderNext(key) {
+    const c = this.byKey['h1:' + key];
+    if (c) c.reorderNext = true;
+  }
+
+  decode(url) { return this._post({ type: 'decode', url }, false); }
+
+  /* Mesh a loaded chunk off-scene. h1: detail {cam: [x, y, z], px} or {tau}; returns
+   * {mesh, split, x0, z0, side}. h5, h20: detail is the stride. */
   meshChunk(levelName, key, detail) {
     const c = this.byKey[levelName + ':' + key];
     if (!c || !c.data) return Promise.reject(new Error('chunk not loaded: ' + levelName + ' ' + key));
+    if (levelName === 'h1') {
+      const opts = detail && detail.tau !== undefined ? { tau: detail.tau }
+        : { px: detail.px, K: this.K, tmin: this.tin.tmin, cam: [detail.cam[0] - c.x0, detail.cam[1], detail.cam[2] - c.z0] };
+      opts.borders = this.bordersFor(c);
+      return this._post({ type: 'mesh', mode: 'tin', data: c.data, E: c.E, opts }, false)
+        .then((res) => ({ mesh: res.mesh, split: res.split, x0: c.x0, z0: c.z0, side: c.level.side }));
+    }
     const o = this.jobOptions(c, detail);
-    return this._post({ type: 'mesh', data: c.data, mode: o.mode, opts: o.opts })
+    return this._post({ type: 'mesh', data: c.data, mode: o.mode, opts: o.opts }, false)
       .then((res) => ({ mesh: res.mesh, x0: c.x0, z0: c.z0, side: c.level.side }));
   }
 
-  meshRaw(data, mode, opts) { return this._post({ type: 'mesh', data, mode, opts }); }
-
-  // Mesh every loaded h1 chunk at its current block size with extra options; triangle total.
-  async blockTrianglesWith(extra) {
-    let total = 0;
-    for (const c of this.chunks) {
-      if (c.level.name !== 'h1' || !c.data) continue;
-      const o = this.jobOptions(c, c.lod);
-      const res = await this._post({ type: 'mesh', data: c.data, mode: o.mode, opts: Object.assign(o.opts, (extra.byLod ? extra.byLod[c.lod] : extra) || {}) });
-      total += res.mesh.triangles;
-    }
-    return total;
-  }
+  // mode 'tin': opts {tau | px, K, tmin, cam, borders, keepDropped, errors}; 'smooth' as meshSmooth.
+  meshRaw(data, mode, opts) { return this._post({ type: 'mesh', data, mode, opts }, false); }
 
   dispose() {
+    this.disposed = true;
+    this._cancelDrain();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this._onVisibility);
     for (const w of this.workers) w.terminate();
-    for (const c of this.chunks) if (c.mesh) c.mesh.geometry.dispose();
-    this.blockMaterial.dispose();
+    for (const c of this.chunks) {
+      if (c.mesh) { this.group.remove(c.mesh); c.mesh.geometry.dispose(); }
+      if (c.material) { c.material.dispose(); c.material = null; }
+      if (c.tex) { c.tex.classTex.dispose(); c.tex.normalTex.dispose(); c.tex = null; }
+    }
+    this.pendingInstalls.length = 0;
     this.smoothMaterial.dispose();
+    this.plot = null;
+    disposeShared();
   }
 }

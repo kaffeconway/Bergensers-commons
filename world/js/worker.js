@@ -1,12 +1,21 @@
 /* Commons World: the chunk worker.
  *
  * Plain JavaScript that imports nothing. chunks.js starts a small pool of these
- * as module workers. A job fetches one CWH1 height chunk (world/FORMAT.md
- * section 3), inflates it when it starts with the gzip magic, checks it against
- * the hash in its file name, undoes the planar predictor and meshes it:
- *   - h1 as block columns (greedy-merged tops and walls, 1, 2 or 4 m cells);
+ * as module workers. They keep no state between jobs: every job carries what it needs.
+ * A load job fetches one CWH1 height chunk (world/FORMAT.md section 3), inflates it
+ * when it starts with the gzip magic, checks it against the hash in its file name,
+ * undoes the planar predictor and meshes it:
+ *   - h1 as an adaptive right-triangulated irregular network (RTIN) over the chunk's
+ *     241 x 241 cell corners, in 15 x 15 tiles of 16 m, with an exact error map, so
+ *     every drawn point is within the tolerance tau(d) of the 1 m corner surface.
+ *     Skirts hang from its borders. A load also returns the error map, the per-tile
+ *     lowest and highest corners, and the chunk's two textures (1 m corner normals and
+ *     the class band with a majority mip chain), which the page keeps;
  *   - h5 and h20 as a smooth grid on the chunk's cell corners, with holes where
  *     a finer level covers and skirts on every edge.
+ * A mesh job re-extracts an h1 TIN from the data and error map it is sent (or builds
+ * the error map first, for tests), or re-meshes an h5 or h20 chunk.
+ * A plotSdf job returns the signed distance to the parcel rings over a box.
  * Typed arrays go back to the page as transfers.
  *
  * Local frame (FORMAT.md section 1): x = E - origin_e, z = -(N - origin_n), y up.
@@ -15,77 +24,48 @@
 'use strict';
 
 var CACHE_NAME = 'commons-world-chunks-v1';
-var SEA_FLOOR = -2;          // metres: what a wall sees on the far side of a sea cell
-var LINE_CLASSES = { 7: 1, 8: 1, 9: 1 };
-// When a coarse cell's samples tie, the more specific class wins.
-var CLASS_PRIORITY = [12, 7, 8, 9, 4, 6, 13, 3, 1, 2, 10, 11, 0];
+// When a coarse cell's samples tie, the more specific class wins; sea is last, so coasts
+// keep their land.
+var CLASS_PRIORITY = [12, 7, 8, 9, 4, 6, 13, 3, 1, 2, 10, 11, 0, 5];
+var SEA_Y = -3;              // metres: a corner with two or more sea samples is at most this
+var COAST = 0.05;            // a triangle holding sea and land scores at least this x its hypotenuse
+var TILE = 16, TILES = 15, NV = 241;
+var RK = 1 / (2 * Math.SQRT2 - 2);   // 1.2071: the nested bounding radius per metre of hypotenuse
 
-var cfg = { originE: 0, originN: 0, rings: [], plotBox: null };
+var cfg = { originE: 0, originN: 0, rings: [] };
 
-// ---------------------------------------------------------------- palette
-// sRGB hex, turned into linear bytes (three.js treats vertex colours as linear).
-var TOP_HEX = {
-  0: 0x9cab78,   // open land
-  1: 0x566f48,   // forest
-  2: 0x8e9166,   // bog, marsh
-  3: 0xb0b974,   // farmland
-  4: 0x5a8797,   // lake, river
-  5: 0x3e6b7c,   // sea (tops are not drawn; used by the smooth levels under water)
-  6: 0xb4ae9e,   // built-up
-  7: 0x6e6a63,   // road
-  8: 0xa9a18f,   // footway
-  9: 0xa08662,   // path
-  10: 0x8c8b83,  // bare rock
-  11: 0xeef0ec,  // snow
-  12: 0x857e72,  // building footprint
-  13: 0xc8b689   // sand, gravel
-};
-var WALL_HEX = {
-  earth: 0x806a52, rock: 0x7d7b74, snow: 0xcfd2ce, sand: 0xa68e66, made: 0x8a847a, water: 0x4b6f7c
-};
-var PLOT_LIGHT = 0xe2bf93;   // parcel interior: a light warm wash
-var PLOT_STRONG = 0xb8552f;  // parcel boundary cells
-var SLOPE_SHADE = [1.0, 0.9, 0.8, 0.7];
+// ---------------------------------------------------------------- far palette
+/* The far colour per class code (sRGB hex; index 14 is slope rock) and the rock onset in
+ * degrees of slope (0: always rock; 90: never). The same table as TERRAIN_PALETTE's `far`
+ * and `onset` in terrainmat.js, which the h1 shader fades to with distance: test TT5
+ * checks the two entry for entry. Class 12 (building footprint) copies class 6. */
+var FAR = [0x9cab78, 0x566f48, 0x8e9166, 0xb0b974, 0x5a8797, 0x3e6b7c, 0xb4ae9e, 0x6e6a63, 0xa9a18f, 0xa08662, 0x8c8b83, 0xeef0ec, 0xb4ae9e, 0xc8b689, 0x88857d];
+var ONSET = [34, 40, 45, 45, 90, 90, 55, 90, 90, 90, 0, 60, 55, 50];
 
 function srgbToLinear(c) {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
-function hexParts(hex) {
-  return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+function hexLinear(hex) {
+  return [srgbToLinear(((hex >> 16) & 255) / 255), srgbToLinear(((hex >> 8) & 255) / 255),
+          srgbToLinear((hex & 255) / 255)];
 }
-function toBytes(rgb) {
-  return [Math.round(srgbToLinear(rgb[0]) * 255), Math.round(srgbToLinear(rgb[1]) * 255),
-          Math.round(srgbToLinear(rgb[2]) * 255)];
+var FAR_LIN = FAR.map(hexLinear);
+function smoothstep(e0, e1, x) {
+  var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
 }
-function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
-
-var topCache = {};
-// key = cls * 16 + slope * 4 + tint
-function topColour(key) {
-  var c = topCache[key];
-  if (c) return c;
-  var cls = key >> 4, slope = (key >> 2) & 3, tint = key & 3;
-  var rgb = hexParts(TOP_HEX[cls] !== undefined ? TOP_HEX[cls] : TOP_HEX[0]);
-  if (tint === 1) rgb = mix(rgb, hexParts(PLOT_LIGHT), 0.35);
-  else if (tint === 2) rgb = mix(rgb, hexParts(PLOT_STRONG), 0.8);
-  var s = SLOPE_SHADE[slope];
-  c = toBytes([rgb[0] * s, rgb[1] * s, rgb[2] * s]);
-  topCache[key] = c;
-  return c;
+// Rock weight from the up component of the ground normal: 0 below the class's onset slope,
+// 1 about 3.5 degrees steeper.
+function rockWeight(cls, ny) {
+  var on = ONSET[cls] === undefined ? 90 : ONSET[cls];
+  var c = on <= 0 ? 2 : Math.cos(on * Math.PI / 180);
+  return 1 - smoothstep(c - 0.06, c, ny);
 }
-var wallCache = {};
-function wallKind(cls) {
-  if (cls === 10) return 'rock';
-  if (cls === 11) return 'snow';
-  if (cls === 13) return 'sand';
-  if (cls === 6 || cls === 7 || cls === 8 || cls === 12) return 'made';
-  if (cls === 5) return 'water';
-  return 'earth';
-}
-function wallColour(cls) {
-  var c = wallCache[cls];
-  if (!c) { c = toBytes(hexParts(WALL_HEX[wallKind(cls)])); wallCache[cls] = c; }
-  return c;
+// The far colour as linear bytes (three.js treats vertex colours as linear).
+function farColourBytes(cls, ny) {
+  var a = FAR_LIN[cls] || FAR_LIN[0], r = FAR_LIN[14], w = rockWeight(cls, ny);
+  return [Math.round((a[0] + (r[0] - a[0]) * w) * 255), Math.round((a[1] + (r[1] - a[1]) * w) * 255),
+          Math.round((a[2] + (r[2] - a[2]) * w) * 255)];
 }
 
 // ---------------------------------------------------------------- growable buffers
@@ -117,16 +97,6 @@ Mesh.prototype.vert = function (x, y, z, nx, ny, nz, rgb) {
   if (y < this.yMin) this.yMin = y;
   if (y > this.yMax) this.yMax = y;
   return this.verts++;
-};
-// Four vertices in order; triangles (0,1,2) and (0,2,3). The caller orders them so
-// that (v1 - v0) x (v2 - v0) points along the face normal (counter-clockwise front).
-Mesh.prototype.quad = function (v0, v1, v2, v3, nx, ny, nz, rgb) {
-  var a = this.vert(v0[0], v0[1], v0[2], nx, ny, nz, rgb);
-  this.vert(v1[0], v1[1], v1[2], nx, ny, nz, rgb);
-  this.vert(v2[0], v2[1], v2[2], nx, ny, nz, rgb);
-  this.vert(v3[0], v3[1], v3[2], nx, ny, nz, rgb);
-  this.tri(a, a + 1, a + 2);
-  this.tri(a, a + 2, a + 3);
 };
 Mesh.prototype.tri = function (a, b, c) {
   var i = this.idx;
@@ -218,21 +188,6 @@ function planarRestore(v, w, h) {
   }
 }
 
-// ---------------------------------------------------------------- plot polygon
-function pointInPlot(x, z) {
-  var b = cfg.plotBox;
-  if (!b || x < b[0] || x > b[2] || z < b[1] || z > b[3]) return false;
-  var inside = false, rings = cfg.rings;
-  for (var k = 0; k < rings.length; k++) {
-    var ring = rings[k], n = ring.length / 2;
-    for (var i = 0, j = n - 1; i < n; j = i++) {
-      var xi = ring[2 * i], zi = ring[2 * i + 1], xj = ring[2 * j], zj = ring[2 * j + 1];
-      if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
-    }
-  }
-  return inside;
-}
-
 // ---------------------------------------------------------------- shared helpers
 function isSea(dm, cls) { return cls === 5 || (dm <= 0 && cls !== 4); }
 
@@ -245,235 +200,434 @@ function pickClass(counts) {
   return best < 0 ? 0 : best;
 }
 
-function slopeBucket(tan) {
-  if (tan < 0.5774) return 0;   // under 30 degrees
-  if (tan < 1.0) return 1;      // under 45
-  if (tan < 1.7321) return 2;   // under 60
-  return 3;
+// ---------------------------------------------------------------- h1: corners and textures
+/* Corner (a, b), row a from the north and column b from the west, is the mean of stored
+ * samples (a, b), (a, b+1), (a+1, b) and (a+1, b+1), in metres; with two or more of them
+ * sea it is at most -3 m and flagged sea (the meshSmooth rule). Float32, as drawn; the
+ * page recomputes the same values (chunks.js cornerHeight) for groundAt. */
+function checkH1(h) {
+  if (!h.apron || h.width !== NV + 1 || h.height !== NV + 1) {
+    throw new Error('TIN meshing needs a 242 x 242 chunk with its apron');
+  }
+}
+function tinCorners(d) {
+  var h = d.header, W = h.width, base = h.base, v = d.v, cls = d.classes;
+  checkH1(h);
+  var hC = new Float32Array(NV * NV), sea = new Uint8Array(NV * NV), yVis = 0;
+  for (var a = 0; a < NV; a++) {
+    for (var b = 0; b < NV; b++) {
+      var t0 = a * W + b, sum = 0, ns = 0;
+      for (var u = 0; u < 4; u++) {
+        var t = u === 0 ? t0 : u === 1 ? t0 + 1 : u === 2 ? t0 + W : t0 + W + 1;
+        var dm = base + v[t], c = cls ? cls[t] : 0;
+        sum += dm / 10;
+        if (isSea(dm, c)) ns++;
+      }
+      var y = sum / 4, i = a * NV + b;
+      if (ns >= 2) { y = Math.min(y, SEA_Y); sea[i] = 1; }
+      hC[i] = y;
+      if (hC[i] > yVis) yVis = hC[i];
+    }
+  }
+  return { hC: hC, sea: sea, yVis: yVis };
 }
 
-// ---------------------------------------------------------------- blocks (h1)
-/* d: {header, v, classes}. o: {lod: 1|2|4, x0, z0 (local coordinates of the chunk
- * square's north-west corner), edgeAbsent: [n, e, s, w], tint: bool; optional
- * step: height step in metres (default 1), shade: slope darkening (default true),
- * floors: [n, e, s, w], each null or the lowest top the loaded neighbour across that
- * edge can draw, per metre along it (chunks.js edgeFloor)}.
- * A coarse cell of L x L samples takes the rounded mean height of its land samples
- * (1 m steps), is sea when most of its samples are, and takes the majority class.
- * Walls inside the chunk are emitted once, by the higher cell. On the chunk border
- * the neighbour's top is estimated from the apron and, when given, its floor, and every
- * border cell hangs a wall ("skirt") below the lower of the two, deep enough to cover
- * the neighbour however its level of detail rounds: the lower side's skirt is always
- * underground. The apron alone sees one sample into the neighbour, not a drop inside
- * its coarse cells; that is what the floors are for. The result carries edgeBottom:
- * how far down the border walls reach, per metre along each edge (-32768 where the
- * border cell is sea and has no wall), so the page can tell when a re-mesh is needed.
- */
-function meshBlocks(d, o) {
-  var h = d.header, W = h.width, K = W - 2, L = o.lod | 0;
-  if (!h.apron || h.height !== W) throw new Error('block meshing needs a square chunk with its apron');
-  if (L < 1 || K % L) throw new Error('block size ' + L + ' does not divide ' + K);
-  var n = K / L, base = h.base, v = d.v, cls = d.classes, N = W * W;
-  var step = o.step > 1 ? o.step | 0 : 1, shade = o.shade !== false;
-  var dm = new Int32Array(N), top1 = new Int32Array(N), sea1 = new Uint8Array(N);
-  for (var t = 0; t < N; t++) {
-    var hv = base + v[t], c = cls ? cls[t] : 0, s = isSea(hv, c);
-    dm[t] = hv; sea1[t] = s ? 1 : 0;
-    top1[t] = s ? SEA_FLOOR : Math.floor((hv + 5) / 10);
-  }
-  var nn = n * n;
-  var ctop = new Int32Array(nn), csea = new Uint8Array(nn), ckey = new Uint16Array(nn), ccls = new Uint8Array(nn);
-  var counts = new Int32Array(16);
-  var tinted = 0, strong = 0, doTint = o.tint && cfg.rings.length > 0;
-  for (var A = 0; A < n; A++) {
-    for (var B = 0; B < n; B++) {
-      var r0 = 1 + A * L, q0 = 1 + B * L, seaCount = 0, sum = 0, land = 0;
-      counts.fill(0);
-      for (var a = 0; a < L; a++) {
-        for (var b = 0; b < L; b++) {
-          var ts = (r0 + a) * W + q0 + b;
-          if (sea1[ts]) { seaCount++; continue; }
-          sum += dm[ts]; land++;
-          var cc = cls ? cls[ts] : 0;
-          if (cc < 16) counts[cc] += (L > 1 && LINE_CLASSES[cc]) ? 2 : 1;
-        }
-      }
-      var ci = A * n + B;
-      if (doTint) {
-        var cx = o.x0 + (B + 0.5) * L, cz = o.z0 + (A + 0.5) * L;
-        if (pointInPlot(cx, cz)) {
-          tinted++;
-          var edge = !pointInPlot(cx + L, cz) || !pointInPlot(cx - L, cz) ||
-                     !pointInPlot(cx, cz + L) || !pointInPlot(cx, cz - L);
-          if (edge) strong++;
-          ckey[ci] = edge ? 2 : 1;
-        }
-      }
-      if (seaCount * 2 > L * L || land === 0) {
-        csea[ci] = 1; ctop[ci] = SEA_FLOOR; ccls[ci] = 5;
-        continue;
-      }
-      // round half up to whole metres, or to multiples of `step` metres when asked
-      ctop[ci] = step * Math.floor((sum + 5 * step * land) / (10 * step * land));
-      var k = pickClass(counts);
-      ccls[ci] = k;
-      // slope across the cell, from the samples just outside it (the apron supplies the edges)
-      var rc = r0 + (L >> 1), qc = q0 + (L >> 1);
-      var gx = (landDm(dm, sea1, rc * W + q0 + L) - landDm(dm, sea1, rc * W + q0 - 1)) / (10 * (L + 1));
-      var gz = (landDm(dm, sea1, (r0 + L) * W + qc) - landDm(dm, sea1, (r0 - 1) * W + qc)) / (10 * (L + 1));
-      ckey[ci] = (k << 4) | ((shade ? slopeBucket(Math.sqrt(gx * gx + gz * gz)) : 0) << 2) | ckey[ci];
+// Corner normals from the 2 x 2 samples round each corner: normalize(-gx, 1, -gz).
+// Returns the RG8 texture (n.x, n.z as round(c * 127.5 + 127.5)) and Int8 vertex normals.
+function tinNormals(d) {
+  var h = d.header, W = h.width, v = d.v, cellM = h.cell || 1;
+  var tex = new Uint8Array(NV * NV * 2), nor = new Int8Array(NV * NV * 3);
+  for (var a = 0; a < NV; a++) {
+    for (var b = 0; b < NV; b++) {
+      var t = a * W + b, h00 = v[t], h01 = v[t + 1], h10 = v[t + W], h11 = v[t + W + 1];
+      var gx = ((h01 + h11) - (h00 + h10)) / (20 * cellM), gz = ((h10 + h11) - (h00 + h01)) / (20 * cellM);
+      var inv = 1 / Math.sqrt(gx * gx + 1 + gz * gz), i = a * NV + b;
+      tex[2 * i] = Math.round(-gx * inv * 127.5 + 127.5);
+      tex[2 * i + 1] = Math.round(-gz * inv * 127.5 + 127.5);
+      nor[3 * i] = Math.round(-gx * inv * 127);
+      nor[3 * i + 1] = Math.round(inv * 127);
+      nor[3 * i + 2] = Math.round(-gz * inv * 127);
     }
   }
+  return { tex: tex, nor: nor };
+}
 
-  var m = new Mesh(Int16Array, 16384);
-  // tops: greedy rectangles of equal height and colour
-  var done = new Uint8Array(nn);
-  for (A = 0; A < n; A++) {
-    for (B = 0; B < n; B++) {
-      ci = A * n + B;
-      if (done[ci] || csea[ci]) continue;
-      var ht = ctop[ci], key = ckey[ci], w = 1;
-      while (B + w < n) {
-        var cj = ci + w;
-        if (done[cj] || csea[cj] || ctop[cj] !== ht || ckey[cj] !== key) break;
-        w++;
+/* The class band's majority mip chain below level 0 (which is the band itself): each
+ * level is floor(previous / 2) wide, as WebGL requires, and a texel takes the most common
+ * class of the 2 x 2 texels under it (3 wide at an odd level's last row or column), ties
+ * to CLASS_PRIORITY with sea last. */
+function classMips(classes, W) {
+  var levels = [], cur = classes, w = W, counts = new Int32Array(16);
+  while (w > 1) {
+    var nw = Math.max(1, w >> 1), next = new Uint8Array(nw * nw);
+    for (var y = 0; y < nw; y++) {
+      var y1 = y === nw - 1 ? w : 2 * y + 2;
+      for (var x = 0; x < nw; x++) {
+        var x1 = x === nw - 1 ? w : 2 * x + 2;
+        counts.fill(0);
+        for (var yy = 2 * y; yy < y1; yy++) for (var xx = 2 * x; xx < x1; xx++) counts[cur[yy * w + xx] & 15]++;
+        next[y * nw + x] = pickClass(counts);
       }
-      var hh = 1;
-      grow: while (A + hh < n) {
-        for (var q = 0; q < w; q++) {
-          cj = (A + hh) * n + B + q;
-          if (done[cj] || csea[cj] || ctop[cj] !== ht || ckey[cj] !== key) break grow;
-        }
-        hh++;
-      }
-      for (a = 0; a < hh; a++) for (q = 0; q < w; q++) done[(A + a) * n + B + q] = 1;
-      var x0 = B * L, x1 = (B + w) * L, z0 = A * L, z1 = (A + hh) * L;
-      m.quad([x0, ht, z0], [x0, ht, z1], [x1, ht, z1], [x1, ht, z0], 0, 127, 0, topColour(key));
     }
+    levels.push(next);
+    cur = next; w = nw;
   }
+  return levels;
+}
 
-  // walls
-  var absent = o.edgeAbsent || [false, false, false, false];
-  var floors = o.floors || null;
-  var edgeBottom = [new Int16Array(K), new Int16Array(K), new Int16Array(K), new Int16Array(K)];
-  for (var eb = 0; eb < 4; eb++) edgeBottom[eb].fill(-32768);
-  function wallTop(i) { return csea[i] ? SEA_FLOOR : ctop[i]; }
-  // Border estimate for one cell side: [neighbour estimate, skirt depth]. side: 0 N, 1 E, 2 S, 3 W.
-  function border(A, B, side) {
-    var est = Infinity, diff = 0, i, r, q, t1, t2;
-    for (i = -1; i <= L; i++) {
-      if (side === 1 || side === 3) {
-        r = 1 + A * L + i; if (r < 0 || r > W - 1) continue;
-        q = side === 1 ? W - 1 : 0;
-        t1 = top1[r * W + q]; t2 = top1[r * W + (side === 1 ? W - 2 : 1)];
-        if (r + 1 <= W - 1) diff = Math.max(diff, Math.abs(t1 - top1[(r + 1) * W + q]));
-      } else {
-        q = 1 + B * L + i; if (q < 0 || q > W - 1) continue;
-        r = side === 2 ? W - 1 : 0;
-        t1 = top1[r * W + q]; t2 = top1[(side === 2 ? W - 2 : 1) * W + q];
-        if (q + 1 <= W - 1) diff = Math.max(diff, Math.abs(t1 - top1[r * W + q + 1]));
+// ---------------------------------------------------------------- h1: the RTIN
+/* The triangle table and the tile id scheme below are adapted from mapbox/martini
+ * (https://github.com/mapbox/martini), which carries this notice:
+ *
+ *   ISC License
+ *
+ *   Copyright (c) 2019, Mapbox
+ *
+ *   Permission to use, copy, modify, and/or distribute this software for any purpose
+ *   with or without fee is hereby granted, provided that the above copyright notice
+ *   and this permission notice appear in all copies.
+ *
+ *   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+ *   REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ *   FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+ *   INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+ *   OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ *   TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+ *   THIS SOFTWARE.
+ *
+ * Triangle `id` (2 <= id < 1024) of a 16 m tile is found by walking its bits from the
+ * lowest: bit 0 picks the root, each later bit a child, the leading 1 ends the walk. A
+ * triangle (a, b, c) has its hypotenuse a-b and its right angle at c; its children are
+ * id + 2^k = (b, c, m) and id + 2^(k+1) = (c, a, m), with m the hypotenuse midpoint and
+ * 2^k <= id < 2^(k+1). Ids below 512 can split (their midpoint is a grid corner); ids
+ * 512-1023 are the 1 m triangles. Coordinates are (x, row) within the tile. */
+var TRI = (function () {
+  var n = 1022, tab = new Int8Array(n * 6), flip = new Uint8Array(1024);
+  for (var i = 0; i < n; i++) {
+    var id = i + 2, ax = 0, ay = 0, bx = 0, by = 0, cx = 0, cy = 0;
+    if (id & 1) { bx = by = cx = TILE; } else { ax = ay = cy = TILE; }
+    while ((id >>= 1) > 1) {
+      var mx = (ax + bx) >> 1, my = (ay + by) >> 1;
+      if (id & 1) { bx = ax; by = ay; ax = cx; ay = cy; } else { ax = bx; ay = by; bx = cx; by = cy; }
+      cx = mx; cy = my;
+    }
+    tab[i * 6] = ax; tab[i * 6 + 1] = ay; tab[i * 6 + 2] = bx; tab[i * 6 + 3] = by; tab[i * 6 + 4] = cx; tab[i * 6 + 5] = cy;
+    // up-facing (counter-clockwise seen from above, x east and z south) needs
+    // cross(b - a, c - a).y = (b.z - a.z)(c.x - a.x) - (b.x - a.x)(c.z - a.z) > 0
+    flip[i + 2] = ((by - ay) * (cx - ax) - (bx - ax) * (cy - ay)) > 0 ? 0 : 1;
+  }
+  return { tab: tab, flip: flip };
+})();
+
+/* The exact error map: for every splittable triangle, the largest visible vertical error
+ * over every grid corner in it of not splitting it, kept at its hypotenuse midpoint and
+ * maxed up the hierarchy (so a parent's entry is at least its children's). "Visible"
+ * clamps both heights at 0 (the water hides what is below). A triangle with all three
+ * vertices sea is dropped when drawn, so it reads as 0. One chunk-global array, filled
+ * finest level first over all 225 tiles, so tile edges inside a chunk never crack.
+ * Rows are scanned as spans, with an incremental plane. Float32 metres. */
+function errorsExact(C) {
+  var hC = C.hC, sea = C.sea, tab = TRI.tab, E = new Float32Array(NV * NV);
+  for (var i = 509; i >= 0; i--) {
+    var o = i * 6, lax = tab[o], lay = tab[o + 1], lbx = tab[o + 2], lby = tab[o + 3], lcx = tab[o + 4], lcy = tab[o + 5];
+    var L = Math.hypot(lbx - lax, lby - lay);
+    var area2 = (lbx - lax) * (lcy - lay) - (lby - lay) * (lcx - lax), sg = area2 > 0 ? 1 : -1;
+    // edge functions a*x + b*y + c, inside where all three are >= 0
+    var ed = [[lbx, lby, lcx, lcy], [lcx, lcy, lax, lay], [lax, lay, lbx, lby]].map(function (e) {
+      return [(e[1] - e[3]) * sg, (e[2] - e[0]) * sg, (e[0] * e[3] - e[1] * e[2]) * sg];
+    });
+    var y0 = Math.min(lay, lby, lcy), y1 = Math.max(lay, lby, lcy), x0 = Math.min(lax, lbx, lcx), x1 = Math.max(lax, lbx, lcx);
+    var spans = [];
+    for (var y = y0; y <= y1; y++) {
+      var lo = x0, hi = x1;
+      for (var k = 0; k < 3; k++) {
+        var ea = ed[k][0], kk = ed[k][1] * y + ed[k][2];
+        if (ea === 0) { if (kk < 0) { lo = 1; hi = 0; } }
+        else if (ea > 0) lo = Math.max(lo, Math.ceil(-kk / ea - 1e-9));
+        else hi = Math.min(hi, Math.floor(-kk / ea + 1e-9));
       }
-      diff = Math.max(diff, Math.abs(t1 - t2));
-      if (i >= 0 && i < L && t1 < est) est = t1;
+      spans.push(lo, hi);
     }
-    var f = floors && floors[side];
-    if (f) {
-      var k0 = (side === 1 || side === 3) ? A * L : B * L;
-      for (i = 0; i < L; i++) if (f[k0 + i] < est) est = f[k0 + i];
-    }
-    var depth = Math.min(300, 2 + 4 * diff + (absent[side] ? 8 : 0));
-    return [est, depth];
-  }
-  // One wall face of cell (A, B) on `side`, as [top, bottom, class] or null.
-  function face(A, B, side) {
-    var ci = A * n + B;
-    if (csea[ci]) return null;
-    var top = ctop[ci], bottom;
-    var nA = A + (side === 2 ? 1 : side === 0 ? -1 : 0), nB = B + (side === 1 ? 1 : side === 3 ? -1 : 0);
-    if (nA >= 0 && nA < n && nB >= 0 && nB < n) {
-      bottom = wallTop(nA * n + nB);
-      if (bottom >= top) return null;
-    } else {
-      var e = border(A, B, side);
-      bottom = Math.min(top, e[0]) - e[1];
-      var eb = edgeBottom[side], kb = (side === 1 || side === 3) ? A * L : B * L;
-      for (var z = 0; z < L; z++) eb[kb + z] = bottom;
-    }
-    return [top, bottom, ccls[ci]];
-  }
-  var side, run, f, g;
-  // east and west faces run north-south: scan down each column
-  for (side = 1; side <= 3; side += 2) {
-    for (B = 0; B < n; B++) {
-      A = 0;
-      while (A < n) {
-        f = face(A, B, side);
-        if (!f) { A++; continue; }
-        run = 1;
-        while (A + run < n) {
-          g = face(A + run, B, side);
-          if (!g || g[0] !== f[0] || g[1] !== f[1] || wallKind(g[2]) !== wallKind(f[2])) break;
-          run++;
+    for (var ty = 0; ty < TILES; ty++) {
+      for (var tx = 0; tx < TILES; tx++) {
+        var X = tx * TILE, Y = ty * TILE;
+        var ax = lax + X, ay = lay + Y, bx = lbx + X, by = lby + Y, cx = lcx + X, cy = lcy + Y;
+        var m = ((ay + by) >> 1) * NV + ((ax + bx) >> 1);
+        var ia = ay * NV + ax, ib = by * NV + bx, ic = cy * NV + cx;
+        var ha = hC[ia], hb = hC[ib], hc = hC[ic], allSea = sea[ia] && sea[ib] && sea[ic];
+        var P = ((hb - ha) * (cy - ay) - (hc - ha) * (by - ay)) / area2;
+        var Q = ((hc - ha) * (bx - ax) - (hb - ha) * (cx - ax)) / area2;
+        var R = ha - P * ax - Q * ay;
+        var e = 0, anySea = 0, anyLand = 0;
+        for (var r = 0, yy = y0 + Y; r < spans.length; r += 2, yy++) {
+          var slo = spans[r] + X, shi = spans[r + 1] + X;
+          if (shi < slo) continue;
+          var p = yy * NV + slo, s = P * slo + Q * yy + R;
+          for (var x = slo; x <= shi; x++, p++, s += P) {
+            var hh = hC[p], hv = hh > 0 ? hh : 0, sv = allSea ? 0 : (s > 0 ? s : 0), dd = hv > sv ? hv - sv : sv - hv;
+            if (dd > e) e = dd;
+            if (sea[p]) anySea = 1; else anyLand = 1;
+          }
         }
-        var za = A * L, zb = (A + run) * L, rgb = wallColour(f[2]);
-        if (side === 1) {
-          var xe = (B + 1) * L;
-          m.quad([xe, f[0], zb], [xe, f[1], zb], [xe, f[1], za], [xe, f[0], za], 127, 0, 0, rgb);
-        } else {
-          var xw = B * L;
-          m.quad([xw, f[0], za], [xw, f[1], za], [xw, f[1], zb], [xw, f[0], zb], -127, 0, 0, rgb);
+        if (anySea && anyLand && COAST * L > e) e = COAST * L;
+        if (e > E[m]) E[m] = e;
+        if (i < 254) {
+          var lc = ((ay + cy) >> 1) * NV + ((ax + cx) >> 1), rc = ((by + cy) >> 1) * NV + ((bx + cx) >> 1);
+          if (E[lc] > E[m]) E[m] = E[lc];
+          if (E[rc] > E[m]) E[m] = E[rc];
         }
-        A += run;
       }
     }
   }
-  // south and north faces run east-west: scan along each row
-  for (side = 0; side <= 2; side += 2) {
-    for (A = 0; A < n; A++) {
-      B = 0;
-      while (B < n) {
-        f = face(A, B, side);
-        if (!f) { B++; continue; }
-        run = 1;
-        while (B + run < n) {
-          g = face(A, B + run, side);
-          if (!g || g[0] !== f[0] || g[1] !== f[1] || wallKind(g[2]) !== wallKind(f[2])) break;
-          run++;
+  return E;
+}
+
+/* The conservative bound (the phone fallback, errors: 'bound'): a triangle's error is at
+ * most its midpoint surplus plus the larger of its children's; an all-sea triangle is
+ * bounded by the highest visible height under it. Cheaper, still a guarantee, more
+ * triangles. */
+function errorsBound(C) {
+  var hC = C.hC, sea = C.sea, tab = TRI.tab;
+  var E = new Float32Array(NV * NV), HV = new Float32Array(NV * NV), MIX = new Uint8Array(NV * NV);
+  for (var p = 0; p < NV * NV; p++) { HV[p] = hC[p] > 0 ? hC[p] : 0; MIX[p] = sea[p] ? 1 : 2; }
+  for (var i = 509; i >= 0; i--) {
+    var o = i * 6;
+    for (var ty = 0; ty < TILES; ty++) {
+      for (var tx = 0; tx < TILES; tx++) {
+        var X = tx * TILE, Y = ty * TILE;
+        var ax = tab[o] + X, ay = tab[o + 1] + Y, bx = tab[o + 2] + X, by = tab[o + 3] + Y, cx = tab[o + 4] + X, cy = tab[o + 5] + Y;
+        var m = ((ay + by) >> 1) * NV + ((ax + bx) >> 1);
+        var ia = ay * NV + ax, ib = by * NV + bx, ic = cy * NV + cx;
+        var childE = 0, childHV = Math.max(HV[ia], HV[ib], HV[ic], HV[m]), mix = MIX[ia] | MIX[ib] | MIX[ic] | MIX[m];
+        if (i < 254) {
+          var lc = ((ay + cy) >> 1) * NV + ((ax + cx) >> 1), rc = ((by + cy) >> 1) * NV + ((bx + cx) >> 1);
+          childE = Math.max(E[lc], E[rc]);
+          childHV = Math.max(childHV, HV[lc], HV[rc]);
+          mix |= MIX[lc] | MIX[rc];
         }
-        var xa = B * L, xb = (B + run) * L;
-        rgb = wallColour(f[2]);
-        if (side === 2) {
-          var zs = (A + 1) * L;
-          m.quad([xa, f[0], zs], [xa, f[1], zs], [xb, f[1], zs], [xb, f[0], zs], 0, 0, 127, rgb);
-        } else {
-          var zn = A * L;
-          m.quad([xb, f[0], zn], [xb, f[1], zn], [xa, f[1], zn], [xa, f[0], zn], 0, 0, -127, rgb);
+        var e;
+        if (sea[ia] && sea[ib] && sea[ic]) e = childHV;
+        else {
+          var hm = hC[m] > 0 ? hC[m] : 0, s = (hC[ia] + hC[ib]) / 2;
+          e = Math.abs(hm - (s > 0 ? s : 0)) + childE;
         }
-        B += run;
+        if (mix === 3) { var L = Math.hypot(bx - ax, by - ay); if (COAST * L > e) e = COAST * L; }
+        if (e > E[m]) E[m] = e;
+        if (childHV > HV[m]) HV[m] = childHV;
+        MIX[m] |= mix;
       }
     }
   }
-  var out = m.finish();
-  out.tint = { cells: tinted, strong: strong, cell: L };
-  out.edgeBottom = edgeBottom;
+  return E;
+}
+
+// Centimetres, rounded up so the guarantee holds, saturating at 655.35 m.
+function errorsCm(E) {
+  var out = new Uint16Array(E.length);
+  for (var i = 0; i < E.length; i++) { var c = Math.ceil(E[i] * 100); out[i] = c > 65535 ? 65535 : c; }
   return out;
 }
 
-function landDm(dm, sea1, t) { return sea1[t] ? Math.max(0, dm[t]) : dm[t]; }
+// Per-tile lowest and highest drawn corner, sea corners at their drawn height.
+function tileRange(C) {
+  var lo = new Float32Array(TILES * TILES), hi = new Float32Array(TILES * TILES), hC = C.hC;
+  for (var ty = 0; ty < TILES; ty++) {
+    for (var tx = 0; tx < TILES; tx++) {
+      var mn = Infinity, mx = -Infinity;
+      for (var a = ty * TILE; a <= ty * TILE + TILE; a++) {
+        for (var b = tx * TILE; b <= tx * TILE + TILE; b++) {
+          var y = hC[a * NV + b];
+          if (y < mn) mn = y;
+          if (y > mx) mx = y;
+        }
+      }
+      lo[ty * TILES + tx] = mn; hi[ty * TILES + tx] = mx;
+    }
+  }
+  return { tileMin: lo, tileMax: hi };
+}
+
+/* Extract a TIN.
+ * tol: {tau} (metres, uniform) or {px, K, tmin, cam: [x, y, z]} with cam in chunk-local
+ *   metres: tau(d) = max(tmin, px K d). A triangle splits when its error exceeds tau at
+ *   dh = max(0, |m - cam| - 1.2071 L) (horizontal; hypotenuse L, midpoint m) combined with
+ *   the chunk-constant dy = max(0, cam.y - highest visible corner). That radius keeps a
+ *   graded tolerance free of T-junctions, and every drawn point within tau at its own
+ *   distance.
+ * borders: [n, e, s, w], each {kind: 'h1' | 'sea' | 'outer', floor: Float32Array(241) or
+ *   null}, floor[k] the lowest the neighbouring h5 level can draw at metre k along the side
+ *   (N and S run west to east, E and W north to south).
+ * Returns {mesh, split}. Skirts: one quad per pair of consecutive used border vertices,
+ * unless both are sea, facing out of the chunk; its bottom, with taus = tau at the
+ * segment's nearest point to the camera, is
+ *   'h1': top - (0.5 + 3 taus); 'sea': min(that, -3);
+ *   'outer' with a floor: min(that, the floor's minimum over the segment - 0.5);
+ *   'outer' without: top - (16 + 3 taus).
+ * mesh.bottoms[side][k] is the skirt bottom at metre k (NaN where there is none). */
+function extractTin(C, E16, nor, tol, borders, keepDropped) {
+  var hC = C.hC, sea = C.sea, tab = TRI.tab, flip = TRI.flip;
+  var uniform = tol.tau !== undefined && tol.tau !== null;
+  var tmin = uniform ? Number(tol.tau) : Number(tol.tmin), k = uniform ? 0 : Number(tol.px) * Number(tol.K);
+  var cam = uniform ? [0, 0, 0] : tol.cam, camx = cam[0], camz = cam[2];
+  var dy = uniform ? 0 : Math.max(0, cam[1] - C.yVis), dy2 = dy * dy;
+  function tauAt(dh) { return uniform ? tmin : Math.max(tmin, k * Math.sqrt(dh * dh + dy2)); }
+  var split = new Uint8Array(TILES * TILES * 64);
+  var tris = new Grow(Int32Array, 4096), dropped = keepDropped ? new Grow(Int32Array, 256) : null;
+  var anySplit = false;
+  function rec(ax, ay, bx, by, cx, cy, id, bit, tile) {
+    var mx = (ax + bx) >> 1, my = (ay + by) >> 1;
+    if (id < 512) {
+      var e = E16[my * NV + mx];
+      if (e > 0) {
+        var L = Math.hypot(bx - ax, by - ay);
+        var dh = uniform ? 0 : Math.max(0, Math.hypot(mx - camx, my - camz) - RK * L);
+        if (e > tauAt(dh) * 100) {
+          split[tile * 64 + ((id - 2) >> 3)] |= 1 << ((id - 2) & 7);
+          anySplit = true;
+          rec(cx, cy, ax, ay, mx, my, id + 2 * bit, 2 * bit, tile);
+          rec(bx, by, cx, cy, mx, my, id + bit, 2 * bit, tile);
+          return;
+        }
+      }
+    }
+    var ia = ay * NV + ax, ib = by * NV + bx, ic = cy * NV + cx;
+    if (sea[ia] && sea[ib] && sea[ic]) {
+      if (dropped) { dropped.room(3); dropped.a[dropped.n++] = ia; dropped.a[dropped.n++] = ib; dropped.a[dropped.n++] = ic; }
+      return;
+    }
+    tris.room(3);
+    tris.a[tris.n++] = ia;
+    if (flip[id]) { tris.a[tris.n++] = ic; tris.a[tris.n++] = ib; } else { tris.a[tris.n++] = ib; tris.a[tris.n++] = ic; }
+  }
+  for (var ty = 0; ty < TILES; ty++) {
+    for (var tx = 0; tx < TILES; tx++) {
+      var X = tx * TILE, Y = ty * TILE, tile = ty * TILES + tx;
+      rec(X + TILE, Y + TILE, X, Y, X, Y + TILE, 2, 2, tile);          // id 2: south-west half
+      rec(X, Y, X + TILE, Y + TILE, X + TILE, Y, 3, 2, tile);          // id 3: north-east half
+    }
+  }
+  // vertices: the used corners, in corner order
+  var nT = tris.n, T = tris.a, used = new Int32Array(NV * NV).fill(-1), nUsed = 0;
+  for (var q = 0; q < nT; q++) if (used[T[q]] < 0) used[T[q]] = nUsed++;
+  // (re)number in corner order so the mesh does not depend on the walk
+  nUsed = 0;
+  for (var ci = 0; ci < NV * NV; ci++) if (used[ci] >= 0) used[ci] = nUsed++;
+  // border vertices per side, in order along the side
+  function cornerOf(s, kk) { return s === 0 ? kk : s === 1 ? kk * NV + 240 : s === 2 ? 240 * NV + kk : kk * NV; }
+  var sides = [], skirtVerts = 0, skirtTris = 0;
+  for (var s = 0; s < 4; s++) {
+    var bd = borders && borders[s] ? borders[s] : { kind: 'h1', floor: null };
+    var list = [];
+    for (var kk = 0; kk <= 240; kk++) if (used[cornerOf(s, kk)] >= 0) list.push(kk);
+    var bottom = new Float64Array(list.length).fill(Infinity), segs = [];
+    for (var j = 1; j < list.length; j++) {
+      var k0 = list[j - 1], k1 = list[j], i0 = cornerOf(s, k0), i1 = cornerOf(s, k1);
+      if (sea[i0] && sea[i1]) continue;
+      // the segment's nearest point to the camera (chunk-local, horizontal)
+      var taus = tmin;
+      if (!uniform) {
+        var px0 = s === 0 || s === 2 ? k0 : (s === 1 ? 240 : 0), pz0 = s === 1 || s === 3 ? k0 : (s === 2 ? 240 : 0);
+        var px1 = s === 0 || s === 2 ? k1 : px0, pz1 = s === 1 || s === 3 ? k1 : pz0;
+        var sx = Math.max(Math.min(camx, Math.max(px0, px1)), Math.min(px0, px1));
+        var sz = Math.max(Math.min(camz, Math.max(pz0, pz1)), Math.min(pz0, pz1));
+        taus = tauAt(Math.hypot(sx - camx, sz - camz));
+      }
+      var D = 0.5 + 3 * taus, ends = [[j - 1, i0], [j, i1]];
+      var fmin = Infinity;
+      if (bd.kind === 'outer' && bd.floor) for (var f = k0; f <= k1; f++) fmin = Math.min(fmin, bd.floor[f]);
+      for (var e2 = 0; e2 < 2; e2++) {
+        var top = hC[ends[e2][1]], b;
+        if (bd.kind === 'sea') b = Math.min(top - D, SEA_Y);
+        else if (bd.kind === 'outer') b = bd.floor ? Math.min(top - D, fmin - 0.5) : top - (16 + 3 * taus);
+        else b = top - D;
+        if (b < bottom[ends[e2][0]]) bottom[ends[e2][0]] = b;
+      }
+      segs.push(j);
+      skirtTris += 2;
+    }
+    var hasBottom = new Uint8Array(list.length);
+    for (var g = 0; g < segs.length; g++) { hasBottom[segs[g] - 1] = 1; hasBottom[segs[g]] = 1; }
+    for (var g2 = 0; g2 < list.length; g2++) if (hasBottom[g2]) skirtVerts++;
+    sides.push({ list: list, bottom: bottom, segs: segs, hasBottom: hasBottom });
+  }
+  var nVerts = nUsed + skirtVerts;
+  var pos = new Float32Array(nVerts * 3), nrm = new Int8Array(nVerts * 3);
+  var idx = nVerts <= 65536 ? new Uint16Array(nT + skirtTris * 3) : new Uint32Array(nT + skirtTris * 3);
+  var yMin = Infinity, yMax = -Infinity;
+  for (var cj = 0; cj < NV * NV; cj++) {
+    var vi = used[cj];
+    if (vi < 0) continue;
+    var y = hC[cj];
+    pos[vi * 3] = cj % NV; pos[vi * 3 + 1] = y; pos[vi * 3 + 2] = (cj / NV) | 0;
+    nrm[vi * 3] = nor[cj * 3]; nrm[vi * 3 + 1] = nor[cj * 3 + 1]; nrm[vi * 3 + 2] = nor[cj * 3 + 2];
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+  for (var q2 = 0; q2 < nT; q2++) idx[q2] = used[T[q2]];
+  var nv = nUsed, ni = nT, bottoms = [];
+  for (var s2 = 0; s2 < 4; s2++) {
+    var S = sides[s2], bvi = new Int32Array(S.list.length).fill(-1), bot = new Float32Array(NV).fill(NaN);
+    for (var g3 = 0; g3 < S.list.length; g3++) {
+      if (!S.hasBottom[g3]) continue;
+      var topV = used[cornerOf(s2, S.list[g3])], by2 = S.bottom[g3];
+      bvi[g3] = nv;
+      pos[nv * 3] = pos[topV * 3]; pos[nv * 3 + 1] = by2; pos[nv * 3 + 2] = pos[topV * 3 + 2];
+      nrm[nv * 3] = nrm[topV * 3]; nrm[nv * 3 + 1] = nrm[topV * 3 + 1]; nrm[nv * 3 + 2] = nrm[topV * 3 + 2];
+      if (by2 < yMin) yMin = by2;
+      nv++;
+    }
+    for (var g4 = 0; g4 < S.segs.length; g4++) {
+      var jj = S.segs[g4], A = used[cornerOf(s2, S.list[jj - 1])], B = used[cornerOf(s2, S.list[jj])];
+      var Ab = bvi[jj - 1], Bb = bvi[jj];
+      // A comes first along the side: west to east on N and S, north to south on E and W.
+      if (s2 === 0 || s2 === 1) { idx[ni++] = A; idx[ni++] = B; idx[ni++] = Bb; idx[ni++] = A; idx[ni++] = Bb; idx[ni++] = Ab; }
+      else { idx[ni++] = B; idx[ni++] = A; idx[ni++] = Ab; idx[ni++] = B; idx[ni++] = Ab; idx[ni++] = Bb; }
+      var ka = S.list[jj - 1], kb = S.list[jj], ya = S.bottom[jj - 1], yb = S.bottom[jj];
+      for (var km = ka; km <= kb; km++) {
+        var val = ya + (yb - ya) * (km - ka) / (kb - ka);
+        if (!(bot[km] <= val)) bot[km] = val;
+      }
+    }
+    bottoms.push(bot);
+  }
+  var mesh = {
+    pos: pos, nor: nrm, idx: idx, vertices: nVerts, triangles: (nT + skirtTris * 3) / 3,
+    surfaceTriangles: nT / 3, skirtTriangles: skirtTris,
+    yMin: nVerts ? yMin : 0, yMax: nVerts ? yMax : 0, floor: !anySplit, bottoms: bottoms
+  };
+  if (keepDropped) {
+    mesh.dropped = dropped.done();
+    var corner = new Int32Array(nVerts).fill(-1);
+    for (var c3 = 0; c3 < NV * NV; c3++) if (used[c3] >= 0) corner[used[c3]] = c3;
+    mesh.corner = corner;
+  }
+  return { mesh: mesh, split: split };
+}
+
+// Everything an h1 load computes once from the decoded chunk.
+function prepareTin(d, errors) {
+  var C = tinCorners(d);
+  var E = errors === 'bound' ? errorsBound(C) : errorsExact(C);
+  var n = tinNormals(d), r = tileRange(C);
+  var cls = d.classes || new Uint8Array(d.header.width * d.header.height);
+  return { C: C, E16: errorsCm(E), nor: n.nor, normalTex: n.tex, tileMin: r.tileMin, tileMax: r.tileMax,
+           mips: classMips(cls, d.header.width) };
+}
 
 // ---------------------------------------------------------------- smooth grid (h5, h20)
 /* o: {stride (in cells), holeCells (corner cells per hole square), holeGrid (squares
  * per side), holes (Uint8Array, row-major from the north), skirt (metres)}.
  * Vertices sit on cell corners, each the mean of the four samples around it, so two
  * neighbouring chunks compute identical edges from their aprons. Quads whose four
- * corners are all sea are left out (the water plane is opaque).
+ * corners are all sea are left out (the water plane is opaque). Colours are the far
+ * palette (FAR), mixed toward slope rock by the onset table, as the h1 texture fades to.
  */
 function meshSmooth(d, o) {
   var h = d.header, W = h.width, K = W - 2, c = h.cell, s = o.stride | 0;
   if (!h.apron || h.height !== W) throw new Error('smooth meshing needs a square chunk with its apron');
   if (s < 1 || K % s) throw new Error('stride ' + s + ' does not divide ' + K);
   var nv = K / s + 1, base = h.base, v = d.v, cls = d.classes;
-  var hC = new Float32Array(nv * nv), seaC = new Uint8Array(nv * nv), keyC = new Uint16Array(nv * nv);
+  var hC = new Float32Array(nv * nv), seaC = new Uint8Array(nv * nv), clsC = new Uint8Array(nv * nv);
   var nxC = new Float32Array(nv * nv), nzC = new Float32Array(nv * nv);
   var counts = new Int32Array(16);
   for (var a = 0; a < nv; a++) {
@@ -490,11 +644,9 @@ function meshSmooth(d, o) {
       var i = a * nv + b, y = sum / 4;
       if (sea >= 2) { y = Math.min(y, -3); seaC[i] = 1; }
       hC[i] = y;
-      var gx = ((hs[1] + hs[3]) - (hs[0] + hs[2])) / (2 * c);
-      var gz = ((hs[2] + hs[3]) - (hs[0] + hs[1])) / (2 * c);
-      nxC[i] = gx; nzC[i] = gz;
-      var k = sea === 4 ? 5 : pickClass(counts);
-      keyC[i] = (k << 4) | (slopeBucket(Math.sqrt(gx * gx + gz * gz)) << 2);
+      nxC[i] = ((hs[1] + hs[3]) - (hs[0] + hs[2])) / (2 * c);
+      nzC[i] = ((hs[2] + hs[3]) - (hs[0] + hs[1])) / (2 * c);
+      clsC[i] = sea === 4 ? 5 : pickClass(counts);
     }
   }
   var m = new Mesh(Float32Array, nv * nv + 4096);
@@ -502,7 +654,7 @@ function meshSmooth(d, o) {
     var len = Math.sqrt(nxC[i] * nxC[i] + 1 + nzC[i] * nzC[i]);
     m.vert((i % nv) * s * c, hC[i], Math.floor(i / nv) * s * c,
            Math.round(-nxC[i] / len * 127), Math.round(1 / len * 127), Math.round(-nzC[i] / len * 127),
-           topColour(keyC[i]));
+           farColourBytes(clsC[i], 1 / len));
   }
   var holeCells = o.holeCells | 0, g = o.holeGrid | 0, holes = o.holes;
   function hole(qa, qb) {
@@ -556,38 +708,72 @@ function meshSmooth(d, o) {
   return out;
 }
 
+// ---------------------------------------------------------------- the plot
+/* Signed distance in metres to the parcel rings over bbox [x0, z0, x1, z1] (local), on an
+ * n x n grid of texel centres, row-major with rows along z from z0: the distance to the
+ * nearest ring edge, negative inside (even-odd over every ring and hole). */
+function plotSdf(bbox, n) {
+  var x0 = bbox[0], z0 = bbox[1], dx = (bbox[2] - bbox[0]) / n, dz = (bbox[3] - bbox[1]) / n;
+  var out = new Float32Array(n * n), rings = cfg.rings;
+  for (var j = 0; j < n; j++) {
+    var z = z0 + (j + 0.5) * dz;
+    for (var i = 0; i < n; i++) {
+      var x = x0 + (i + 0.5) * dx, best = Infinity, inside = false;
+      for (var r = 0; r < rings.length; r++) {
+        var ring = rings[r], m = ring.length / 2;
+        for (var a = 0, b = m - 1; a < m; b = a++) {
+          var xa = ring[2 * a], za = ring[2 * a + 1], xb = ring[2 * b], zb = ring[2 * b + 1];
+          if ((za > z) !== (zb > z) && x < (xb - xa) * (z - za) / (zb - za) + xa) inside = !inside;
+          var ex = xb - xa, ez = zb - za, l2 = ex * ex + ez * ez;
+          var t = l2 > 0 ? Math.max(0, Math.min(1, ((x - xa) * ex + (z - za) * ez) / l2)) : 0;
+          var qx = xa + t * ex - x, qz = za + t * ez - z, d2 = qx * qx + qz * qz;
+          if (d2 < best) best = d2;
+        }
+      }
+      var dd = Math.sqrt(best);
+      out[j * n + i] = inside ? -dd : dd;
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- jobs
 function transferables(out) {
   var list = [];
-  if (out.v) list.push(out.v.buffer);
-  if (out.classes) list.push(out.classes.buffer);
-  if (out.mesh) list.push(out.mesh.pos.buffer, out.mesh.nor.buffer, out.mesh.col.buffer, out.mesh.idx.buffer);
-  if (out.mesh && out.mesh.edgeBottom) out.mesh.edgeBottom.forEach(function (a) { list.push(a.buffer); });
+  function add(a) { if (a && a.buffer && list.indexOf(a.buffer) < 0) list.push(a.buffer); }
+  add(out.v); add(out.classes); add(out.E); add(out.tileMin); add(out.tileMax); add(out.split); add(out.sdf);
+  if (out.tex) { add(out.tex.normal); (out.tex.classMips || []).forEach(add); }
+  if (out.mesh) {
+    add(out.mesh.pos); add(out.mesh.nor); add(out.mesh.col); add(out.mesh.idx);
+    add(out.mesh.dropped); add(out.mesh.corner);
+    (out.mesh.bottoms || []).forEach(add);
+  }
   return list;
 }
 
-function meshFor(d, msg) {
-  if (msg.mode === 'blocks') return meshBlocks(d, msg.opts);
-  if (msg.mode === 'smooth') return meshSmooth(d, msg.opts);
-  return null;
+// A TIN from decoded data: E16 given (the page's copy) or built here (tests).
+function tinJob(d, msg, out) {
+  var o = msg.opts || {};
+  var C = tinCorners(d), E16 = msg.E, nor;
+  if (!E16) E16 = errorsCm(o.errors === 'bound' ? errorsBound(C) : errorsExact(C));
+  nor = tinNormals(d).nor;
+  var tol = o.tau !== undefined && o.tau !== null ? { tau: o.tau } : { px: o.px, K: o.K, tmin: o.tmin, cam: o.cam };
+  var r = extractTin(C, E16, nor, tol, o.borders, !!o.keepDropped);
+  out.mesh = r.mesh; out.split = r.split;
 }
 
 async function handle(msg) {
   if (msg.type === 'init') {
     cfg.originE = msg.originE; cfg.originN = msg.originN;
     cfg.rings = (msg.rings || []).map(function (r) { return Float64Array.from(r); });
-    var box = null;
-    cfg.rings.forEach(function (r) {
-      for (var i = 0; i < r.length; i += 2) {
-        if (!box) box = [r[i], r[i + 1], r[i], r[i + 1]];
-        box[0] = Math.min(box[0], r[i]); box[1] = Math.min(box[1], r[i + 1]);
-        box[2] = Math.max(box[2], r[i]); box[3] = Math.max(box[3], r[i + 1]);
-      }
-    });
-    cfg.plotBox = box;
     return { ok: true };
   }
-  var t0 = performance.now(), d, out = { ok: true };
+  var t0 = performance.now(), d, out = { ok: true, seq: msg.seq };
+  if (msg.type === 'plotSdf') {
+    out.sdf = plotSdf(msg.bbox, msg.texels | 0);
+    out.ms = performance.now() - t0;
+    return out;
+  }
   if (msg.type === 'load' || msg.type === 'decode') {
     var bytes = await fetchBytes(msg.url, !!msg.useCache);
     out.hash = await checkHash(msg.url, bytes);
@@ -602,12 +788,29 @@ async function handle(msg) {
     }
     out.header = d.header; out.v = d.v; out.classes = d.classes;
     if (msg.type === 'decode') return out;
+    if (msg.mode === 'tin') {
+      var o = msg.opts || {};
+      var P = prepareTin(d, o.errors);
+      var tol = o.tau !== undefined && o.tau !== null ? { tau: o.tau } : { px: o.px, K: o.K, tmin: o.tmin, cam: o.cam };
+      var r = extractTin(P.C, P.E16, P.nor, tol, o.borders, false);
+      out.E = P.E16; out.tileMin = P.tileMin; out.tileMax = P.tileMax;
+      out.tex = { normal: P.normalTex, classMips: P.mips };
+      out.mesh = r.mesh; out.split = r.split;
+      out.ms = performance.now() - t0;
+      return out;
+    }
   } else if (msg.type === 'mesh') {
     d = msg.data;
+    if (msg.mode === 'tin') {
+      tinJob(d, msg, out);
+      out.ms = performance.now() - t0;
+      return out;
+    }
   } else {
     throw new Error('unknown job type ' + msg.type);
   }
-  out.mesh = meshFor(d, msg);
+  if (msg.mode !== 'smooth') throw new Error('unknown mesh mode ' + msg.mode);
+  out.mesh = meshSmooth(d, msg.opts);
   out.ms = performance.now() - t0;
   return out;
 }
@@ -618,6 +821,6 @@ self.onmessage = function (ev) {
     out.id = msg.id;
     self.postMessage(out, transferables(out));
   }, function (err) {
-    self.postMessage({ id: msg.id, ok: false, error: String(err && err.message || err) });
+    self.postMessage({ id: msg.id, seq: msg.seq, ok: false, error: String(err && err.message || err) });
   });
 };

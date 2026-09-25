@@ -6,14 +6,19 @@
  * looks around. Touch: a joystick on the left, drag anywhere else to look, and
  * buttons for flying and for up and down.
  *
- * Walking uses the ground height straight from the decoded heights (groundAt), never
- * a raycast: eye height 1.7 m, gravity, and an automatic step up of at most 1.1 m.
+ * Walking uses the height of the ground as drawn (groundAt), never a raycast: eye
+ * height 1.7 m and gravity. A step is refused where the ground rises more steeply than
+ * 50 degrees over it (stepAllowed); onto a roof the limit is instead a rise of 1.1 m.
+ * Walking downhill keeps the feet on the ground (snap-down) rather than falling in hops,
+ * and the eye eases up a rise rather than jumping.
  */
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 export const EYE = 1.7;
-const STEP_UP = 1.1;
+const ROOF_STEP = 1.1;                        // metres: the most a step may rise onto a roof
+const MAX_SLOPE = Math.tan(50 * Math.PI / 180);   // the steepest ground a step may climb
+const SNAP_SLOPE = Math.tan(60 * Math.PI / 180);  // downhill, stay on ground this steep
 const GRAVITY = 20;
 const WALK = 4.2;
 const RUN = 10;
@@ -21,6 +26,15 @@ const JUMP = 5.5;
 const LOOK_DRAG = 0.0042;     // radians per CSS pixel, mouse drag
 const LOOK_TOUCH = 0.0055;    // radians per CSS pixel, touch drag
 const MAX_PITCH = Math.PI / 2 - 0.02;
+
+/* May the walker step onto ground `rise` metres higher over `horiz` metres across? Onto
+ * a roof (targetLevel 'building') a rise of up to 1.1 m, whatever the slope; elsewhere
+ * no steeper than 50 degrees. Going down is always allowed. */
+export function stepAllowed(rise, horiz, targetLevel) {
+  if (!(rise > 0)) return true;
+  if (targetLevel === 'building') return rise <= ROOF_STEP;
+  return rise <= horiz * MAX_SLOPE;
+}
 
 function isTypingTarget(t) {
   if (!t || !t.closest) return false;
@@ -285,12 +299,16 @@ export class Controls {
 
   _tryMove(dx, dz) {
     const nx = this.feet.x + dx, nz = this.feet.z + dz;
-    const g = this.ground(nx, nz);
-    if (g === null) return false;                            // not loaded yet: wait at the edge
-    if (g - this.feet.y > STEP_UP) return false;              // a wall higher than a step
+    const t = this.groundAt(nx, nz);
+    if (!t) return false;                                    // not loaded yet: wait at the edge
+    const g = t.y, horiz = Math.hypot(dx, dz);
+    if (!stepAllowed(g - this.feet.y, horiz, t.level)) return false;   // too steep, or a wall
     this.feet.x = nx;
     this.feet.z = nz;
-    if (g > this.feet.y && this.onGround) this.feet.y = g;   // step up
+    if (this.onGround) {
+      if (g > this.feet.y) this.feet.y = g;                                          // step up
+      else if (this.feet.y - g <= Math.max(0.3, horiz * SNAP_SLOPE)) this.feet.y = g; // snap down
+    }
     return true;
   }
 }
