@@ -10,121 +10,15 @@
 // Only the synthetic world (world/out/synthetic, id zz-synthetic) and the fixtures in
 // this folder are used: nothing here describes a real place.
 
-import { test, before, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import { spawn, spawnSync, execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { fileURLToPath } from 'node:url';
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const WORLD = path.resolve(HERE, '..', '..');
-const REPO = path.resolve(WORLD, '..');
-const SYN = path.join(WORLD, 'out', 'synthetic');
-const PYTHON = process.env.CW_PYTHON || process.env.PYTHON || 'python3';
-const LAUNCH_ARGS = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--enable-webgl'];
-const READY_MS = 240000;
-
-function loadPlaywright() {
-  const tries = [() => createRequire(import.meta.url)('playwright')];
-  try {
-    const root = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    if (root) tries.push(() => createRequire(path.join(root, 'noop.js'))('playwright'));
-  } catch (e) { /* no npm: fine */ }
-  tries.push(() => createRequire('/opt/node22/lib/node_modules/')('playwright'));
-  for (const t of tries) { try { return t(); } catch (e) { /* next */ } }
-  throw new Error('Playwright is not installed (npm i -g playwright, then npx playwright install chromium)');
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.unref();
-    s.on('error', reject);
-    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
-  });
-}
-
-async function waitForServer(url, ms = 15000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < ms) {
-    try { const r = await fetch(url); if (r.ok) return; } catch (e) { /* not yet */ }
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  throw new Error('http.server did not come up at ' + url);
-}
-
-let pw, browser, server, port, origin;
-const offenders = [];       // any request that left localhost
-const contexts = [];
-
-async function newContext(opts = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, ...opts });
-  await ctx.route('**/*', (route) => {
-    const u = route.request().url();
-    if (u.startsWith(origin + '/') || u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
-    offenders.push(u);
-    return route.abort();
-  });
-  ctx.on('request', (r) => {
-    const u = r.url();
-    if (!(u.startsWith(origin + '/') || u.startsWith('data:') || u.startsWith('blob:'))) offenders.push(u);
-  });
-  contexts.push(ctx);
-  return ctx;
-}
-
-function watch(page) {
-  const log = { console: [], errors: [] };
-  page.on('console', (m) => { if (m.type() === 'error') log.console.push(m.text()); });
-  page.on('pageerror', (e) => log.errors.push(e.message));
-  return log;
-}
-
-async function openWorld(ctx, query = '?w=out/synthetic/') {
-  const page = await ctx.newPage();
-  const log = watch(page);
-  await page.goto(origin + '/world/' + query);
-  await page.waitForFunction(() => window.__cw && window.__cw.ready, null, { timeout: READY_MS });
-  return { page, log };
-}
-
-before(async () => {
-  if (!fs.existsSync(path.join(SYN, 'manifest.json'))) {
-    const r = spawnSync(PYTHON, ['-m', 'commons_world', 'synthetic'], { cwd: path.join(WORLD, 'pipeline'), stdio: 'inherit' });
-    if (r.status !== 0) throw new Error('could not build the synthetic world with ' + PYTHON);
-  }
-  pw = loadPlaywright();
-  port = await freePort();
-  origin = 'http://127.0.0.1:' + port;
-  server = spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1', '--directory', REPO],
-                 { stdio: ['ignore', 'ignore', 'ignore'] });
-  await waitForServer(origin + '/world/index.html');
-  browser = await pw.chromium.launch({ args: LAUNCH_ARGS });
-});
-
-after(async () => {
-  for (const c of contexts) await c.close().catch(() => {});
-  if (browser) await browser.close();
-  if (server) server.kill();
-});
-
-// One page on the synthetic world, shared by the tests that only read it.
-let main = null;
-async function mainPage() {
-  if (!main) {
-    const ctx = await newContext();
-    main = await openWorld(ctx);
-    main.manifest = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
-    main.plot = JSON.parse(fs.readFileSync(path.join(SYN, 'plot.json'), 'ascii'));
-  }
-  return main;
-}
+import { HERE, WORLD, REPO, SYN, PYTHON, READY_MS, offenders, origin, newContext, openWorld, mainPage,
+         MESH_HELPERS, reencodeChunk } from './harness.mjs';
 
 // ------------------------------------------------------------------------------------------
 test('the synthetic world loads with no console errors and becomes ready', { timeout: READY_MS + 30000 }, async () => {
@@ -198,31 +92,6 @@ test('the JavaScript CWH1 decoder matches commons_world.codec exactly', { timeou
   }
   assert.deepEqual([...levels].sort(), ['h1', 'h20', 'h5']);
 });
-
-// Mesh analysis helpers, run inside the page on arrays the worker returned.
-const MESH_HELPERS = `
-  window.__quads = function (m, ox, oz) {
-    const out = [];
-    for (let v = 0; v + 3 < m.vertices; v += 4) {
-      const p = [];
-      for (let k = 0; k < 4; k++) p.push([m.pos[(v + k) * 3] + ox, m.pos[(v + k) * 3 + 1], m.pos[(v + k) * 3 + 2] + oz]);
-      out.push({ p, n: [m.nor[v * 3], m.nor[v * 3 + 1], m.nor[v * 3 + 2]] });
-    }
-    return out;
-  };
-  window.__triNormals = function (m) {
-    const out = [];
-    for (let t = 0; t < m.idx.length; t += 3) {
-      const a = m.idx[t], b = m.idx[t + 1], c = m.idx[t + 2];
-      const P = (i) => [m.pos[i * 3], m.pos[i * 3 + 1], m.pos[i * 3 + 2]];
-      const A = P(a), B = P(b), C = P(c);
-      const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], w = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
-      out.push({ g: [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]],
-                 n: [m.nor[a * 3], m.nor[a * 3 + 1], m.nor[a * 3 + 2]], v: [A, B, C] });
-    }
-    return out;
-  };
-`;
 
 test('block faces are wound outward: a raised block and a pit', { timeout: 60000 }, async () => {
   const { page } = await mainPage();
@@ -644,15 +513,15 @@ test('an unknown format version is refused with a readable message', { timeout: 
     await route.fulfill({ response: res, body: JSON.stringify(m), headers: { 'content-type': 'application/json' } });
   });
   const page = await ctx.newPage();
-  await page.goto(origin + '/world/?w=out/synthetic/');
+  await page.goto(origin() + '/world/?w=out/synthetic/');
   await page.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page.locator('#error').innerText(), /version 99/);
   const page2 = await ctx.newPage();
-  await page2.goto(origin + '/world/?w=../../etc/');
+  await page2.goto(origin() + '/world/?w=../../etc/');
   await page2.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page2.locator('#error').innerText(), /not a folder inside world/);
   const page3 = await ctx.newPage();
-  await page3.goto(origin + '/world/?w=out/no-such-world/');
+  await page3.goto(origin() + '/world/?w=out/no-such-world/');
   await page3.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page3.locator('#error').innerText(), /no manifest\.json/);
   await Promise.all([page.close(), page2.close(), page3.close()]);
@@ -835,7 +704,7 @@ test('the chunk worker takes border walls down to a neighbour floor, and reports
 
 /* A copy of one synthetic h1 chunk with a 15 m pit just inside its west edge: the seam
  * column itself (and so the western neighbour's apron) is untouched, so only the
- * neighbour's 4 m block sees the drop. Re-encoded exactly as FORMAT.md section 3 says. */
+ * neighbour's 4 m block sees the drop. Re-encoded by the harness's reencodeChunk. */
 function pittedChunk(manifest) {
   const h1 = manifest.levels.find((l) => l.name === 'h1');
   const { origin_e: oe, origin_n: on } = manifest.crs;
@@ -851,30 +720,10 @@ function pittedChunk(manifest) {
     break;
   }
   if (!pick) return null;
-  const raw = zlib.gunzipSync(fs.readFileSync(path.join(SYN, pick.entry.file)));
-  const W = raw.readUInt16LE(6), base = raw.readInt32LE(20), n = W * W;
-  const v = new Int32Array(n);
-  for (let t = 0; t < n; t++) v[t] = raw.readUInt16LE(32 + 2 * t);
-  for (let r = 0; r < W; r++) for (let q = 0; q < W; q++) {        // undo the planar predictor
-    const t = r * W + q;
-    const pred = (q ? v[t - 1] : 0) + (r ? v[t - W] : 0) - (q && r ? v[t - W - 1] : 0);
-    v[t] = (v[t] + pred) & 0xffff;
-  }
-  const dm = Array.from(v, (x) => x + base);
-  for (let r = 101; r <= 104; r++) for (let q = 2; q <= 4; q++) dm[r * W + q] -= 150;   // one 4 m block, not its seam column
-  const nb = Math.min(...dm);
-  const w = dm.map((x) => x - nb);
-  const out = Buffer.from(raw);
-  out.writeInt32LE(nb, 20);
-  for (let r = 0; r < W; r++) for (let q = 0; q < W; q++) {
-    const t = r * W + q;
-    const pred = (q ? w[t - 1] : 0) + (r ? w[t - W] : 0) - (q && r ? w[t - W - 1] : 0);
-    out.writeUInt16LE(((w[t] - pred) % 65536 + 65536) % 65536, 32 + 2 * t);
-  }
-  const hash8 = crypto.createHash('sha256').update(out).digest('hex').slice(0, 8);
-  const file = 'h1/' + pick.key + '.' + hash8 + '.cwh.gz';
-  const gz = zlib.gzipSync(out, { level: 9 });
-  return { key: pick.key, west: pick.west, file, gz, min: nb / 10, max: Math.max(...dm) / 10 };
+  const res = reencodeChunk(manifest, 'h1', pick.key, (dm, W) => {
+    for (let r = 101; r <= 104; r++) for (let q = 2; q <= 4; q++) dm[r * W + q] -= 150;   // one 4 m block, not its seam column
+  });
+  return { key: res.key, west: pick.west, file: res.file, gz: res.gz, min: res.min, max: res.max };
 }
 
 test('a drop inside a neighbour\'s 4 m block leaves no gap in the seam, whichever loads first', { timeout: READY_MS + 60000 }, async () => {
