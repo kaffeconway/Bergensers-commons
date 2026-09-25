@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /replication
+
+User-agent: *
+Disallow: /*.pbf$
