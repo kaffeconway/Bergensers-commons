@@ -447,13 +447,15 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
     assert.ok(got[k].rock >= 0 && got[k].rock <= 1);
   });
   // The pixels: close-ups of the road and the forest floor, trees and buildings hidden, and
-  // the sun's direct light off, so a slope that faces the sun does not decide the comparison
-  // (on this world the forest point faces it a little more squarely than the road). The mean
+  // the sun's direct light at zero, so a slope that faces the sun does not decide the
+  // comparison (on this world the forest point faces it a little more squarely than the road).
+  // (Its intensity, not its visibility: a hidden light compiles other programs.) The mean
   // over a patch: 1.6 m of road from 6 m up, 12 m of forest floor from 20 m up.
   const colours = await page.evaluate(async () => {
     const I = window.__cw.internals, cw = window.__cw;
     const hide = [I.buildings && I.buildings.group, I.trees && I.trees.group].filter(Boolean);
-    I.scene.traverse((o) => { if (o.isDirectionalLight) hide.push(o); });
+    const suns = [];
+    I.scene.traverse((o) => { if (o.isDirectionalLight) suns.push([o, o.intensity]); });
     const was = hide.map((o) => o.visible);
     const patch = async (x, z, up, n) => {
       const g = I.manager.surfaceAt(x, z);
@@ -462,11 +464,13 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
       await cw.settle(300000);
       if (cw.sunIdle) await cw.sunIdle();
       hide.forEach((o) => { o.visible = false; });
+      suns.forEach(([o]) => { o.intensity = 0; });
       I.renderer.render(I.scene, I.camera);
       const gl = I.renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
       const px = new Uint8Array(n * n * 4);
       gl.readPixels(Math.floor(w / 2 - n / 2), Math.floor(h / 2 - n / 2), n, n, gl.RGBA, gl.UNSIGNED_BYTE, px);
       hide.forEach((o, k) => { o.visible = was[k]; });
+      suns.forEach(([o, v]) => { o.intensity = v; });
       const m = [0, 0, 0];
       for (let k = 0; k < n * n; k++) for (let c = 0; c < 3; c++) m[c] += px[k * 4 + c] / (n * n);
       return m;

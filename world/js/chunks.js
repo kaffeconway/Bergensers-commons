@@ -446,7 +446,11 @@ export class ChunkManager {
     for (const c of this.chunks) {
       if (c.status !== 'ready' || c.queuedMesh) continue;
       if (c.level.name === 'h1') {
-        if (c.forceStale || (this._stale(c) && !this.floorAlready(c))) this._queueMesh(c, false);
+        // Stale against the newest camera sent: a job in flight already has it, so it is not
+        // queued again unless the camera has moved on from that one too.
+        if (c.forceStale) this._queueMesh(c, false);
+        else if (c.busy && c.busyTol) { if (this._stale(c, c.busyTol)) this._queueMesh(c, false); }
+        else if (this._stale(c, c.tolInfo) && !this.floorAlready(c)) this._queueMesh(c, false);
       } else {
         if (c.busy) continue;
         const want = this.detailFor(c, cam, c.lod);
@@ -464,10 +468,10 @@ export class ChunkManager {
   }
 
   /* The refresh rule: stale when the camera has moved more than max(snapMin, snapFrac D)
-   * from the camera the installed mesh was made for, D the distance to the chunk's box. A
-   * uniform tolerance does not depend on the camera, so it never goes stale. */
-  _stale(c) {
-    const t = c.tolInfo;
+   * from the camera a mesh was made for (t, the installed one's or the one in flight), D
+   * the distance to the chunk's box. A uniform tolerance does not depend on the camera, so
+   * it never goes stale. */
+  _stale(c, t) {
     if (!t) return false;
     if (t.tau !== undefined) return false;
     const moved = Math.hypot(this.cam.x - t.cam[0], this.cam.y - t.cam[1], this.cam.z - t.cam[2]);
@@ -561,6 +565,7 @@ export class ChunkManager {
     msg.seq = seq;
     c.busy = true;
     c.busySeq = seq;
+    c.busyTol = tolInfo;
     if (job.kind === 'load') c.status = 'loading';
     this.dispatchLog.push({ key: c.key, level: c.level.name, kind: job.kind, detail });
     if (isH1) this.jobs[job.kind]++;
@@ -579,7 +584,7 @@ export class ChunkManager {
   }
 
   _fail(c, kind, err) {
-    if (c.busySeq) { c.busy = false; c.busySeq = 0; }
+    if (c.busySeq) { c.busy = false; c.busySeq = 0; c.busyTol = null; }
     this._done();
     if (this.disposed) return;
     if (kind === 'load') { c.status = 'error'; this.failed++; }
@@ -596,6 +601,7 @@ export class ChunkManager {
       c.held = entry;
       c.busy = false;
       c.busySeq = 0;
+      c.busyTol = null;
       return;
     }
     this.pendingInstalls.push(entry);
@@ -642,7 +648,7 @@ export class ChunkManager {
   // Returns false when the reply was stale and discarded.
   _install(e) {
     const c = e.c, res = e.res, m = res.mesh, isH1 = c.level.name === 'h1';
-    if (c.busySeq === e.seq) { c.busy = false; c.busySeq = 0; }
+    if (c.busySeq === e.seq) { c.busy = false; c.busySeq = 0; c.busyTol = null; }
     if (e.seq <= c.installedSeq) {           // an older reply than the one installed
       this.discarded++;
       this._done();
