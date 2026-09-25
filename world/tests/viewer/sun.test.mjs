@@ -393,11 +393,14 @@ test('ST9 the slider works by keyboard', { timeout: READY_MS + 120000 }, async (
   await page.keyboard.press('ArrowLeft');
   s = await state();
   assert.equal(s.utc, d0);
-  await page.click('#sun-dec');
+  // (buttons are clicked in the page: under the installed clock, pointer actions wait on
+  // animation frames the fake clock drives)
+  const press = (id) => page.evaluate((id) => document.getElementById(id).click(), id);
+  await press('sun-dec');
   s = await state();
   const dec = SUN.localParts(s.utc, tz);
   assert.deepEqual([dec.y, dec.mo, dec.d, dec.h, dec.mi], [2026, 12, 21, 0, 0], '21 Dec keeps the time of day');
-  await page.click('#sun-now');
+  await press('sun-now');
   s = await state();
   const now = SUN.localParts(s.utc, tz);
   assert.deepEqual([now.y, now.mo, now.d, now.h, now.mi], [2026, 3, 1, 10, 0], '"Now" is today at the site, in the facts year');
@@ -424,6 +427,7 @@ test('ST9 the slider works by keyboard', { timeout: READY_MS + 120000 }, async (
   await page.keyboard.press('Shift+Period');
   const b = await state();
   assert.equal(b.utc - a.utc, 10 * MIN, 'Shift+Period is ten minutes too: Shift is not a modifier here');
+  assert.deepEqual(await page.evaluate(() => window.__cw.errors), []);
   await page.close();
 });
 
@@ -734,7 +738,7 @@ test('ST19 no shadow work at night', { timeout: 120000 }, async () => {
 test('ST20 a late upstream chunk re-sweeps', { timeout: READY_MS + 120000 }, async () => {
   const s = site(), m = s.manifest;
   const h5 = m.levels.find((l) => l.name === 'h5'), S5 = h5.cell * h5.chunk_samples;
-  // an h5 chunk 2 km toward the default (south-west) sun from the garden point
+  // an h5 chunk 2 km toward the sun of 21 Dec 11:40 UTC (south) from the garden point, held back 3 s
   const t = Date.UTC(2026, 11, 21, 11, 40), p = SUN.sunPosition(t, s.lat, s.lon, s.alt);
   const b = (p.azimuth + m.crs.grid_north_offset_deg) * Math.PI / 180;
   const x = s.g.x + Math.sin(b) * 2000, z = s.g.z - Math.cos(b) * 2000;
@@ -747,19 +751,20 @@ test('ST20 a late upstream chunk re-sweeps', { timeout: READY_MS + 120000 }, asy
   });
   const page = await ctx.newPage();
   await page.goto(origin() + '/world/?w=out/synthetic/&t=2026-12-21T12:40');
-  await page.waitForFunction((k) => window.__cw && window.__cw.internals && window.__cw.internals.manager.byKey['h5:' + k].status === 'ready', key, { timeout: READY_MS });
-  const r0 = await page.evaluate(() => window.__cw.internals.sun.jobIds().requested);
-  await page.waitForFunction(() => window.__cw.ready, null, { timeout: READY_MS });
-  const late = await page.evaluate(async ({ g, t }) => {
+  await page.waitForFunction(() => window.__cw && window.__cw.ready, null, { timeout: READY_MS });
+  const late = await page.evaluate(async ({ g, t, key }) => {
     const cw = window.__cw;
     await cw.sunIdle();
     const ids = cw.internals.sun.jobIds();
+    ids.atArrival = cw.internals.sun.arrivalOf('h5', key);
     const a = cw.sunShadeAt(g.x, g.z, 1.5);
     cw.setSunTime(t);          // the same instant again, with every chunk in place
     await cw.sunIdle();
     return { ids, a, b: cw.sunShadeAt(g.x, g.z, 1.5) };
-  }, { g: { x: s.g.x, z: s.g.z }, t });
-  assert.ok(late.ids.requested > r0, 'a sweep was asked for after the chunk arrived');
+  }, { g: { x: s.g.x, z: s.g.z }, t, key });
+  assert.ok(late.ids.atArrival !== null, 'the chunk reached the sun worker');
+  assert.ok(late.ids.landed > late.ids.atArrival, 'a sweep asked for after the chunk arrived has landed (' +
+            late.ids.atArrival + ' then ' + late.ids.landed + ')');
   assert.equal(late.ids.landed, late.ids.requested);
   assert.equal(late.a.level, late.b.level);
   assert.ok(Math.abs(late.a.margin_m - late.b.margin_m) < 1e-6, 'shade from the complete data: ' + late.a.margin_m + ' against ' + late.b.margin_m);
@@ -819,12 +824,13 @@ test('ST23 the date slider is the facts year', { timeout: READY_MS * 2 + 60000 }
   await ctx.clock.install({ time: new Date('2027-03-01T09:00:00Z') });
   const { page } = await openWorld(ctx);
   assert.equal(await page.getAttribute('#sun-day', 'max'), '364');
-  await page.click('#btn-sun');
-  await page.click('#sun-now');
+  // (clicked in the page: under the installed clock, pointer actions wait on animation frames)
+  await page.evaluate(() => { document.getElementById('btn-sun').click(); document.getElementById('sun-now').click(); });
   const r = await page.evaluate(() => ({ t: window.__cw.sunTime(), first: window.__cw.sunReadout().lines[0] }));
   const lp = SUN.localParts(r.t.utc, 'Europe/Oslo');
   assert.deepEqual([lp.y, lp.mo, lp.d, lp.h, lp.mi], [2026, 3, 1, 10, 0]);
   assert.match(r.first, /^1 Mar 2026, 10:00 CET/);
+  assert.deepEqual(await page.evaluate(() => window.__cw.errors), []);
   await page.close();
   const ctx2 = await newContext();
   const { page: p2 } = await openWorld(ctx2, '?w=out/synthetic/&t=2027-06-21T12:00');

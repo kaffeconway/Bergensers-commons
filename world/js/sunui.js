@@ -212,6 +212,14 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
     return snap(utcFromLocal(day.y, day.mo, day.d, lp.h, lp.mi, tz));
   }
 
+  // the coalesced slider update: the newest value, applied once per frame
+  function flush() {
+    if (!pending) return;
+    const p = pending;
+    pending = null;
+    setTime(utcFor(p.day, p.minute), 'drag');
+  }
+
   // ---------------------------------------------------------------- events
   const onInput = () => { pending = { day: Number(daySlider.value), minute: Number(timeSlider.value) }; sun.setDragging(true); requestFrame(); };
   daySlider.addEventListener('input', onInput);
@@ -292,13 +300,7 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
     enabled: true,
     open, close,
     isOpen: () => !panel.hidden,
-    // the coalesced slider update, at the top of each frame
-    flush() {
-      if (!pending) return;
-      const p = pending;
-      pending = null;
-      setTime(utcFor(p.day, p.minute), 'drag');
-    },
+    flush,
     tick() { if (!panel.hidden) march(); },
     showChip(show) { chip.hidden = !show; placeDock(); },
     setTime(t) { setTime(t, 'full'); },

@@ -464,6 +464,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     }
     if (drop.length) worker.postMessage({ type: 'drop', level: 'h1', keys: drop });
   }
+  const arrivals = new Map();       // 'level:key' -> the last job id asked for when it arrived
   function addChunk(c) {
     if (!c || !c.data || disposed) return;
     let matters = false;
@@ -473,6 +474,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
       postHeights(c);
       matters = true;
     }
+    if (matters) arrivals.set(c.level.name + ':' + c.key, requested);
     if (matters && !state.night) {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => { debounce = 0; if (!state.night) post('sun', quality); else wake(); }, RESWEEP_MS);
@@ -891,6 +893,8 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     addChunk,
     idle() { return new Promise((resolve) => { waiters.push(resolve); wake(); }); },
     jobIds() { return { requested, landed, posted, inflight: inflight ? inflight.id : null, pending: pending ? pending.id : null }; },
+    // the last job id asked for when a chunk's heights reached the worker (a test hook)
+    arrivalOf(level, key) { const v = arrivals.get(level + ':' + key); return v === undefined ? null : v; },
     shadeAt,
     march(points) {
       if (!site && state.utc === null && !state.dir) return Promise.resolve(null);
