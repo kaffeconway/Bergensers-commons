@@ -55,10 +55,20 @@ a{color:var(--glacier)}
 #progress{position:fixed;left:0;right:0;top:0;height:3px;z-index:30;background:transparent}
 #progress span{display:block;height:3px;width:0;background:var(--glacier);transition:width .2s}
 #progress.done{opacity:0;transition:opacity .6s .4s}
-#status{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:15;margin:0;
+/* #dock: bottom centre, the sun chip above the status line; main.js placeDock() raises it
+   clear of the hint, the credits and an open sun sheet */
+#dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:15;
+ display:flex;flex-direction:column;align-items:center;gap:6px;width:max-content;max-width:calc(100% - 32px);pointer-events:none}
+#dock > *{pointer-events:auto}
+#status{margin:0;
  font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--pine);background:var(--panel);
- border:1px solid var(--rule);border-radius:20px;padding:5px 12px;max-width:calc(100% - 32px);text-align:center}
+ border:1px solid var(--rule);border-radius:20px;padding:5px 12px;max-width:100%;text-align:center}
 #status:empty{display:none}
+.sun-chip{display:inline-flex;align-items:center;gap:8px;text-transform:none;letter-spacing:.04em;border-radius:22px;padding:0 14px}
+.sun-chip[hidden]{display:none}
+.sun-glyph{flex:none;width:11px;height:11px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px rgba(138,106,47,.25)}
+.sun-chip.night .sun-glyph{background:transparent;box-shadow:inset -3px -2px 0 0 var(--pine)}
+.pill[aria-expanded="true"] .sun-glyph{box-shadow:0 0 0 2px rgba(234,237,232,.5)}
 #status.bad{color:var(--madder);border-color:var(--madder)}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #hint{position:fixed;left:calc(var(--gap) + var(--safe-l));bottom:calc(var(--gap) + var(--safe-b));z-index:15;margin:0;
@@ -137,6 +147,32 @@ a{color:var(--glacier)}
  border-radius:3px;font-size:14px}
 .btnlink:hover{background:#1a352e}
 #help dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px;margin:6px 0 0}
+/* ---- the sun panel ---- */
+#sun{left:50%;transform:translateX(-50%);bottom:calc(66px + var(--safe-b));width:min(420px,calc(100% - 2 * var(--gap)));
+ max-height:calc(100dvh - 150px);padding:0 18px 14px}
+#sun .panel-top{justify-content:space-between;align-items:center}
+#sun h2{font-size:19px;margin:0}
+#sun .when{font-family:var(--mono);font-size:11.5px;color:var(--ink);margin:10px 0 4px}
+.sun-sliders{display:grid;grid-template-columns:44px minmax(0,1fr) 84px;align-items:center;column-gap:8px}
+.sun-sliders label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--pine)}
+.sun-sliders output{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right;white-space:nowrap}
+.sun-buttons{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
+.sun-buttons .close{flex:1 1 auto;min-width:60px}
+.touch .sun-buttons .close{min-height:44px}
+#sun ul.lines{list-style:none;padding:0;margin:8px 0 4px;font-size:12.5px}
+#sun ul.lines li{margin:3px 0}
+#sun .fixed{font-size:12px}
+/* the sliders: the forced light scheme gets explicit tracks and thumbs in every engine */
+input[type=range].sun-range{-webkit-appearance:none;appearance:none;width:100%;height:44px;margin:0;background:transparent;
+ accent-color:var(--pine);cursor:pointer}
+input[type=range].sun-range::-webkit-slider-runnable-track{height:10px;border-radius:5px;background:var(--track,var(--rule))}
+input[type=range].sun-range::-moz-range-track{height:10px;border-radius:5px;background:var(--track,var(--rule))}
+input[type=range].sun-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;margin-top:-6px;
+ border-radius:50%;background:var(--pine);border:3px solid var(--paper);box-shadow:0 0 0 1px var(--pine)}
+input[type=range].sun-range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--pine);border:3px solid var(--paper);
+ box-shadow:0 0 0 1px var(--pine)}
+input[type=range].sun-range:focus{outline:none}
+input[type=range].sun-range:focus-visible{outline:2px solid var(--glacier);outline-offset:2px}
 #help dt{font-family:var(--mono);font-size:11.5px;color:var(--pine);white-space:nowrap}
 #help dd{margin:0}
 
@@ -153,7 +189,6 @@ a{color:var(--glacier)}
 #vert[hidden]{display:none}
 .touch #hint{display:none}
 .touch #credits{right:auto;left:calc(var(--gap) + var(--safe-l));top:calc(72px + var(--safe-t));bottom:auto;flex-direction:row;align-items:flex-start}
-.touch #status{bottom:calc(14px + var(--safe-b))}
 
 /* ---- errors ---- */
 #error{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--paper)}
@@ -172,9 +207,20 @@ a{color:var(--glacier)}
   padding:0 16px calc(18px + var(--safe-b));background:var(--paper)}
  .panel-top{margin:0 -16px;padding:10px 16px 6px}
  #help{left:var(--gap);right:var(--gap);width:auto}
+ #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:196px;border-radius:10px 10px 0 0;
+  padding:0 16px calc(10px + var(--safe-b));background:var(--paper)}
+ #sun .panel-top{padding:4px 16px 2px}
+ #sun h2{font-size:16px}
+ #sun .when{margin:4px 0 0;font-size:11px}
 }
 @media (max-height:460px){
  #specs{top:calc(60px + var(--safe-t));max-height:calc(100dvh - 72px)}
+ #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:min(200px,52dvh);border-radius:10px 10px 0 0;
+  padding:0 16px calc(8px + var(--safe-b));background:var(--paper)}
+ #sun .panel-top{padding:4px 16px 2px}
+ #sun h2{font-size:16px}
+ #sun .when{margin:4px 0 0;font-size:11px}
+ .sun-sliders{grid-template-columns:40px minmax(0,1fr) 74px 40px minmax(0,1fr) 84px}
  #stick{bottom:calc(22px + var(--safe-b))}
  #vert{bottom:calc(22px + var(--safe-b))}
 }
@@ -204,7 +250,10 @@ a{color:var(--glacier)}
   </nav>
 </header>
 
-<p id="status"></p>
+<div id="dock">
+  <button id="btn-sun" class="pill sun-chip" type="button" aria-controls="sun" aria-expanded="false" hidden><span class="sun-glyph" aria-hidden="true"></span><span id="sun-chip-text"></span></button>
+  <p id="status"></p>
+</div>
 <p id="announce" class="sr-only" role="status" aria-live="polite"></p>
 <p id="hint" hidden>Click the view to look around (Esc lets go). W A S D or arrows to move, F to fly. Click the house for its specs.</p>
 <div id="crosshair" hidden></div>
@@ -225,14 +274,42 @@ a{color:var(--glacier)}
     <dt>Space</dt><dd>Jump; while flying, go up.</dd>
     <dt>Shift</dt><dd>Run; while flying, go down.</dd>
     <dt>The house</dt><dd>Click it for its specs, or use the Specs button.</dd>
+    <dt>T</dt><dd>Sun and time.</dd>
+    <dt>, and .</dt><dd>Ten minutes earlier or later.</dd>
+    <dt>PageUp, PageDown</dt><dd>On a sun slider: an hour, or a week.</dd>
   </dl>
   <dl id="help-touch" hidden>
     <dt>Left circle</dt><dd>Move with your thumb.</dd>
     <dt>Drag elsewhere</dt><dd>Look around.</dd>
     <dt>Fly</dt><dd>Switch between walking and flying; then Up and Down.</dd>
     <dt>The house</dt><dd>Tap it for its specs, or use the Specs button.</dd>
+    <dt>Sun chip</dt><dd>Choose the date and the time of day.</dd>
   </dl>
-  <p class="muted">Terrain within 1.5 km is drawn in blocks from the 1 m height model; beyond that it is smooth and fades into haze. Trees and buildings are measured from the surface model. The boundary line is approximate.</p>
+  <p class="muted">Ground within 1.5 km is drawn smooth from the 1 m height model, textured by land type from the map; beyond that it is coarser and fades into haze. Rock on steep slopes and detail finer than a metre are drawn, not measured. Roof shapes are fitted to the 1 m surface model; where none fits, the roof is drawn flat and plain. Wall cladding is drawn; on other buildings the eaves, roof tiles and straightened outlines are drawn too. The listing house is drawn only as measured: its walls stand at the measured roof edge and its roof is plain. It is highlighted, and its colours are not its real colours. No windows or doors are shown on any building, because where they are is not known. Whether a tree looks like a conifer or a broadleaf follows its measured shape, not its species. Shade from the ground is worked out from this world's height data for the chosen date and hour; the shadows of trees and buildings come from their drawn shapes. The boundary line is approximate.</p>
+</section>
+
+<section id="sun" class="panel" hidden aria-labelledby="sun-title">
+  <div class="panel-top"><h2 id="sun-title" tabindex="-1">Sun and shade</h2><button id="sun-close" class="close" type="button">Close</button></div>
+  <p id="sun-when" class="when"></p>
+  <div class="sun-sliders">
+    <label for="sun-day">Date</label><input id="sun-day" class="sun-range" type="range" min="0" max="364" step="1" value="171"><output id="sun-day-out" for="sun-day"></output>
+    <label for="sun-time">Time</label><input id="sun-time" class="sun-range" type="range" min="0" max="1430" step="10" value="960"><output id="sun-time-out" for="sun-time"></output>
+  </div>
+  <div class="sun-buttons">
+    <button id="sun-now" class="close" type="button">Now</button>
+    <button id="sun-dec" class="close" type="button">21 Dec</button>
+    <button id="sun-jun" class="close" type="button">21 Jun</button>
+    <button id="sun-noon" class="close" type="button">Noon</button>
+  </div>
+  <ul id="sun-lines" class="lines"></ul>
+  <p id="sun-fixed" class="muted fixed"></p>
+  <details class="method">
+    <summary>How the shade is drawn</summary>
+    <p>The sun's place is worked out in the page for the chosen date and time, and the time is the site's own clock, with its zone. The date runs over one year, the year the measured figures are for.</p>
+    <p>Shade from the ground is worked out from this world's height data: from the 1 m heights near you, then the 5 m and 20 m heights out to the edge of the world. Mountains further away than that can only stop the sun, never draw a shadow: where the measured horizon says they hide the sun, the whole view is shown in their shade.</p>
+    <p>The shadows of trees and buildings come from their drawn shapes, near you only. They are drawn, not measured.</p>
+    <p>"Measured" lines come from the measured figures (see Specs): clear sky, the terrain only, at eye height at the garden point. "Drawn" lines speak only about this world's heights.</p>
+  </details>
 </section>
 
 <div id="credits">

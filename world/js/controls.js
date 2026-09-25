@@ -114,7 +114,7 @@ export class Controls {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || isTypingTarget(ev.target)) return;
       const t = ev.target && ev.target.closest ? ev.target : null;
       // panels keep their keys (scrolling, links); a focused button keeps Space and Enter
-      if (t && t.closest('#specs, #help, #credits') && !this.lock.isLocked) return;
+      if (t && t.closest('#specs, #help, #credits, #sun') && !this.lock.isLocked) return;
       if (t && t.closest('button, a, summary') && (ev.code === 'Space' || ev.code === 'Enter')) return;
       if (ev.code === 'KeyF' && !ev.repeat) { this.toggleMode(); ev.preventDefault(); return; }
       if (codes.has(ev.code)) {
