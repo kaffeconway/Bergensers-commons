@@ -691,6 +691,7 @@ export class ChunkManager {
     mesh.userData.triangles = m.triangles;
     mesh.visible = m.triangles > 0;
     if (isH1) {
+      mesh.userData.skirtTriangles = m.skirtTriangles;
       mesh.userData.snap = e.tolInfo.cam ? e.tolInfo.cam.slice() : null;
       mesh.userData.seq = e.seq;
       mesh.userData.split = res.split;
@@ -724,6 +725,7 @@ export class ChunkManager {
   // The heldCap safety net: above the cap, px rises x1.25 (up to 4x); after 5 s under half
   // the cap it steps back down.
   _heldCheck() {
+    if (this.force && this.force.tau !== undefined) return;   // a pinned tolerance: nothing to relax
     const held = this.heldTriangles(), cap = this.tin.heldCap, now = performance.now();
     if (held > cap) {
       this.underHalfSince = null;
@@ -904,6 +906,7 @@ export class ChunkManager {
    * class band; rock in [0, 1] from the 1 m corner normal (bilinear, as the texture is
    * sampled) and the onset table. */
   materialAt(x, z) {
+    if (!this.chunkAt('h1', x, z) && this.isSeaSquare('h1', x, z)) return { cls: 5, rock: 0, level: 'h1' };
     for (const name of ['h1', 'h5', 'h20']) {
       const c = this.chunkAt(name, x, z);
       if (!c || !c.data) continue;
@@ -1044,7 +1047,7 @@ export class ChunkManager {
 
   terrainInfo() {
     const keys = new Set();
-    let materials = 0, textures = 0, textureBytes = 0;
+    let materials = 0, textures = 0, textureBytes = 0, chunkTextureBytes = 0;
     for (const c of this.chunks) {
       if (!c.material) continue;
       materials++;
@@ -1054,6 +1057,7 @@ export class ChunkManager {
         let nb = 0;
         for (let w = NV; ; w = Math.max(1, w >> 1)) { nb += w * w * 2; if (w === 1) break; }
         textureBytes += c.tex.classBytes + nb;
+        chunkTextureBytes = Math.max(chunkTextureBytes, c.tex.classBytes + nb);
       }
     }
     for (const t of sharedTextures()) {
@@ -1063,7 +1067,7 @@ export class ChunkManager {
       if (t.generateMipmaps) nb = Math.round(nb * 4 / 3);
       textureBytes += nb;
     }
-    return { programs: keys.size, materials, textures, textureBytes };
+    return { programs: keys.size, materials, textures, textureBytes, chunkTextureBytes };
   }
 
   tinStats() {
