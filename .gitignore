@@ -1,3 +1,10 @@
 .DS_Store
 *.log
 node_modules/
+
+# Commons World: local builds and caches (never committed)
+world/out/
+world/pipeline/.cache/
+__pycache__/
+.pytest_cache/
+*.pyc

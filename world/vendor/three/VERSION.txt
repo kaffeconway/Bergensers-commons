@@ -1,0 +1,11 @@
+three.js 0.185.1 (r185.1), MIT licence (see LICENSE)
+Source: https://registry.npmjs.org/three/-/three-0.185.1.tgz
+Tarball integrity (npm dist.integrity): sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==
+Files are byte-identical to the tarball. sha256:
+  86bcee248b64f44bcfc23c331ae74619061957d59cab040171dcb6fb5900beb6  three.module.min.js
+  05b2609338c76cd65daf74f3ac515bc9a5045e1b3b33edc07d8c9bd55250fa90  three.core.min.js
+  8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc  LICENSE
+  1dd7ee025607f425e15d5d9fe9850502905c837f1110c49b376a2501399dbf56  addons/objects/Sky.js
+  40d58db8018b85038939d4d8bff7112d4b8a0ad0367b37ae6f969eeee4310c25  addons/controls/PointerLockControls.js
+Tarball paths: build/three.module.min.js, build/three.core.min.js, LICENSE,
+  examples/jsm/objects/Sky.js, examples/jsm/controls/PointerLockControls.js

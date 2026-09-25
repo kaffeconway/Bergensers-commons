@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kaffeconway.github.io/Bergensers-commons/world/schema/listing.schema.json",
+  "title": "Commons World listing record, version 1",
+  "description": "The only listing data that may cross from the private tracker into a world. Anything not named here is refused. No group scores, notes, status, per-person figures, group targets or estate-agent names, ever.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "country", "facts", "approved_text", "costs", "export"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z]{2}-[0-9a-z-]+$", "description": "Added by the pipeline from public identifiers, e.g. no-<kommune>-<gnr>-<bnr>. Never the tracker's file name."},
+    "geocode": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Added by the pipeline.",
+      "properties": {
+        "source": {"type": "string"},
+        "lat": {"type": "number"},
+        "lon": {"type": "number"},
+        "epsg": {"type": "integer"},
+        "e": {"type": "number"},
+        "n": {"type": "number"},
+        "property": {"type": "string"},
+        "placement_verified": {"type": ["boolean", "null"]}
+      }
+    },
+    "country": {"enum": ["NO", "FR", "IT", "ES"]},
+    "link": {"type": ["string", "null"], "pattern": "^https://"},
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Listing facts exported mechanically. null means not stated in the listing, never 0.",
+      "properties": {
+        "currency": {"enum": ["NOK", "EUR"]},
+        "asking_price": {"type": ["number", "null"]},
+        "shared_debt": {"type": ["number", "null"]},
+        "freehold": {"type": ["boolean", "null"]},
+        "other_purchase_costs": {"type": ["number", "null"]},
+        "kommunale_avgifter_monthly": {"type": ["number", "null"]},
+        "eiendomsskatt_monthly": {"type": ["number", "null"]},
+        "property_type": {"type": ["string", "null"], "maxLength": 120},
+        "build_year": {"type": ["integer", "null"]},
+        "bra_i_m2": {"type": ["number", "null"]},
+        "bra_e_m2": {"type": ["number", "null"]},
+        "tba_m2": {"type": ["number", "null"]},
+        "bedrooms": {"type": ["integer", "null"]},
+        "rooms": {"type": ["integer", "null"]},
+        "plot_stated_m2": {"type": ["number", "null"]},
+        "plot_ownership": {"type": ["string", "null"], "maxLength": 60},
+        "ground_rent": {"type": ["number", "null"]},
+        "condition_report": {"type": "string", "maxLength": 200}
+      }
+    },
+    "approved_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Free-text fields, each exported only as a string a person approved in the tracker's approval sidecar.",
+      "properties": {
+        "address": {"type": "string", "maxLength": 200},
+        "nickname": {"type": "string", "maxLength": 120},
+        "municipality": {"type": "string", "maxLength": 120},
+        "use_class": {"type": "string", "maxLength": 120},
+        "zoning": {"type": "string", "maxLength": 200},
+        "services": {"type": "string", "maxLength": 200},
+        "heating": {"type": "string", "maxLength": 200},
+        "outbuildings": {"type": "string", "maxLength": 300},
+        "sea_water_access": {"type": "string", "maxLength": 200},
+        "parking": {"type": "string", "maxLength": 200}
+      }
+    },
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Whole-property figures computed by the tracker's tools/cost_model.py on generic assumptions only. Never per person.",
+      "properties": {
+        "source": {"const": "tools/cost_model.py"},
+        "basis": {"const": "whole property, owned outright"},
+        "currency": {"enum": ["NOK", "EUR"]},
+        "transfer_cost": {"type": ["number", "null"]},
+        "all_in": {"type": ["number", "null"]},
+        "all_in_eur": {"type": ["number", "null"]},
+        "stated_monthly": {"type": ["number", "null"]},
+        "maintenance_monthly": {"type": ["number", "null"]},
+        "owned_outright_monthly": {"type": ["number", "null"]},
+        "owned_outright_monthly_eur": {"type": ["number", "null"]},
+        "assumptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "local_per_eur": {"type": ["number", "null"]},
+            "fx_source": {"type": "string", "maxLength": 120},
+            "transfer_rate": {"type": ["number", "null"]},
+            "maintenance_rate_per_year": {"type": ["number", "null"]}
+          }
+        },
+        "excludes": {"type": "array", "items": {"type": "string", "maxLength": 120}},
+        "warnings": {"type": "array", "items": {"type": "string", "maxLength": 200}}
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {"type": "string"},
+        "exporter_version": {"type": "string"},
+        "tracker_commit": {"type": "string"},
+        "assumptions_as_of": {"type": "string"}
+      }
+    }
+  }
+}
