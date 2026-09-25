@@ -651,7 +651,7 @@ export class ChunkManager {
     c.installedSeq = e.seq;
     if (e.kind === 'load') c.data = { header: res.header, v: res.v, classes: res.classes };
     if (isH1 && e.kind === 'load') {
-      c.E = res.E; c.tileMin = res.tileMin; c.tileMax = res.tileMax;
+      c.E = res.E; c.tileMin = res.tileMin; c.tileMax = res.tileMax; c.loadMs = res.ms;
       const levels = [res.classes || new Uint8Array(242 * 242)].concat(res.tex.classMips);
       const classTex = new THREE.DataTexture(levels[0], 242, 242, THREE.RedFormat, THREE.UnsignedByteType);
       let w = 242;

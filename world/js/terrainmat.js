@@ -347,7 +347,7 @@ ${laptop ? `
   int cwTShore = cwTClassAt(ivec2(floor((vCwTCell + 1.0) * 0.25)), 2);
   float cwTNearWater = (cwTShore == 5 || cwTShore == 4 || cwTA == 5 || cwTB == 5) ? 1.0 : 0.0;
 ` : `
-  vec4 cwTN1 = cwTN0 - 0.5;                                                                          // broad (shared)
+  vec4 cwTN1 = (cwTN0 - 0.5) * clamp(1.5 - 2.0 * cwTFw * 0.37, 0.0, 1.0);                             // broad (shared tap)
   vec4 cwTN2 = cwTOct4(vCwTWorld.xz, cwTMatA[cwTA].y, cwTFw);                                        // fine, bump
   vec4 cwTNR = cwTN1;
   vec3 cwTAlbA = cwTAlbedo(cwTA, cwTN1, cwTN2, cwTDetail);

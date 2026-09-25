@@ -10,7 +10,7 @@
 // Only the synthetic world (world/out/synthetic, id zz-synthetic) and the fixtures in
 // this folder are used: nothing here describes a real place.
 
-import { test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -91,6 +91,13 @@ test('the JavaScript CWH1 decoder matches commons_world.codec exactly', { timeou
     levels.add(c.level);
   }
   assert.deepEqual([...levels].sort(), ['h1', 'h20', 'h5']);
+});
+
+// The retired block-winding test (TT1 in terrain.test.mjs replaces it) used to put the mesh
+// helpers on the shared page; the smooth-grid test below still reads them.
+before(async () => {
+  const { page } = await mainPage();
+  await page.addScriptTag({ content: MESH_HELPERS });
 });
 
 test('smooth grid faces up and its skirts face out of the chunk', { timeout: 60000 }, async () => {

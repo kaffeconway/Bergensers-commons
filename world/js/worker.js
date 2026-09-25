@@ -593,7 +593,8 @@ function extractTin(C, E16, nor, tol, borders, keepDropped) {
   var mesh = {
     pos: pos, nor: nrm, idx: idx, vertices: nVerts, triangles: (nT + skirtTris * 3) / 3,
     surfaceTriangles: nT / 3, skirtTriangles: skirtTris,
-    yMin: nVerts ? yMin : 0, yMax: nVerts ? yMax : 0, floor: !anySplit, bottoms: bottoms
+    yMin: nVerts ? yMin : 0, yMax: nVerts ? yMax : 0, floor: !anySplit, bottoms: bottoms,
+    snap: uniform ? null : [cam[0], cam[1], cam[2]]
   };
   if (keepDropped) {
     mesh.dropped = dropped.done();
