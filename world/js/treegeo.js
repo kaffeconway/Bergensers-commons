@@ -44,9 +44,10 @@ export function treeLook(xdm, zdm, height, crown) {
   return hash2(xdm, zdm) < 0.55 + 0.3 * tall ? 'conifer' : 'broad';
 }
 
+// numbers in [0, 1) from the position hash: the same on every device
 function rng(seed) {
-  let s = seed >>> 0;
-  return () => ((s = Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x6d2b79f5 >>> 0) / 4294967296);
+  let i = 0;
+  return () => hash2(seed * 7919 + 17, i++);
 }
 
 /* Parts [{geometry, colour(y) -> THREE.Color}] merged into one non-indexed geometry with a

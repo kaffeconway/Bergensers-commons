@@ -567,6 +567,34 @@ test('materials never mix sun-shade kinds', { timeout: 60000 }, async () => {
   assert.deepEqual(r.clash, []);
 });
 
+test('the fence dims at night and disposes of itself', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const { fence, scene, parcels } = window.__cw.internals;
+    const base = fence.material.color.getHex();
+    fence.setDim(0.5);
+    const half = fence.material.color.toArray();
+    fence.setDim(0.1);                               // clamped to 0.4
+    const low = fence.material.color.toArray();
+    fence.setDim(1);
+    const back = fence.material.color.getHex();
+    // a second fence, built and disposed off the shared one
+    const m = await import('./js/objects.js');
+    const f2 = new m.PlotFence(scene, parcels);
+    f2.rebuild(() => 0);
+    const added = scene.children.includes(f2.mesh);
+    const mesh = f2.mesh;
+    f2.dispose();
+    return { base, back, half, low, added, removed: !scene.children.includes(mesh), flags: [fence.mesh.castShadow, fence.mesh.receiveShadow] };
+  });
+  assert.equal(r.back, r.base);
+  const full = await page.evaluate(() => new (window.__cw.internals.fence.material.color.constructor)(0xb8552f).toArray());
+  r.half.forEach((c, i) => assert.ok(Math.abs(c - 0.5 * full[i]) < 1e-6));
+  r.low.forEach((c, i) => assert.ok(Math.abs(c - 0.4 * full[i]) < 1e-6));
+  assert.ok(r.added && r.removed);
+  assert.deepEqual(r.flags, [false, false]);
+});
+
 test('no request ever left localhost', () => {
   assert.deepEqual(offenders, []);
 });

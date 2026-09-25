@@ -17,18 +17,15 @@
  * Nothing here is measured: the help text says the cladding and the tiles are drawn.
  */
 import * as THREE from 'three';
+import { hash2 } from './treegeo.js';
 
 const SIZE = 256;
 const LO = 0.78, HI = 1.0;
 
+// numbers in [0, 1) from the position hash: the same on every device
 function rng(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  let i = 0;
+  return () => hash2(seed, i++);
 }
 
 function texture(values) {
@@ -51,7 +48,7 @@ function texture(values) {
 
 /* Vertical boards: row y is height (v), column x runs along the wall (u). */
 function cladding() {
-  const r = rng(0xc1add1), v = new Float32Array(SIZE * SIZE);
+  const r = rng(1601), v = new Float32Array(SIZE * SIZE);
   const boards = 8, w = SIZE / boards;
   const tone = Array.from({ length: boards }, () => 1 + 0.08 * (r() - 0.5));
   const grain = Array.from({ length: SIZE }, () => 1 + 0.04 * (r() - 0.5));
@@ -65,7 +62,7 @@ function cladding() {
 
 /* Tiles: row y runs down the slope (v, flipY off), column x along the contour (u). */
 function tiles() {
-  const r = rng(0x7115e5), v = new Float32Array(SIZE * SIZE);
+  const r = rng(1214), v = new Float32Array(SIZE * SIZE);
   const across = 4, courses = 4, tw = SIZE / across, ch = SIZE / courses;
   const tone = Array.from({ length: courses * across }, () => 1 + 0.1 * (r() - 0.5));
   for (let y = 0; y < SIZE; y++) {
