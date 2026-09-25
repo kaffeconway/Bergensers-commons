@@ -371,12 +371,14 @@ async function main() {
   function openPanel(panel, button, focusEl) {
     panel.hidden = false;
     button.setAttribute('aria-expanded', 'true');
+    placeDock();
     if (focusEl) focusEl.focus({ preventScroll: true });
   }
   function closePanel(panel, button) {
     const hadFocus = panel.contains(document.activeElement);
     panel.hidden = true;
     button.setAttribute('aria-expanded', 'false');
+    placeDock();
     if (hadFocus) button.focus({ preventScroll: true });
   }
   // The specs panel never covers the credits: on a wide screen it stops above them; as a
@@ -398,6 +400,7 @@ async function main() {
     if (sunUi) sunUi.close();
     openPanel(specs, btnSpecs, $('specs-title'));
     fitSpecs();
+    placeDock();
     cw.specsOpenedBy = cw.specsOpenedBy || 'button';
   };
   const refocusCanvas = (ev) => { if (ev && ev.detail > 0) canvas.focus({ preventScroll: true }); };
@@ -420,7 +423,8 @@ async function main() {
 
   // ---------------------------------------------------------------- the sun chip and panel
   // #dock (bottom centre) holds the chip and the status line. It rises clear of whatever it
-  // would meet in the corners (the hint, the credits, the stick, an open sun sheet); on a
+  // would meet in the lower corners (the hint, the credits, the stick) and of an open bottom
+  // sheet (sun or specs), so the chip can always be reached, but never above the header; on a
   // wide screen the sun card sits above it, and above the hint and credits where they share
   // its width.
   const dock = $('dock'), sunPanel = $('sun');
@@ -436,6 +440,7 @@ async function main() {
     if (touchUi) { add($('stick')); add($('vert')); }
     const sunOpen = !sunPanel.hidden, sheet = sheetMedia.matches;
     if (sunOpen && sheet) add(sunPanel);
+    if (!specs.hidden && getComputedStyle(specs).bottom === '0px') add(specs);
     dock.style.bottom = '';
     let r = dock.getBoundingClientRect();
     for (let k = 0; k < 4 && r.height > 0; k++) {
@@ -444,6 +449,7 @@ async function main() {
         if (b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top) raise = Math.max(raise, H - b.top + 8);
       }
       if (raise < 0) break;
+      raise = Math.min(raise, H - 70 - r.height);   // below the header, whatever it meets
       dock.style.bottom = raise + 'px';
       r = dock.getBoundingClientRect();
     }
@@ -465,7 +471,11 @@ async function main() {
   sunUi = createSunUi({
     sun, manifest, camera, groundAt, requestFrame: () => requestFrame(), placeDock: () => placeDock(), isTouch: touchUi,
     closeOthers: () => { closePanel(specs, btnSpecs); closePanel(help, btnHelp); },
-    onOpenChange: (open) => { if (touchUi) $('touch').hidden = open; }
+    onOpenChange: (open) => {
+      if (touchUi) $('touch').hidden = open;
+      // as for the specs sheet: a sheet folds the credits to their (i) button, unless chosen
+      if (open && sheetMedia.matches && !creditsChosen) foldCredits();
+    }
   });
   window.addEventListener('resize', () => placeDock());
   creditsToggle.addEventListener('click', () => requestAnimationFrame(() => placeDock()));

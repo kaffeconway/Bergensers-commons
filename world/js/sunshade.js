@@ -163,6 +163,12 @@ float cwSNear( float s, vec4 c ) {
 }
 vec3 cwSShoulder( vec3 c ) {
   return mix( c, 0.8 + 0.2 * ( 1.0 - exp( -( c - 0.8 ) / 0.2 ) ), step( 0.8, c ) );
+}
+// the debug colour, written so that after the output's sRGB encoding the canvas holds the
+// visibilities themselves: R terrain shade, G the near map
+vec3 cwSDebugColour() {
+  vec3 c = vec3( cwSVisV, cwSNearV, 0.0 );
+  return mix( pow( ( c + 0.055 ) / 1.055, vec3( 2.4 ) ), c / 12.92, vec3( lessThanEqual( c, vec3( 0.04045 ) ) ) );
 }`;
 const DIR_INFO = 'getDirectionalLightInfo( directionalLight, directLight );';
 const DIR_SHADOW = 'getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] )';
@@ -196,7 +202,7 @@ export function patchSunShader(shader, kind) {
       .replace(DIR_INFO, DIR_INFO + '\n\t\tcwSVisV = cwSVis();\n\t\tdirectLight.color *= cwSVisV;')
       .replace(DIR_SHADOW, 'cwSNear( ' + DIR_SHADOW + ', vDirectionalShadowCoord[ i ] )'))
     .replace('#include <opaque_fragment>',
-      'outgoingLight = cwSShoulder( outgoingLight );\nif ( cwSDebug > 0.5 ) outgoingLight = vec3( cwSVisV, cwSNearV, 0.0 );\n#include <opaque_fragment>');
+      'outgoingLight = cwSShoulder( outgoingLight );\nif ( cwSDebug > 0.5 ) outgoingLight = cwSDebugColour();\n#include <opaque_fragment>');
   return shader;
 }
 
@@ -543,7 +549,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
   }
 
   let fogDirty = false;
-  function apply(utc, q) {
+  function applySunTime(utc, q) {
     let s, source;
     if (site && utc !== null) {
       s = sunPosition(utc, site.lat, site.lon, altitude());
@@ -707,6 +713,12 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     for (const o of scene.children) if (o !== sky && o.visible) { o.visible = false; hidden.push(o); }
     const nu = renderer.shadowMap.needsUpdate;
     renderer.shadowMap.needsUpdate = false;         // no shadow pass for these renders
+    // only the few pixels read back are drawn: a scissor round the centre of the canvas (the
+    // next frame redraws the whole canvas)
+    const pr = renderer.getPixelRatio(), hadScissor = renderer.getScissorTest();
+    const oldScissor = renderer.getScissor(new THREE.Vector4());
+    renderer.setScissorTest(true);
+    renderer.setScissor(Math.floor(size.x / 2 / pr) - 8, Math.floor(size.y / 2 / pr) - 2, 16, 4);
     const px = new Uint8Array(4 * 8), acc = [0, 0, 0];
     let n = 0;
     for (let k = 0; k < 8; k++) {
@@ -716,6 +728,8 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
       gl.readPixels(Math.floor(size.x / 2) - 4, Math.floor(size.y / 2), 8, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
       for (let i = 0; i < 8; i++) { acc[0] += px[i * 4]; acc[1] += px[i * 4 + 1]; acc[2] += px[i * 4 + 2]; n++; }
     }
+    renderer.setScissor(oldScissor);
+    renderer.setScissorTest(hadScissor);
     renderer.shadowMap.needsUpdate = nu;
     for (const o of hidden) o.visible = true;
     sky.position.copy(skyPos);
@@ -831,7 +845,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
       const s = fixedSun();
       return new THREE.Vector3(...sunVector(s.azimuth, s.elevation, offset));
     },
-    setTime(utc, q) { apply(utc, q === 'drag' ? DRAG : quality); },
+    setTime(utc, q) { applySunTime(utc, q === 'drag' ? DRAG : quality); },
     settled() {
       // after a drag: a full sweep, and the fog matched to the sky
       if (!state.night) post('sun', quality);
@@ -865,7 +879,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     async onWorldLoaded() {
       if (beyond || !profile || !garden || derivedGate) return;
       await sun.deriveGate();
-      if (!disposed) apply(state.utc, quality);
+      if (!disposed) applySunTime(state.utc, quality);
     },
     // the h1 window for where the camera is now, without waiting for a frame (settle uses it)
     update() {

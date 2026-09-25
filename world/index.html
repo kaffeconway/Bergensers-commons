@@ -56,8 +56,9 @@ a{color:var(--glacier)}
 #progress span{display:block;height:3px;width:0;background:var(--glacier);transition:width .2s}
 #progress.done{opacity:0;transition:opacity .6s .4s}
 /* #dock: bottom centre, the sun chip above the status line; main.js placeDock() raises it
-   clear of the hint, the credits and an open sun sheet */
-#dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:15;
+   clear of the hint, the credits and an open bottom sheet. It stays above the side panels
+   (z-index), so the chip can always be reached */
+#dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:26;
  display:flex;flex-direction:column;align-items:center;gap:6px;width:max-content;max-width:calc(100% - 32px);pointer-events:none}
 #dock > *{pointer-events:auto}
 #status{margin:0;
@@ -150,9 +151,10 @@ a{color:var(--glacier)}
 /* ---- the sun panel ---- */
 #sun{left:50%;transform:translateX(-50%);bottom:calc(66px + var(--safe-b));width:min(420px,calc(100% - 2 * var(--gap)));
  max-height:calc(100dvh - 150px);padding:0 18px 14px}
-#sun .panel-top{justify-content:space-between;align-items:center}
-#sun h2{font-size:19px;margin:0}
-#sun .when{font-family:var(--mono);font-size:11.5px;color:var(--ink);margin:10px 0 4px}
+#sun .panel-top{justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px}
+#sun .head{min-width:0}
+#sun h2{font-size:19px;margin:2px 0 0}
+#sun .when{font-family:var(--mono);font-size:11.5px;color:var(--ink);margin:4px 0 0}
 .sun-sliders{display:grid;grid-template-columns:44px minmax(0,1fr) 84px;align-items:center;column-gap:8px}
 .sun-sliders label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--pine)}
 .sun-sliders output{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right;white-space:nowrap}
@@ -209,17 +211,18 @@ input[type=range].sun-range:focus-visible{outline:2px solid var(--glacier);outli
  #help{left:var(--gap);right:var(--gap);width:auto}
  #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:196px;border-radius:10px 10px 0 0;
   padding:0 16px calc(10px + var(--safe-b));background:var(--paper)}
- #sun .panel-top{padding:4px 16px 2px}
- #sun h2{font-size:16px}
- #sun .when{margin:4px 0 0;font-size:11px}
+ #sun .panel-top{padding:6px 16px 4px;align-items:center;margin-bottom:2px}
+ #sun h2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ #sun .when{margin:0;font-size:10.5px;line-height:1.35}
+ .sun-buttons{margin:4px 0 2px}
 }
 @media (max-height:460px){
  #specs{top:calc(60px + var(--safe-t));max-height:calc(100dvh - 72px)}
  #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:min(200px,52dvh);border-radius:10px 10px 0 0;
   padding:0 16px calc(8px + var(--safe-b));background:var(--paper)}
- #sun .panel-top{padding:4px 16px 2px}
- #sun h2{font-size:16px}
- #sun .when{margin:4px 0 0;font-size:11px}
+ #sun .panel-top{padding:6px 16px 4px;align-items:center;margin-bottom:2px}
+ #sun h2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ #sun .when{margin:0;font-size:10.5px;line-height:1.35}
  .sun-sliders{grid-template-columns:40px minmax(0,1fr) 74px 40px minmax(0,1fr) 84px}
  #stick{bottom:calc(22px + var(--safe-b))}
  #vert{bottom:calc(22px + var(--safe-b))}
@@ -289,8 +292,7 @@ input[type=range].sun-range:focus-visible{outline:2px solid var(--glacier);outli
 </section>
 
 <section id="sun" class="panel" hidden aria-labelledby="sun-title">
-  <div class="panel-top"><h2 id="sun-title" tabindex="-1">Sun and shade</h2><button id="sun-close" class="close" type="button">Close</button></div>
-  <p id="sun-when" class="when"></p>
+  <div class="panel-top"><div class="head"><h2 id="sun-title" tabindex="-1">Sun and shade</h2><p id="sun-when" class="when"></p></div><button id="sun-close" class="close" type="button">Close</button></div>
   <div class="sun-sliders">
     <label for="sun-day">Date</label><input id="sun-day" class="sun-range" type="range" min="0" max="364" step="1" value="171"><output id="sun-day-out" for="sun-day"></output>
     <label for="sun-time">Time</label><input id="sun-time" class="sun-range" type="range" min="0" max="1430" step="10" value="960"><output id="sun-time-out" for="sun-time"></output>

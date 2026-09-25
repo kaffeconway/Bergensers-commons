@@ -237,6 +237,7 @@ export function utcFromLocal(y, mo, d, h, mi, tz) {
  * when y has none). */
 export function mapIntoYear(utcMs, y, tz) {
   const p = localParts(utcMs, tz);
+  if (p.y === y) return utcMs;          // already there (and an hour that occurs twice stays itself)
   const t = dateInYear(y, p.mo, p.d);
   return utcFromLocal(t.y, t.mo, t.d, p.h, p.mi, tz);
 }
