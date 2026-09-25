@@ -121,8 +121,8 @@ SOURCE_NHM_DOM = {
     "licence_url": CC_BY_4_URL,
     "endpoint": "https://hoydedata.no/arcgis/rest/services/NHM_DOM_25832/ImageServer/exportImage",
     "modified": "read at native 1 m (nearest neighbour) within the h1 radius; used for "
-                "building footprints, roof heights and tree tops; not written into the world "
-                "as a raster.",
+                "building footprints, roof heights and tree tops; roof planes are fitted to it "
+                "and written into buildings.json; not written into the world as a raster.",
 }
 
 # Owner data is never requested. These services exist and are named here only

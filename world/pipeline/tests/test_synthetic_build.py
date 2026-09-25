@@ -5,7 +5,9 @@ listing, manifest), so these tests cover the file formats a viewer reads.
 """
 
 import gzip
+import hashlib
 import json
+import math
 
 import numpy as np
 import pytest
@@ -167,9 +169,40 @@ def test_buildings_file(world, world_manifest):
     for f in features:
         assert buildings.ring_signed_area_local(f["ring"]) > 0
         assert f["source"] == "dom" and f["roof"] > f["ground"] + 2.5
+        assert set(f) - {"roof_shape"} == {"id", "type", "source", "ground", "roof", "house",
+                                           "ring"}
     stats = world_manifest["stats"]["map"]["buildings"]
     assert stats["register_points_without_roof"] == 1        # the demolished one
     assert stats["house"]["house"] is True and stats["house"]["id"] == houses[0]["id"]
+    # ring, ground and roof are exactly what they were before roofs were fitted
+    before = json.dumps([[f["id"], f["ring"], f["ground"], f["roof"]] for f in features],
+                        sort_keys=True, separators=(",", ":"))
+    assert hashlib.sha256(before.encode("ascii")).hexdigest() == \
+        "adbe8e6e152123276bd595cbe322ab667dedeff0ab3d84968e5d0966460d4b7c"
+    # each registered roof of synthetic.BUILDINGS, found by its position, is fitted as built
+    from shapely.geometry import Point
+    for spec in registered_with_roof:
+        x, n, width, depth, rot, eave, rise = spec[:7]
+        feature = min(features, key=lambda f: Polygon([(fx, -fz) for fx, fz in f["ring"]])
+                      .centroid.distance(Point(x, n)))
+        shape = feature["roof_shape"]
+        if rise == 0:
+            assert shape["model"] == "flat" and shape["pitch"] == 0.0, spec
+            continue
+        assert shape["model"] == "gable", spec
+        assert shape["pitch"] == pytest.approx(math.degrees(math.atan(rise / (depth / 2))),
+                                               abs=2.0), spec
+        err = abs((shape["ridge_bearing"] - (90.0 - rot)) % 180.0)
+        assert min(err, 180.0 - err) <= 3.5, spec
+    shape = houses[0]["roof_shape"]
+    assert shape["model"] == "gable" and shape["pitch"] == pytest.approx(29.1, abs=2.0)
+    err = abs((shape["ridge_bearing"] - 65.0) % 180.0)
+    assert min(err, 180.0 - err) <= 3.5
+    # the listing house is drawn only as measured: over its own traced ring
+    assert shape["outline"] == "traced" and len(shape["parts"]) == 1
+    assert shape["parts"][0]["ring"] == houses[0]["ring"]
+    roofs = stats["roofs"]
+    assert roofs["by_model"] == {"flat": 3, "gable": 5} and roofs["fallback_reasons"] == {}
 
 
 def test_trees_file(world):

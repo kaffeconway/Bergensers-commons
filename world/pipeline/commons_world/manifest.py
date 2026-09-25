@@ -274,6 +274,32 @@ def _check_listing(folder, manifest, problems):
         problems.append("files.listing: {}".format(exc))
 
 
+def _check_buildings(folder, manifest, problems):
+    """buildings.json, when listed: every roof_shape is absent or sound (FORMAT.md)."""
+    from . import roofs
+
+    entry = manifest["files"].get("buildings")
+    if not isinstance(entry, dict) or not (folder / str(entry.get("file", ""))).is_file():
+        return
+    try:
+        raw = (folder / entry["file"]).read_bytes()
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        doc = json.loads(raw.decode("ascii"))
+    except (OSError, EOFError, UnicodeDecodeError, ValueError, zlib.error) as exc:
+        problems.append("files.buildings: unreadable or not ASCII JSON: {}".format(exc))
+        return
+    features = doc.get("features") if isinstance(doc, dict) else None
+    if not isinstance(features, list):
+        problems.append("files.buildings: no features list")
+        return
+    for feature in features:
+        if not isinstance(feature, dict) or "roof_shape" not in feature:
+            continue
+        for problem in roofs.check_shape(feature["roof_shape"]):
+            problems.append("files.buildings: building {}: {}".format(feature.get("id"), problem))
+
+
 def check_world(folder):
     """Problems with a built world folder, as strings (empty when sound).
 
@@ -354,6 +380,7 @@ def check_world(folder):
                 name, sorted(overlap)))
     for key, entry in sorted(manifest["files"].items()):
         check_entry("files.{}".format(key), entry)
+    _check_buildings(folder, manifest, problems)
     _check_credits(folder, manifest, problems)
     _check_facts(folder, manifest, problems)
     _check_listing(folder, manifest, problems)

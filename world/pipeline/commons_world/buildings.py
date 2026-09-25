@@ -339,18 +339,24 @@ def choose_house(buildings, parcel_polygons, address_en):
             "distance_to_address_m": round(best.polygon.distance(here), 1), "note": note}
 
 
-def buildings_record(buildings, origin):
-    """The buildings.json object of FORMAT.md section 4, sorted north to south, west to east."""
+def buildings_record(buildings, origin, shapes=None):
+    """The buildings.json object of FORMAT.md section 4, sorted north to south, west to east.
+
+    `shapes`, when given, is {label: roof_shape} from commons_world.roofs; a building
+    with an entry gets it as its `roof_shape`. Nothing else in a feature depends on it."""
     def key(b):
         c = b.polygon.centroid
         return (round(-c.y, 3), round(c.x, 3))
     features = []
     for number, b in enumerate(sorted(buildings, key=key), start=1):
-        features.append({
+        feature = {
             "id": number, "type": int(b.type), "source": "dom",
             "ground": round(b.ground, 1), "roof": round(b.roof, 1), "house": bool(b.house),
             "ring": ring_local(b.polygon.exterior.coords, origin),
-        })
+        }
+        if shapes is not None and b.label in shapes:
+            feature["roof_shape"] = shapes[b.label]
+        features.append(feature)
     return {"version": 1, "features": features}
 
 

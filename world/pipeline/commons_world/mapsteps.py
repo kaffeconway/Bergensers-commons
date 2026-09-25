@@ -8,7 +8,8 @@ inputs from ctx.map (a MapInputs):
 - classes: rasterises every level's class band (commons_world.classes) and
   sets ctx.class_source, so "terrain" writes each chunk with band 2;
 - buildings: footprints from the h1 surface model, anchored to register
-  points, written to buildings.json.gz and painted into the h1 class band;
+  points, with roof planes fitted to the same model (commons_world.roofs),
+  written to buildings.json.gz and painted into the h1 class band;
 - trees: canopy tops within the h1 radius, written to trees.bin.gz. Building
   footprints and every roof candidate (registered or not), grown by a cell,
   and lake and sea cells are excluded;
@@ -28,6 +29,7 @@ from scipy import ndimage
 from . import buildings as buildingslib
 from . import classes as classeslib
 from . import places as placeslib
+from . import roofs as roofslib
 from . import trees as treeslib
 from .raster import LevelGrid
 
@@ -92,7 +94,10 @@ def step_buildings(ctx):
                                                 within=(oe, on, h1.radius), return_labels=True)
     stats["house"] = buildingslib.choose_house(found, [p.polygon for p in ctx.parcels],
                                                address_point(ctx))
-    record = buildingslib.buildings_record(found, ctx.origin)
+    shapes = None
+    if roofslib.FIT:
+        shapes, stats["roofs"] = roofslib.fit_all(found, dom, dtm, grid, labels, ctx.origin)
+    record = buildingslib.buildings_record(found, ctx.origin, shapes)
     ids = [f["id"] for f in record["features"] if f["house"]]
     stats["house"]["id"] = ids[0] if ids else None
     ctx.write_json("buildings", "buildings.json.gz", record, gz=True)

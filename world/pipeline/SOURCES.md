@@ -44,7 +44,8 @@ so the client refuses it like any other. A step that needs one adds it here, to
 Kartverket's open data:
 - **roads, footways, paths:** NVDB Vegnett Pluss, updated monthly;
 - **land cover, water, coast:** N50 Kartdata;
-- **buildings:** register points plus footprints segmented from the surface model;
+- **buildings:** register points plus footprints segmented from the surface model, and roof
+  planes fitted to it;
 - **trails:** Turrutebasen;
 - **peaks:** place names plus terrain heights.
 
