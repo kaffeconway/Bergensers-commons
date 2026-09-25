@@ -266,7 +266,18 @@ export function loadApp(opts = {}) {
     hash, search: "", pathname: "/index.html",
     href: "file:///index.html" + hash, origin: "null", protocol: "file:",
   };
-  const history = { calls: [], replaceState(...a) { this.calls.push(a); }, pushState(...a) { this.calls.push(a); } };
+  /* Like a browser, a replaceState/pushState URL moves location.hash with it. */
+  const moveHash = (url) => {
+    if (typeof url !== "string") return;
+    const i = url.indexOf("#");
+    location.hash = i >= 0 ? url.slice(i) : "";
+    location.href = "file:///index.html" + location.hash;
+  };
+  const history = {
+    calls: [],
+    replaceState(...a) { this.calls.push(a); moveHash(a[2]); },
+    pushState(...a) { this.calls.push(a); moveHash(a[2]); },
+  };
   const navigator = { userAgent: "node-test", language: "en", clipboard: { writeText: async () => {} } };
   /* timers are unref'd so a pending say() or poster timeout never holds the process open */
   const setT = (f, ms, ...a) => { const t = setTimeout(f, ms, ...a); if (t && t.unref) t.unref(); return t; };

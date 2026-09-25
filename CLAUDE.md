@@ -70,8 +70,8 @@ the build.
 - **The share-code format is bit-packed, not JSON.** Every fixed-choice
   field (activities, token spends, tolerances, skills, region picks) is packed into a
   handful of bits each rather than stored as a JSON key. Free text (name, deal-breakers,
-  why, activity write-ins, region write-in) is stored as raw UTF-8 after the packed block,
-  as five `\x1f`-joined fields. Encoder is `encode()` / `packC4()` / `recBin()`; decoder is
+  why, activity write-ins, region write-in, passport, country) is stored as raw UTF-8 after
+  the packed block, as seven `\x1f`-joined fields. Encoder is `encode()` / `packC4()` / `recBin()`; decoder is
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
@@ -155,7 +155,10 @@ the build.
   drops and the work falls back to a draft rather than overwriting a stranger. Every entry
   point that starts a fresh identity must clear both. `stateFrom()` converts a decoded
   record into questionnaire state and is shared with the shared-link boot path so the two
-  cannot drift.
+  cannot drift. Opening a shared link saves nothing until the person chooses: `boot()` used
+  to `autosave()` straight away, which wrote the link's answers over any newer draft under
+  the same first name. The code screen puts `#c=<code>` in the address; `autosave()` takes
+  it out once an answer changes, or a reload would boot from the older code.
 
 - **The two money bands are positional, like the regions were.** `cp` and `rn` travel in
   the code as the *index* into `CAP` / `RUN`, written as bare 3-bit values. So redrawing a
@@ -183,15 +186,16 @@ the build.
   `c.cp < 5` test would have read both appended top bands as "did not answer".
 
   **Three bits holds exactly eight and both lists now hold eight.** A ninth band in either
-  needs a C5. There is an assertion that fails the moment one is added, rather than the
-  ninth silently writing as zero and reading back as "Under €10k".
+  needs a C5. There is no guard inside `index.html` itself — a ninth band would silently
+  write as zero and read back as "Under €10k" — so the guard is a test in
+  `tests/codec.test.mjs` that fails the moment one is added.
 
 - **The Europe map's region names sit in fixed margin slots** (`MAPLAB`), on leader lines,
   not above their bubbles. The bubble radius grows with votes and the three alpine regions
   fall within about 35 viewBox units of each other, so printed labels collided: "French
   Alps" was buried inside the Italian Alps bubble at **four** votes, and at a realistic
   fifteen two more went under and the bubbles themselves overlapped. Fixed slots cannot
-  collide however the vote splits — there is a test that walks all 816 possible
+  collide however the vote splits — `tests/map-labels.test.mjs` walks all 816 possible
   fifteen-person divisions and checks no label lands in a bubble and no leader crosses one.
   If a region is ever added to the map, give it a slot at least 30 units clear of the others
   on its side. The vote count rides **in the label**, as `Italian Alps · 7`, not inside the
@@ -215,9 +219,10 @@ the build.
   gained eleven listings in six days. When that first happened the dots had barely moved
   (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
   of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
-  A test pins the current total and counts, so a re-run fails until the caption is brought
-  with it, and two further assertions check the counts sum to the stated total and that a
-  date is present at all.
+  `tests/triangle-static.test.mjs` pins the current total and counts, so a re-run fails
+  until the caption is brought with it, and further assertions check the counts sum to the
+  stated total and that a date is present at all. The caption gives the date as "15
+  September", without the year.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
@@ -238,15 +243,20 @@ the build.
   order between those two.** The chart shows balance rather than level, and at that distance
   the honest reading is that they score alike.
 
-  The tracker's own caveats travel with the numbers and are in the caption: the priority
-  weights behind them are the mean token spend of **four** questionnaire answers out of
-  roughly fifteen, renovation is blank on every listing so every price is a floor, the axis
-  scores are desk reads of listing text, and the Italian average rests on three listings
-  with the widest spread of the four.
+  The tracker has four caveats on these numbers: the priority weights behind them are the
+  mean token spend of **four** questionnaire answers out of roughly fifteen, renovation is
+  blank on every listing so every price is a floor, the axis scores are desk reads of
+  listing text, and the Italian average rests on three listings with the widest spread of
+  the four. **Only the first two are in the caption.** The other two are only in the code
+  comment above `TRI`, and the "three listings" one contradicts the caption's own "Italian
+  Alps 4" — check it against the tracker before either goes on the page.
 
   The closest two regions plot about 23px apart (Italian Alps and Vestland, as of the
-  15 Sept re-run). Labels sit outside the plot on leader
-  lines rather than beside the dots, vote counts live in the labels rather than inside the
+  15 Sept re-run). Labels are meant to sit outside the plot on leader
+  lines rather than beside the dots — but as of 25 Sept the triangle's own outline runs
+  through the "Italian Alps" and "French Alps" labels at every vote count. A test in
+  `tests/triangle-static.test.mjs` fails on it, and moving them is a layout decision still
+  open. Beyond that, vote counts live in the labels rather than inside the
   circles, and the dots stay small enough that a near-touch reads as two regions scoring
   alike. Do not spread the dots apart to make it prettier; change the weights only when the
   underlying listing averages or rail figures change.
@@ -256,7 +266,7 @@ the build.
   the region is best overall.
 
 - **Map data**: tries to fetch real Natural Earth coastline/border data from a CDN at
-  runtime (`upgradeGeo`/`upgradeMap` functions) and falls back to a hand-drawn simplified
+  runtime (`upgradeMap`) and falls back to a hand-drawn simplified
   outline if that fetch fails (e.g. offline, or a restrictive sandbox). Both paths must
   keep working.
 
@@ -306,12 +316,20 @@ the guard was on the less likely action, and a row may be the only copy of what 
 sent. `undoRow` holds the last row removed and the board offers it back by name. The offer
 lapses on the next action (leaving the board, pasting, editing a row, clearing, going to the
 results), so it is never a stale button over a board that has moved on, and it reinserts at
-`min(at, length)` rather than at an index that may no longer exist.
+`min(at, length)` rather than at an index that may no longer exist. Every one of those
+actions **redraws** the board — including a paste that read nothing and the first tap of
+Clear, which used to withdraw the offer while leaving its button on screen doing nothing.
+
+A paste with an unreadable line among good ones says so, and leaves the unreadable lines
+in the box (`txKeep`) so the collector can ask for them again. It used to add the good
+ones and drop the rest without a word.
 
 `lsSet` catches a storage failure and falls back to an in-memory object that dies with the
 tab — private browsing, a content blocker, a full quota. That used to be silent, so a
 collector gathering codes over days would be told "the board is saved on this device" and
-lose everything on reload. `lsFailed` records it, `storeWarn()` says so on the board, and
+lose everything on reload. Once a write has fallen back to memory, `lsGet` reads memory
+first — the copy still in storage is older, and reading it first hid everything pasted
+after storage started refusing. `lsFailed` records it, `storeWarn()` says so on the board, and
 the code screen drops its claim to have saved anything and tells the person to copy the link
 instead. Any screen that promises persistence has to check that flag.
 
@@ -334,10 +352,13 @@ vanishing.
 Two different people can share a first name, and a first name is all this asks for. So a
 pasted code whose name is already on the board is a **question**, not an instruction:
 `nameSplit` holds it back and the collector chooses. Replace (a corrected resend), keep
-both, or skip — and nothing is written until they pick. Keeping both requires a last
-initial on **both** rows, not just the newcomer, because initialling one still leaves a
-reader guessing which of them plain "Leon" was; `hasInitial` enforces a name, a space and
-one letter, and refuses two names that still match. An initial is not a surname, so this
+both, or skip — and nothing is written until they pick. Names are compared with `sameName`
+(case, surrounding and repeated spaces ignored), and against earlier codes in the same
+paste as well as the board, so two "Leon" codes pasted together are a question too. Keeping
+both requires a last initial on **both** rows, not just the newcomer, because initialling
+one still leaves a reader guessing which of them plain "Leon" was; `hasInitial` enforces a
+name, a space and one letter — any letter, Ø and Å included — and refuses two names that
+still match, with or without a full stop after the initial. An initial is not a surname, so this
 stays inside the first-names-only rule. This replaced a silent replace-by-name that
 reported itself as "1 updated" while destroying the first person's answers — the exact
 thing this section forbids.

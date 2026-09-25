@@ -419,7 +419,7 @@ const RUNEUR=[[0,50],[50,150],[150,400],[400,800],null,[400,600],[600,900],[900,
    editing it in place silently rewrites what every existing code means. C2 decodes against it. */
 const REGIONS_V2=["Vestland, Norway \u2014 the fjords","German & Austrian northern Alps","French Alps & Vercors",
  "Vosges & Alsace","Ardennes & Eifel","Pyrenees","Northern Germany & Denmark","Somewhere not on this list"];
-/* Live list. The questionnaire and every new code (format C3) use this one. */
+/* Live list. The questionnaire and every new code use this one; C3 and C4 codes decode against it. */
 const REGIONS=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
  "Pyrenees","Somewhere not on this list"];
 const OFFLIST="Somewhere not on this list";
@@ -511,6 +511,8 @@ let boardEdit=-1, boardEditKey="";
 /* Unresolved same-name collisions from the last paste, oldest first, plus whether the
    collector has chosen "keep both" on the one in front of them. */
 let pend=[], pendBoth=false;
+/* Lines of a paste that could not be read. They go back into the box rather than vanishing. */
+let txKeep="", clrSure=false;
 /* The last row taken off the board, kept only until the next action. Removing is one tap
    with no confirmation while clearing the whole board asks twice, so the guard was on the
    less likely action - and a row is somebody's answers, which may be the only copy. */
@@ -524,8 +526,9 @@ const MEM={};
    over days has to be told that rather than find out on reload, so the failure is recorded
    and the screens that promise persistence say otherwise. */
 let lsFailed=false;
-function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){lsFailed=true;MEM[k]=v;}}
-function lsGet(k){try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);delete MEM[k];}catch(e){lsFailed=true;MEM[k]=v;}}
+/* Memory first: once a write has fallen back to it, the copy still in storage is older. */
+function lsGet(k){if(Object.prototype.hasOwnProperty.call(MEM,k))return MEM[k];try{const v=localStorage.getItem(k); return v!==null?v:(MEM[k]||null);}catch(e){return MEM[k]||null;}}
 /* The home screen promises that answers save as you go. lsFailed is only ever set by a write
    that has already failed, so before this the first screen made that promise blind and the
    person found out on reload - the exact failure storeWarn() exists to prevent. One probe at
@@ -550,6 +553,10 @@ function autosave(){
   boardEdit=-1;  /* the row moved or was removed: fall through to a personal draft */
  }
  if(S.n) lsSet(slug(S.n),JSON.stringify(S));
+ /* The code screen puts "#c=<code>" in the address. Once an answer has changed since, that
+    code is older than the draft, and a reload would boot from it - so it goes. */
+ if(mode==="build"||mode==="review"){try{if(/^#c=/.test(location.hash))
+  history.replaceState(null,"",location.pathname);}catch(e){}}
 }
 /* Shared by the shared-link boot path and by opening a row of the board, so the two
    cannot drift apart. Takes a decoded record, returns questionnaire state. */
@@ -585,15 +592,18 @@ function boardAdd(list){
 function nameSplit(list){
  const b=boardGet(), fresh=[], clashes=[];
  list.forEach(o=>{
-  const key=String(o.n||"").toLowerCase().trim();
-  const i=key?b.findIndex(x=>String(x.n||"").toLowerCase().trim()===key):-1;
+  const named=String(o.n||"").trim()!=="";
+  let i=named?b.findIndex(x=>sameName(x.n,o.n)):-1;
+  /* Two codes with one name in the same paste are the same question: the first lands
+     (fresh codes are appended before any clash is shown), the second asks about it. */
+  if(i<0&&named){const j=fresh.findIndex(x=>sameName(x.n,o.n));if(j>=0)i=b.length+j;}
   if(i>=0)clashes.push({inc:o,row:i}); else fresh.push(o);
  });
  return {fresh,clashes};
 }
 function boardAppend(list){const b=boardGet();list.forEach(o=>b.push(o));boardSet(b);return b.length;}
 /* A last initial, which is not a surname. Requires a name, whitespace, then one letter. */
-const INITIAL=/^(.+\S)\s+([A-Za-z])\.?$/;
+const INITIAL=/^(.+\S)\s+(\p{L})\.?$/u;
 const hasInitial=n=>INITIAL.test(String(n||"").trim());
 const sameName=(a,b)=>String(a||"").toLowerCase().trim().replace(/\s+/g," ")
                     ===String(b||"").toLowerCase().trim().replace(/\s+/g," ");
@@ -1256,9 +1266,9 @@ function paintTokens(){
 function wire(){
  const q=(s,f)=>document.querySelectorAll(s).forEach(f);
  q("[data-more]",d=>d.ontoggle=()=>{moreOpen[d.dataset.more]=d.open;});
- q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
-q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
- q("[data-hh]",b=>b.onclick=()=>{S.hh=b.dataset.hh;autosave();render();});
+ q("[data-style]",b=>b.onclick=()=>{grabOwn();S.style=b.dataset.style;autosave();render();});
+q("[data-use]",b=>b.onclick=()=>{grabOwn();S.use=b.dataset.use;autosave();render();});
+ q("[data-hh]",b=>b.onclick=()=>{grabOwn();S.hh=b.dataset.hh;autosave();render();});
  /* aria-pressed already says which way a two-state toggle is, so no live message on top. */
  q("[data-sk]",b=>b.onclick=()=>{const k=b.dataset.sk;S.sk[k]=S.sk[k]?0:1;autosave();
    b.classList.toggle("must",!!S.sk[k]);b.setAttribute("aria-pressed",S.sk[k]?"true":"false");});
@@ -1360,7 +1370,7 @@ function incoming(){
   boardAppend(sp.fresh);
   msg=`${esc(o.n||"They")} added. ${boardGet().length} on the board.`;
   clean();mode="combine";render();};
- document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;clean();mode="review";render();};
+ document.getElementById("mine").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;clean();autosave();mode="review";render();};
  document.getElementById("hmx").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;S=blank();clean();mode="home";render();};
 }
 function resume(){
@@ -1651,6 +1661,8 @@ function done(){
   document.getElementById("hm").onclick=()=>{mode="home";render();};
   return;
  }
+ /* The address carries the code only while this screen is up. Left there after going back to
+    change an answer, a reload would boot from the older code. */
  try{history.replaceState(null,"","#c="+code);}catch(e){}
  app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>Here is your code</h2>
  <p class="lede">Copy it and send it to the group chat. That's the whole thing.</p>
@@ -1750,7 +1762,7 @@ function clash(){
   const err=document.getElementById("err");
   if(!hasInitial(v1)||!hasInitial(v2)){
    err.textContent="Both need a last initial \u2014 a name, a space, then one letter.";return;}
-  if(sameName(v1,v2)){err.textContent="Those are still the same name. Two different initials.";return;}
+  if(sameName(v1.replace(/\.$/,""),v2.replace(/\.$/,""))){err.textContent="Those are still the same name. Two different initials.";return;}
   const a=boardGet();
   if(a[c.row])a[c.row]=Object.assign({},a[c.row],{n:v1});
   boardSet(a);
@@ -1760,6 +1772,8 @@ function clash(){
 function combine(){
  if(pend.length)return clash();
  const b=boardGet();
+ /* "Tap again to clear" holds for the one redraw after the first tap and no further. */
+ const sure=clrSure; clrSure=false;
  app.innerHTML=`<div class="kicker">The board</div><h2>${b.length?`${b.length} submission${b.length===1?"":"s"} collected`:"Paste the codes"}</h2>
  <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
  ${storeWarn()}
@@ -1772,7 +1786,7 @@ function combine(){
  ${undoRow?`<div class="ok" role="status" aria-live="polite">Removed
    <b>${esc(undoRow.rec.n||"anon")}</b>. <button class="lnk" id="undo">Put them back</button></div>`:""}
  <textarea id="tx" aria-label="Paste new codes here, one per line"
-  placeholder="Paste new codes here \u2014 one per line"></textarea>
+  placeholder="Paste new codes here \u2014 one per line">${esc(txKeep)}</textarea>
  <button class="btn" id="add">Add to the board</button>
  ${b.length>=2&&b.some(o=>(o.rg||[]).map(rgNow).some(r=>RETIRED.indexOf(r)>=0))?
    `<p class="hint" style="margin-top:12px">Some of these answers picked a region from the earlier list.
@@ -1782,11 +1796,11 @@ function combine(){
    <button class="btn ghost" id="share">Share the picture</button>`:
    `<p class="hint" style="margin-top:12px">Two submissions are needed before the picture will draw.</p>`}
  <button class="btn ghost" id="hm">Back</button>
- ${b.length?`<button class="btn ghost" id="clr">Clear the board</button>`:""}
+ ${b.length?`<button class="btn ghost" id="clr">${sure?"Tap again to clear everything":"Clear the board"}</button>`:""}
  <div class="err" id="err" role="status" aria-live="polite"></div><div class="ok" id="ok" role="status" aria-live="polite"></div>
  <p class="foot">${lsFailed?"The board is only in memory on this device \u2014 see above.":
   "The board is saved on this device, so you can collect codes over days and only ever paste the new ones."}</p>`;
- document.getElementById("hm").onclick=()=>{undoRow=null;mode="home";render();};
+ document.getElementById("hm").onclick=()=>{undoRow=null;txKeep="";mode="home";render();};
  document.querySelectorAll("[data-rm]").forEach(x=>x.onclick=()=>{
   const a=boardGet(), i=+x.dataset.rm, rec=a[i];
   if(!rec)return;
@@ -1802,8 +1816,8 @@ function combine(){
   S=stateFrom(o); boardEdit=i; boardEditKey=String(o.n||"").toLowerCase().trim();
   rvJump=-1; mode="review"; step=0; window.scrollTo(0,0); render();});
  const clr=document.getElementById("clr");
- if(clr)clr.onclick=()=>{undoRow=null;if(clr.dataset.sure){boardSet([]);render();}
-  else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
+ /* Both taps withdraw the put-back offer, and both redraw, so its button goes with it. */
+ if(clr)clr.onclick=()=>{undoRow=null;if(sure)boardSet([]);else clrSure=true;render();};
  const go=document.getElementById("go");
  if(go)go.onclick=()=>{undoRow=null;codes=boardGet();mode="result";window.scrollTo(0,0);render();};
  const shr=document.getElementById("share");
@@ -1817,8 +1831,8 @@ function combine(){
  document.getElementById("add").onclick=()=>{
   const raw=document.getElementById("tx").value;
   if(!raw.trim()){document.getElementById("err").textContent="Nothing pasted yet.";return;}
-  undoRow=null;
-  const out=[],bad=[];
+  txKeep="";
+  let out=[],bad=[];
   const tryOne=t=>{const c=String(t).replace(/^.*#c=/,"").replace(/\s+/g,"");
    if(!c)return null;
    try{const o=decode(c);const arr=Array.isArray(o)?o:[o];
@@ -1830,17 +1844,23 @@ function combine(){
    raw.split(/[\r\n]+/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
     const r=tryOne(l); if(r)r.forEach(x=>out.push(x)); else bad.push(l);});
    if(!out.length){
+    bad=[];
     raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).forEach(tok=>{
-     const r=tryOne(tok); if(r)r.forEach(x=>out.push(x));});
+     const r=tryOne(tok); if(r)r.forEach(x=>out.push(x)); else bad.push(tok);});
    }
   }
-  if(!out.length){document.getElementById("err").textContent="None of those could be read as a code.";return;}
+  /* Any paste withdraws the put-back offer, and redraws so its button goes too. */
+  undoRow=null;
+  if(!out.length){txKeep=raw;render();
+   document.getElementById("err").textContent="None of those could be read as a code.";return;}
   /* Codes with a name nobody on the board is using land straight away. A name already
      there is a question, not an instruction, and waits for an answer. */
   const sp=nameSplit(out);
   if(sp.fresh.length)boardAppend(sp.fresh);
+  txKeep=bad.join("\n");
   if(sp.clashes.length){pend=sp.clashes;pendBoth=false;window.scrollTo(0,0);render();return;}
-  msg=`${sp.fresh.length} added. ${boardGet().length} on the board.`;
+  msg=`${sp.fresh.length} added. ${boardGet().length} on the board.`+(bad.length?
+   ` ${bad.length===1?"One line":bad.length+" lines"} could not be read as a code \u2014 left in the box, so you can ask for ${bad.length===1?"it":"them"} again.`:"");
   render();
   document.getElementById("ok").textContent=msg; msg="";
  };
@@ -1859,8 +1879,8 @@ const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","French Alps, Verco
    votes, and the three alpine regions sit within about 35 viewBox units of each other,
    so "French Alps" was already buried inside the Italian Alps bubble at four votes and
    two more labels go under at a realistic fifteen. Fixed slots cannot collide with each
-   other however the vote splits. Keep the count inside the bubble - unlike the
-   triangle's dots, these are big enough to hold a numeral. */
+   other however the vote splits. The count rides in the label ("Italian Alps \u00b7 7"),
+   not inside the bubble: pins are drawn after the bubbles and a cluster of them covered it. */
 const MAPLAB={
  "Vestland, Norway \u2014 the fjords":      [6,104,"start"],
  "French Alps, Vercors & Chartreuse":      [6,249,"start"],
@@ -2907,7 +2927,7 @@ function result(){
   if(Array.isArray(o0)&&o0.length>1){codes=o0;mode="result";render();return;}
   const o=Array.isArray(o0)?o0[0]:o0;
   S=stateFrom(o);
-  window.__incoming=o; autosave(); mode="incoming"; render(); return;}catch(e){}}
+  window.__incoming=o; mode="incoming"; render(); return;}catch(e){}}
  render();
 })();
 </script>

@@ -718,6 +718,18 @@ describe("editing a row of the board", () => {
 });
 
 describe("a shared link", () => {
+  test("changing an answer after the code screen takes the older code out of the address", () => {
+    const a = loadApp();
+    a.S = stateFrom(rec({ n: "Ada", wy: "First thoughts" }));
+    a.mode = "done";
+    a.render();
+    assert.match(a.location.hash, /^#c=/, "the code screen put the code in the address");
+    a.mode = "review";
+    a.S.why = "Second thoughts";
+    a.autosave();
+    assert.equal(a.location.hash, "", "the address still held the older code after an answer changed");
+  });
+
   test("reloading on an older code's address does not overwrite answers saved since", () => {
     /* The code screen writes "#c=<code>" into the address bar. Going back to change an
        answer autosaves a newer draft but leaves that address in place, so a reload - which a
