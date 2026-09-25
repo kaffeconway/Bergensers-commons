@@ -2007,35 +2007,54 @@ function mapSVG(rgT){
    Weights are (land & space, affordable, easy to reach), normalised at draw time.
 
    Two of the three now come from the property tracker rather than from a reading here.
-   They are the mean of its live listings, scored by that tracker's own cost model and axis
-   formulas. Recomputed 15 Sept 2026 against 30 listings: French Alps 12, Vestland 8,
-   Pyrenees 6, Italian Alps 4. Both are rescaled across the four so the axis spans the range
-   the regions actually differ over - the raw averages sit in a narrow band and would make
-   the axis do nothing. Rescaling changes the spacing, never the order.
+   They are the mean of its scored listings not ruled out and not reported sold, computed with that
+   tracker's own cost model and axis formulas. Recomputed 25 Sept 2026 against 30 listings:
+   French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4. Both are rescaled across the four
+   so the axis spans the range the regions actually differ over - the raw averages sit in a
+   narrow band and would make the axis do nothing. The rescaling is min-max onto a fixed
+   floor: land onto [0.60, 1], affordable onto [0.47, 1], so the top region reads 1 and the
+   bottom one the floor. That reproduces every published 15 Sept value to three decimals;
+   where the two floors first came from is not written down. Rescaling changes the spacing,
+   never the order.
+
+   Same counts as 15 Sept, not the same listings. Sold listings now drop out of the
+   tracker's averages: three Vestland houses sold in September and three others came in, so
+   a check that compares only the counts cannot see the change. One Pyrenees listing is
+   tracked but not yet scored and is left out, which is why the tracker's own dashboard
+   says 31. Italian listings are now costed at Italy's 10% transfer rate; the tracker had
+   been applying France's 8% to every non-Norwegian listing, and the 15 Sept figures
+   carried that error. The Pyrenees and French Alps hold the same listings as on 15 Sept
+   and their averages did not move.
 
    RE-RUN THESE RATHER THAN NUDGING THEM. The tracker gained eleven listings in six days,
    and the first drift was caught only because the caption's counts had gone stale: the
    dots had barely moved (the closest pair went 22.8px to 23.4px) while the stated counts
    were wrong on three of four regions. The caption carries the date for that reason - a
-   number with a date on it can be seen to be old.
+   number with a date on it can be seen to be old. On 25 Sept it went the other way: every
+   count was still right, and Vestland's dot moved 10.6px.
 
    LAND & SPACE is plot size and buildings, weighted as the tracker weights them. Raw
-   averages: Pyrenees .82, French Alps .73, Italian Alps .70, Vestland .63. This axis used
+   averages: Pyrenees .82, French Alps .73, Italian Alps .70, Vestland .55. This axis used
    to say IN THE MOUNTAINS and was a judgment call; it is now measured, and it is measuring
-   a different thing. Vestland sits lowest because its listings are small lots around
-   Bergen - one 84 ha outlier does not lift an eight-listing mean.
+   a different thing. Vestland sits lowest because its listings are house plots - the
+   largest of the eight is under a hectare. The one 84 ha farm in the tracker is not among
+   the eight. The French and Italian Alps rose on 25 Sept (.812 to .873, .743
+   to .826) with their raw values unchanged: Vestland's lower minimum stretched the scale.
 
    AFFORDABLE is the tracker's cost model on the as-financed basis. Raw averages: Italian
-   Alps .84, Vestland .525, Pyrenees .521, French Alps .49. This corrected a real error
+   Alps .83, Vestland .61, Pyrenees .52, French Alps .49. This corrected a real error
    here: the old hand-set weights had the Pyrenees as the cheap corner, and the listings do
    not agree - Pyrenees averages EUR 516,690 all-in against French Alps EUR 515,070, near
-   enough the same, with Vestland at EUR 388,157 and the Italian Alps at EUR 224,910. Only
-   Italy separates, and it separates further than it did.
+   enough the same, with Vestland at EUR 349,742 and the Italian Alps at EUR 229,075.
+   Italy separates furthest; Vestland now sits clearly between.
 
-   Vestland and the Pyrenees changed places on this axis in the 15 Sept re-run, by four
-   thousandths. Do not write a caption that claims an order between those two: the chart
-   shows balance rather than level, and at that distance the honest reading is that they
-   score alike.
+   Never write a caption that claims an order between two regions that score alike: the
+   chart shows balance rather than level. On 15 Sept that was Vestland and the Pyrenees on
+   this axis, four thousandths apart. That tie is gone - Vestland's new listings put it
+   .084 ahead - and no pair is within .02 on either axis today. The nearest are the French
+   and Italian Alps on land (.032) and the Pyrenees and French Alps on affordable (.036).
+   The Pyrenees and French Alps are also the closest two dots (22.7px) and near-identical
+   on mean all-in, so they are the pair not to put in order.
 
    EASY TO REACH is deliberately NOT from the listings, and the caption says so. It is rail
    hours from Amsterdam, the group's practical rail gateway, on the fastest service:
@@ -2043,21 +2062,22 @@ function mapSVG(rgT){
    fastest but 12h typical, Bergen about 27 hours across four countries with an overnight.
    Scored as 1/hours, normalised, because travel pain is not linear. The tracker has an
    axis called "connected", but it is 62% weighted on "near a city" and measures each
-   house's local situation - Vestland's listings score best of the four on it, all being
-   near Bergen. Under this label that would read as Norway being the easy one to get to
+   house's local situation - Vestland's listings score as high as any region on it (level
+   with the Pyrenees on 25 Sept, clearly first on 15 Sept), most being near Bergen. Under this label that would read as Norway being the easy one to get to
    from the Netherlands, which is false. So the two are kept apart.
 
    Carry the tracker's own caveats with these numbers: the priority weights are the mean
    token spend of four questionnaire answers out of roughly fifteen, renovation is blank
    on every listing so every price is a floor, the axis scores are desk reads of listing
-   text, and the Italian Alps average is three listings with the widest spread of the four.
+   text, and the Italian Alps average is four listings with the widest spread of the four
+   by standard deviation of all-in price (not by range: the Pyrenees have the widest).
 
    Last two numbers on each row are where its label sits, and which side it anchors to. */
 const TRI=[
  ["Pyrenees",                          1.00, .525,.71, 306,106,"end"],
- ["Italian Alps",                       .743,1.00,.77,  14,172,"start"],
- ["French Alps, Vercors & Chartreuse",  .812, .470,1.00,306,166,"end"],
- ["Vestland, Norway \u2014 the fjords", .600, .530,.28,  14, 92,"start"]
+ ["Italian Alps",                       .826,1.00,.77,  14,172,"start"],
+ ["French Alps, Vercors & Chartreuse",  .873, .470,1.00,306,166,"end"],
+ ["Vestland, Norway \u2014 the fjords", .600, .655,.28,  14, 92,"start"]
 ];
 const TRIW=320, TRIH=214;
 const TRIA=[160,34], TRIB=[24,190], TRIC=[296,190];   /* apex, bottom left, bottom right */
@@ -2509,8 +2529,8 @@ function result(){
     from home. The circle sizes are votes, in both charts. */
  h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
   <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
-  the average of 30 tracked listings as of 15 September, scored by the search's own cost
-  model &mdash; French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4, so the averages do
+  the average of 30 tracked listings as of 25 September, sold ones left out, scored by the search's own
+  cost model &mdash; French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4, so the averages do
   not rest on equal ground. <b>Easy to reach</b> is not one of them: it is rail hours from the Netherlands,
   about 7&frac12; to Grenoble and about 27 to Bergen. The listings score access
   <i>around</i> a house, which is a different question, so the two are kept apart. A dot's

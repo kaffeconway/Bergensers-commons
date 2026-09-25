@@ -191,8 +191,9 @@ the build.
   fall within about 35 viewBox units of each other, so printed labels collided: "French
   Alps" was buried inside the Italian Alps bubble at **four** votes, and at a realistic
   fifteen two more went under and the bubbles themselves overlapped. Fixed slots cannot
-  collide however the vote splits — there is a test that walks all 816 possible
-  fifteen-person divisions and checks no label lands in a bubble and no leader crosses one.
+  collide however the vote splits — a check was run that walks all 816 possible
+  fifteen-person divisions and confirms no label lands in a bubble and no leader crosses one.
+  That check was never committed; re-run it by hand if a slot or radius changes.
   If a region is ever added to the map, give it a slot at least 30 units clear of the others
   on its side. The vote count rides **in the label**, as `Italian Alps · 7`, not inside the
   bubble: individual pins are drawn after the bubbles, so a cluster of them covered the
@@ -204,48 +205,78 @@ the build.
   property tracker in `kaffeconway/bergensers-property-search`, and one deliberately does
   not** — the caption says which, and it has to keep saying it.
 
-  *Land & space* and *affordable* are the mean of the live listings in that tracker,
-  computed with its own `load()`, cost model and axis formulas (`tools/make_charts.py`) so
-  the two repos cannot drift, then rescaled across the four regions so each axis spans the
-  range they actually differ over. Rescaling changes spacing, never order. The listing
-  counts are uneven and are printed in the caption, **with the date they were computed**:
-  as of 15 Sept 2026, 30 listings — French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4.
+  *Land & space* and *affordable* are the mean of the scored listings in that tracker that
+  are not ruled out and not reported sold (Status `gone`), computed with its own `load()`, cost model and axis formulas
+  (`tools/make_charts.py`) so the two repos cannot drift, then rescaled across the four
+  regions so each axis spans the range they actually differ over. The rescaling is min-max
+  onto a fixed floor — land onto [0.60, 1], affordable onto [0.47, 1] — which reproduces
+  every published 15 Sept value to three decimals; where the two floors first came from is
+  not recorded. Rescaling changes spacing, never order. The listing counts are uneven and
+  are printed in the caption, **with the date they were computed**: as of 25 Sept 2026,
+  30 listings — French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4. Sold listings
+  (Status `gone`) drop out, and a listing that is tracked but not yet scored is not in the
+  means, so the tracker's own dashboard counts 31 (one unscored Pyrenees listing).
 
   **The date is there because the numbers drift faster than anyone expects.** The tracker
   gained eleven listings in six days. When that first happened the dots had barely moved
   (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
   of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
-  A test pins the current total and counts, so a re-run fails until the caption is brought
-  with it, and two further assertions check the counts sum to the stated total and that a
-  date is present at all.
+  On 25 Sept it went the other way: every count was still right, but three Vestland
+  listings had sold and three others had replaced them, and Vestland's dot moved 10.6px.
+  **Matching counts do not mean matching listings.**
+
+  No committed test guards the caption. Neither repo has a test that reads it; the Node
+  suites the 15 Sept commit message describes were never checked in. The checks are ad-hoc
+  Node ones, run the way *Testing changes* describes for the codec — extract the script, call `triSVG`,
+  and check that the caption states a date, a total, and four counts that sum to it — and
+  they have to be re-run by hand after every re-run of the averages.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
   badly, and not linear, because 10h against 27h is a different kind of gap from 7h against
   10h. The tracker does have an axis called *connected*, but it is 62% weighted on "near a
-  city" and scores each house's **local** situation; Vestland's listings score best of the
-  four on it, all being near Bergen. Putting that number under *easy to reach* would say
+  city" and scores each house's **local** situation; Vestland's listings score as high as any
+  region on it (level with the Pyrenees as of 25 Sept, clearly first on 15 Sept), most being
+  near Bergen. Putting that number under *easy to reach* would say
   Norway is the easy one to get to from the Netherlands, which is false. Keep the two apart.
 
   Adopting the listing averages corrected a real error here: the old hand-set price bands
   had the Pyrenees as the cheap corner. The listings do not agree — Pyrenees averages
-  €516,690 all-in against the French Alps' €515,070, with Vestland €388,157 and the Italian
-  Alps €224,910. Only Italy separates, and it separates further than it did. If the tracker
-  gains or loses listings, re-run the averages rather than nudging the weights by hand.
+  €516,690 all-in against the French Alps' €515,070, with Vestland €349,742 and the Italian
+  Alps €229,075 (as of 25 Sept). Italy separates furthest, and Vestland now sits clearly
+  between. If the tracker gains or loses listings, re-run the averages rather than nudging
+  the weights by hand.
 
-  Vestland and the Pyrenees changed places on *affordable* in the 15 Sept re-run, by four
-  thousandths (.530 against .525 after rescaling). **Don't write a caption that claims an
-  order between those two.** The chart shows balance rather than level, and at that distance
-  the honest reading is that they score alike.
+  The 22 Sept change to the tracker's *Low cost* score (monthly and capital both scored, the
+  worse kept) does not move this axis: on the as-financed basis the capital test never binds,
+  and the Pyrenees and French Alps raw values are identical to 15 Sept.
 
-  The tracker's own caveats travel with the numbers and are in the caption: the priority
+  These figures cost Italian listings at Italy's 10% transfer rate (Assumptions!B34). The
+  tracker's `load()` had been applying France's 8% (B33) to every non-Norwegian listing,
+  and the 15 Sept figures carried that error. On today's listings, correcting it moves only
+  Vestland's *affordable* weight, by .003 (.652 to .655).
+
+  **Don't write a caption that claims an order between two regions that score alike.** The
+  chart shows balance rather than level. On 15 Sept that was Vestland and the Pyrenees on
+  *affordable*, four thousandths apart; by 25 Sept Vestland's new listings had put it .084
+  ahead, so that tie is gone, and no pair is within .02 on either axis. The nearest are the
+  French and Italian Alps on *land & space* (.032, raw) and the Pyrenees and French Alps on
+  *affordable* (.036). The Pyrenees and French Alps are also the closest two dots and
+  near-identical on mean all-in, so they are the pair not to put in order.
+
+  The tracker's own caveats travel with the numbers. The caption carries the first two below
+  and the uneven counts; the comment above `TRI` carries all four: the priority
   weights behind them are the mean token spend of **four** questionnaire answers out of
   roughly fifteen, renovation is blank on every listing so every price is a floor, the axis
-  scores are desk reads of listing text, and the Italian average rests on three listings
-  with the widest spread of the four.
+  scores are desk reads of listing text, and the Italian average rests on four listings
+  with the widest spread of the four by standard deviation of all-in price (not by range —
+  the Pyrenees have the widest range).
 
-  The closest two regions plot about 23px apart (Italian Alps and Vestland, as of the
-  15 Sept re-run). Labels sit outside the plot on leader
+  The closest two regions plot about 23px apart: 22.7px, the Pyrenees and the French Alps,
+  as of the 25 Sept re-run (on 15 Sept it was the Italian Alps and Vestland at 23.4px; they
+  are now 24.1px). At the largest dot radius the closest pair's circles leave 0.7px, and
+  the tightest dot-edge-to-leader gap is 4.3px (7.0px on 15 Sept); no label slot needed to
+  move. Labels sit outside the plot on leader
   lines rather than beside the dots, vote counts live in the labels rather than inside the
   circles, and the dots stay small enough that a near-touch reads as two regions scoring
   alike. Do not spread the dots apart to make it prettier; change the weights only when the
