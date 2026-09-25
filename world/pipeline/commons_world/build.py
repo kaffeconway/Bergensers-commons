@@ -228,10 +228,30 @@ def step_geocode(ctx):
     ctx.add_source(SOURCE_ADDRESS)
 
 
+# The site's clock for the viewer's sun slider (FORMAT.md section 1), by listing country.
+# This is the whole allow-list: manifest.check_world refuses any other zone.
+SITE_TIME_ZONES = {"NO": "Europe/Oslo", "FR": "Europe/Paris", "IT": "Europe/Rome",
+                   "ES": "Europe/Madrid"}
+CANARY_TIME_ZONE = "Atlantic/Canary"      # ES south of 30 N
+ALLOWED_TIME_ZONES = tuple(SITE_TIME_ZONES.values()) + (CANARY_TIME_ZONE,)
+
+
+def site_time_zone(country, lat_deg):
+    """The IANA zone for a listing country at latitude lat_deg, or None if unknown."""
+    if country == "ES" and lat_deg < 30.0:
+        return CANARY_TIME_ZONE
+    return SITE_TIME_ZONES.get(country)
+
+
 def set_origin(ctx, e, n):
-    """Origin, frame and geocode record from the geocoded grid point (E, N)."""
+    """Origin, frame and geocode record from the geocoded grid point (E, N).
+
+    The crs also carries the origin's ETRS89 latitude and longitude (6 dp) and, when the
+    listing names a country, the site's IANA time zone; the viewer's sun needs both.
+    """
     ctx.origin = geo.round_origin(e, n)
     oe, on = ctx.origin
+    lat, lon = geo.to_latlon(float(oe), float(on), ctx.epsg)
     ctx.crs = {
         "epsg": ctx.epsg,
         "origin_e": oe,
@@ -239,7 +259,12 @@ def set_origin(ctx, e, n):
         "grid_north_offset_deg": round(geo.grid_north_offset_deg(oe, on, ctx.epsg), 4),
         "scale_factor": round(geo.scale_factor(oe, on, ctx.epsg), 7),
         "vertical": ctx.vertical,
+        "lat_deg": round(float(lat), 6),
+        "lon_deg": round(float(lon), 6),
     }
+    zone = site_time_zone((getattr(ctx, "listing", None) or {}).get("country"), float(lat))
+    if zone is not None:
+        ctx.crs["time_zone"] = zone
 
 
 def step_origin(ctx):
