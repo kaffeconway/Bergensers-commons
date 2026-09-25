@@ -43,6 +43,8 @@ listing, and nothing that places a listing on the map. Those go to Joseph direct
 | D11 | **Which sun figure the panel leads with**: plot median or a garden point; terrain only or with trees and buildings | 4 | Lead with the plot median, terrain only, with the with-trees figure beside it |
 | D12 | **Italy terrain.** The brief named Copernicus DEM, a 30 m *surface* model that reads 3.5–7.9 m above the ground on average at the sites tested | 5 | Regione Piemonte's 5 m ground model where it covers, TINITALY 10 m elsewhere, and Copernicus only as a last resort, with its required notice |
 | D13 | The link from `index.html`, and the hub map's base layer | 5 | Decide then. A world cannot open from a saved copy the way `index.html` can |
+| D14 | **Phone triangle budget.** On the real prototype the phone start view drew about 0.67 M triangles against the ~0.4 M rule of thumb (draw calls were within budget). Coarser height steps for the far blocks (2 m steps for 2 m blocks, 4 m for 4 m) cut it roughly in half, but make distant ground look chunkier | before approval | Try it on a real phone first; switch only if it stutters. It is one setting in `js/chunks.js` |
+| D15 | **Small visible choices made in steps 3-4**: the house label shows through hills as a locator; a peak whose named point has no distinct top is reported as "short of the named point"; a summit found more than 50 m from its named point is flagged on the panel | before approval | Keep; each is one line to change |
 
 ---
 
@@ -254,7 +256,11 @@ its method, and the format is `FORMAT.md`'s `facts.json`.
 
 **Peaks and trailheads.**
 - Named peaks from Kartverket's place names, with heights from the terrain. The coarse
-  levels flatten summits, so peaks are measured on fresh 1–2 m data around each summit.
+  levels flatten summits, so each shortlisted peak is re-measured on fresh 1 m data: the
+  summit is the highest ground reachable from the named point without dropping more than
+  2 m that is also a top (highest within 20 m all round). If there is none within 30 m,
+  the panel says the name marks no distinct top, and a summit found over 50 m from its
+  named point is flagged.
 - Trailheads derived from where paths leave roads, parking and Turrutebasen route ends.
 - Walking routes on NVDB footways, paths and roads, plus Turrutebasen. Climb comes from
   the terrain, time from Naismith and from Tobler's hiking function.
@@ -264,8 +270,9 @@ its method, and the format is `FORMAT.md`'s `facts.json`.
 **Tests.** Known answers:
 - a flat plane gives 0°, a 10% ramp 5.71°;
 - a synthetic wall and cone;
-- solar noon at a fixed synthetic point against pvlib;
-- sunrise against MET Norway's published tables;
+- solar noon at a fixed synthetic point, and the sun's position over a year against an
+  independent implementation of NOAA's equations (a MET Norway cross-check is not
+  written: `api.met.no` is not on the allowlist);
 - routing on a toy graph.
 
 ---
@@ -311,8 +318,8 @@ replaces it.
 |---|---|
 | 1. Plan | Done, 24 Sept |
 | 2. Pipeline for one listing | **Built 25 Sept.** 409 tests (network tests separate). The first real build is described in 6.1. Committed to the working branch, not `main` |
-| 3. Viewer | Next: walk and fly, blocks near and smooth far, plot line, house, specs panel, credits. Headless Playwright tests; a real phone for performance |
-| 4. Measured facts | After or alongside 3, into `facts.json` |
+| 3. Viewer | **Built 25 Sept.** Walk and fly, blocks near and smooth far with no cracks at any level boundary, plot line, house and specs panel, facts, credits, phone controls. 30 headless Playwright tests on the synthetic world (decoder parity with the pipeline, winding, seams, picking, plot tint, phone layout, no request leaving the page's own server). Not yet tried on a real phone, Safari or iOS |
+| 4. Measured facts | **Built 25 Sept.** Slope and flat ground, clear-sky sun hours from a horizon cast to ~160 km, peaks and trailheads by walking route. Every figure independently recomputed by a reviewer. 459 pipeline tests in all |
 | 5. Hub map, other listings, France, Italy | **Only after Joseph approves the prototype** |
 
 Nothing reaches `main`, and so the live site, until Joseph says so. Every pushed branch of

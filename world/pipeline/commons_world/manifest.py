@@ -221,6 +221,59 @@ def _check_credits(folder, manifest, problems):
         problems.append("credits: place names need the SSR credit")
 
 
+FACTS_BLOCKS = ("plot", "sun", "access")
+
+
+def _check_facts(folder, manifest, problems):
+    """facts.json, when listed: ASCII JSON of version 1 whose blocks carry a method and caveats."""
+    entry = manifest["files"].get("facts")
+    if not isinstance(entry, dict):
+        return
+    try:
+        facts = json.loads((folder / str(entry.get("file", ""))).read_bytes().decode("ascii"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        problems.append("files.facts: unreadable or not ASCII JSON: {}".format(exc))
+        return
+    if not isinstance(facts, dict) or facts.get("version") != 1:
+        problems.append("files.facts: version must be 1")
+        return
+    if not isinstance(facts.get("generated_at"), str):
+        problems.append("files.facts: generated_at missing")
+    for name in FACTS_BLOCKS:
+        block = facts.get(name)
+        if block is None:
+            continue               # the viewer says "not computed"
+        if not isinstance(block, dict) or not isinstance(block.get("method"), str) \
+                or not isinstance(block.get("caveats"), list):
+            problems.append("files.facts: block {!r} needs a method string and a caveats "
+                            "list".format(name))
+
+
+def _check_listing(folder, manifest, problems):
+    """listing.json, if listed, passes the build's own leak check and schema again.
+
+    The build refuses a listing that carries private group data; `check` is the natural
+    gate before anything is published, so it re-reads the file rather than trusting it.
+    """
+    from . import listing as listinglib
+
+    entry = manifest["files"].get("listing")
+    if not entry or not (folder / str(entry.get("file", ""))).is_file():
+        return
+    try:
+        record = json.loads((folder / entry["file"]).read_bytes().decode("ascii"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        problems.append("files.listing: unreadable or not ASCII JSON: {}".format(exc))
+        return
+    if not isinstance(record, dict):
+        problems.append("files.listing: not a JSON object")
+        return
+    try:
+        listinglib.check_listing(record)
+    except (listinglib.LeakError, listinglib.ListingInvalid) as exc:
+        problems.append("files.listing: {}".format(exc))
+
+
 def check_world(folder):
     """Problems with a built world folder, as strings (empty when sound).
 
@@ -228,7 +281,9 @@ def check_world(folder):
     stated size and sha256, and that every file in the folder is listed; that
     every height chunk's header agrees with its key, its level, its file name
     and its manifest entry; and that NOTICE.txt and the credits the sources
-    need are there.
+    need are there; that facts.json, if listed, is version 1 with a
+    method and caveats on each block; and that listing.json, if listed,
+    still passes the listing leak check and schema.
     """
     folder = Path(folder)
     problems = []
@@ -300,6 +355,8 @@ def check_world(folder):
     for key, entry in sorted(manifest["files"].items()):
         check_entry("files.{}".format(key), entry)
     _check_credits(folder, manifest, problems)
+    _check_facts(folder, manifest, problems)
+    _check_listing(folder, manifest, problems)
     on_disk = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()}
     unlisted = sorted(on_disk - listed - {MANIFEST_NAME})
     if unlisted:

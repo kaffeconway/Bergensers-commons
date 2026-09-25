@@ -1,8 +1,9 @@
-"""Command line: python -m commons_world {build,synthetic,check} ...
+"""Command line: python -m commons_world {build,synthetic,check,facts} ...
 
     build      --listing PATH [--out DIR] [--offline] [--cache DIR] [--no-plugins]
     synthetic  [--out DIR]
     check      DIR
+    facts      --world DIR [--offline] [--cache DIR] [--compare-pvgis CSV]
 
 `--out` is the world folder itself. build defaults to world/out/<id>/ and
 synthetic to world/out/synthetic/, both gitignored. Nothing is published. An
@@ -59,6 +60,15 @@ def main(argv=None):
     p_check = sub.add_parser("check", help="check a built world folder against its manifest")
     p_check.add_argument("folder", type=Path)
 
+    p_facts = sub.add_parser("facts", help="compute facts.json for a built world folder")
+    p_facts.add_argument("--world", required=True, type=Path, help="the world folder")
+    p_facts.add_argument("--offline", action="store_true",
+                         help="use only cached responses; fail on anything not cached")
+    p_facts.add_argument("--cache", type=Path, default=DEFAULT_CACHE,
+                         help="response cache folder (default world/pipeline/.cache)")
+    p_facts.add_argument("--compare-pvgis", type=Path, default=None, metavar="CSV",
+                         help="print a comparison with a PVGIS horizon file (never stored)")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
@@ -68,8 +78,14 @@ def main(argv=None):
             folder = build(args.listing, args.out, cache_dir=args.cache, offline=args.offline,
                            log=default_log)
         elif args.command == "synthetic":
+            from .facts import synthetic_pipeline
             from .synthetic import build_synthetic
-            folder = build_synthetic(args.out, commit=pipeline_commit(), log=default_log)
+            folder = build_synthetic(args.out, commit=pipeline_commit(), log=default_log,
+                                     pipeline=synthetic_pipeline())
+        elif args.command == "facts":
+            from .facts import run_cli
+            folder, _, _ = run_cli(args.world, cache_dir=args.cache, offline=args.offline,
+                                   compare_pvgis=args.compare_pvgis, log=default_log)
         else:
             problems = check_world(args.folder)
             for problem in problems:

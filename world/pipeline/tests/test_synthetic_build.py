@@ -16,10 +16,8 @@ from commons_world.grid import LEVELS, Level
 
 
 @pytest.fixture(scope="session")
-def world(tmp_path_factory):
-    folder = tmp_path_factory.mktemp("worlds") / "synthetic"
-    assert main(["synthetic", "--out", str(folder)]) == 0
-    return folder
+def world(synthetic_world):
+    return synthetic_world
 
 
 @pytest.fixture(scope="session")
@@ -40,7 +38,8 @@ def test_manifest_shape(world_manifest):
     assert (m["crs"]["origin_e"], m["crs"]["origin_n"], m["crs"]["epsg"]) == (oe, on, 25832)
     assert m["crs"]["grid_north_offset_deg"] == pytest.approx(4.333, abs=0.001)  # 4 E is west of 9 E
     assert [level["name"] for level in m["levels"]] == ["h1", "h5", "h20"]
-    assert set(m["files"]) == {"plot", "listing", "notice", "buildings", "trees", "places"}
+    assert set(m["files"]) == {"plot", "listing", "notice", "buildings", "trees", "places",
+                               "facts"}
     assert m["files"]["buildings"]["file"] == "buildings.json.gz"
     assert m["files"]["trees"]["file"] == "trees.bin.gz"
     assert m["files"]["places"]["file"] == "places.json"

@@ -47,7 +47,8 @@ instead of editing this file:
 - `pipeline="synthetic"` registers into the synthetic build instead.
 
 The CLI imports every module in PLUGIN_MODULES that exists (for now
-`commons_world.features`), so a module's register_step calls take effect
+`commons_world.features` and `commons_world.facts`, which adds "facts" just
+before "manifest"), so a module's register_step calls take effect
 without this file naming its steps. Library callers and tests that want the
 core build only pass `pipeline=core_build_pipeline()`.
 """
@@ -73,7 +74,7 @@ from .sources import (CREDIT_KARTVERKET, SOURCE_ADDRESS, SOURCE_EIENDOM, SOURCE_
 PIPELINE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CACHE = PIPELINE_DIR / ".cache"
 DEFAULT_OUT_ROOT = PIPELINE_DIR.parent / "out"
-PLUGIN_MODULES = ("commons_world.features",)
+PLUGIN_MODULES = ("commons_world.features", "commons_world.facts")
 
 # The register's stored area and the polygon's own area should agree this well.
 AREA_TOLERANCE = 0.005

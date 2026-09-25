@@ -128,3 +128,13 @@ def make_client(tmp_path, clock):
         return cw_http.Client(kwargs.pop("cache_dir", tmp_path / "cache"),
                               transport=transport, **kwargs)
     return factory
+
+
+@pytest.fixture(scope="session")
+def synthetic_world(tmp_path_factory):
+    """The synthetic world, built once per session through the CLI (facts included)."""
+    from commons_world.__main__ import main
+
+    folder = tmp_path_factory.mktemp("worlds") / "synthetic"
+    assert main(["synthetic", "--out", str(folder)]) == 0
+    return folder

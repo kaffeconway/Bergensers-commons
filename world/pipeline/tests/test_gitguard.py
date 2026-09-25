@@ -79,3 +79,32 @@ def test_this_repo_default_folders_are_ignored_and_the_rest_is_not():
     for bad in (PIPELINE / "out", PIPELINE / "commons_world" / "w", PIPELINE.parent / "data"):
         with pytest.raises(UnsafeDestination):
             check_destination(bad)
+
+
+def _tree_bytes(folder):
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+@pytest.mark.skipif(not HAVE_GIT, reason="git is not installed")
+def test_facts_refuses_a_world_or_a_cache_git_does_not_ignore(synthetic_world, tmp_path, capsys):
+    repo = fake_checkout(tmp_path / "repo")
+    # a world folder git would pick up: refused before anything is written
+    tracked = repo / "world" / "w"
+    shutil.copytree(synthetic_world, tracked)
+    before = _tree_bytes(tracked)
+    assert main(["facts", "--world", str(tracked)]) == 2
+    assert "git does not ignore it" in capsys.readouterr().err
+    assert _tree_bytes(tracked) == before
+    # a real (non-synthetic) world with a response cache git would pick up: refused before
+    # the HTTP client exists, so nothing is fetched or cached. The id is made up.
+    ignored = repo / "out" / "w"
+    shutil.copytree(synthetic_world, ignored)
+    m = json.loads((ignored / "manifest.json").read_text(encoding="ascii"))
+    m["id"] = "no-9999-1-1"
+    (ignored / "manifest.json").write_text(json.dumps(m), encoding="ascii")
+    before = _tree_bytes(ignored)
+    assert main(["facts", "--world", str(ignored), "--cache", str(repo / "tracked-cache"),
+                 "--offline"]) == 2
+    assert "git does not ignore it" in capsys.readouterr().err
+    assert not (repo / "tracked-cache").exists()
+    assert _tree_bytes(ignored) == before

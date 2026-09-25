@@ -89,8 +89,13 @@ def _bump(counter, key):
     counter[key] = counter.get(key, 0) + 1
 
 
-def parse(source, clip=None, epsg=25832, data=None):
-    """Read one Vegnett Pluss GML file; keep Veglenke lines that reach `clip`, in `epsg`."""
+def parse(source, clip=None, epsg=25832, data=None, keep_connections=False):
+    """Read one Vegnett Pluss GML file; keep Veglenke lines that reach `clip`, in `epsg`.
+
+    With keep_connections, connection links are kept too (their source_type
+    gets " connection"): they are not road surface, so the class band leaves
+    them out, but a walking network needs them to join footways to roads.
+    """
     data = data if data is not None else NVDBData()
     reproject = gml.Reprojector(epsg)
     for feature in gml.iter_features(source):
@@ -105,7 +110,8 @@ def parse(source, clip=None, epsg=25832, data=None):
         if kind is None:
             _bump(data.unknown_types, road_type)
             continue
-        if (gml.text(feature, "konnekteringslenke") or "").lower() == "true":
+        connection = (gml.text(feature, "konnekteringslenke") or "").lower() == "true"
+        if connection and not keep_connections:
             _bump(data.skipped, "connection link")
             continue
         if (gml.text(feature, "detaljniv\u00e5") or "") in SKIPPED_DETAIL:
@@ -122,15 +128,16 @@ def parse(source, clip=None, epsg=25832, data=None):
         medium = gml.text(feature, "medium") or None
         for part in geom.parts:
             data.lines.append(Line(kind=kind, coords=part, category=category, medium=medium,
-                                   source="nvdb", source_type=road_type))
+                                   source="nvdb",
+                                   source_type=road_type + (" connection" if connection else "")))
     return data
 
 
-def parse_zip(content, clip=None, epsg=25832, data=None):
+def parse_zip(content, clip=None, epsg=25832, data=None, keep_connections=False):
     """Read every GML file in a Vegnett Pluss municipality zip."""
     from .download import zip_members
 
     data = data if data is not None else NVDBData()
     for _, fh in zip_members(content, ".gml"):
-        parse(fh, clip=clip, epsg=epsg, data=data)
+        parse(fh, clip=clip, epsg=epsg, data=data, keep_connections=keep_connections)
     return data
