@@ -2009,8 +2009,10 @@ function mapSVG(rgT){
 
    Two of the three now come from the property tracker rather than from a reading here.
    They are the mean of its live listings, scored by that tracker's own cost model and axis
-   formulas. Recomputed 15 Sept 2026 against 30 listings: French Alps 12, Vestland 8,
-   Pyrenees 6, Italian Alps 4. Both are rescaled across the four so the axis spans the range
+   formulas. Recomputed 25 Sept 2026 against 32 listings: French Alps 13, Vestland 9,
+   Pyrenees 6, Italian Alps 4. The counts are SCORED listings - an unassessed property is
+   not a low-scoring one and the tracker's own chart filters it out, so a 33rd live listing
+   that nobody has scored is correctly absent from these means. Both are rescaled across the four so the axis spans the range
    the regions actually differ over - the raw averages sit in a narrow band and would make
    the axis do nothing. Rescaling changes the spacing, never the order.
 
@@ -2020,23 +2022,33 @@ function mapSVG(rgT){
    were wrong on three of four regions. The caption carries the date for that reason - a
    number with a date on it can be seen to be old.
 
+   It happened again, and nothing caught it. Two listings were added on 24-25 Sept 2026 and
+   this caption went on saying 30 listings and Vestland 8 for a day. The CLAIM that a test
+   pinned these counts was in the property repo's CLAUDE.md and was simply false - no such
+   test existed anywhere, which is why nobody looked. There is one now, in that repo's
+   tools/test_charts.py, and the numbers above are produced by tools/triangle_regions.py
+   rather than by hand, so a re-run is a command and not an afternoon.
+
    LAND & SPACE is plot size and buildings, weighted as the tracker weights them. Raw
-   averages: Pyrenees .82, French Alps .73, Italian Alps .70, Vestland .63. This axis used
+   averages: Pyrenees .82, French Alps .71, Italian Alps .70, Vestland .61. This axis used
    to say IN THE MOUNTAINS and was a judgment call; it is now measured, and it is measuring
    a different thing. Vestland sits lowest because its listings are small lots around
-   Bergen - one 84 ha outlier does not lift an eight-listing mean.
+   Bergen - one 84 ha outlier does not lift a nine-listing mean, and Jarlandsvegen 22's
+   887 m2 plot pulled it down further.
 
    AFFORDABLE is the tracker's cost model on the as-financed basis. Raw averages: Italian
-   Alps .84, Vestland .525, Pyrenees .521, French Alps .49. This corrected a real error
+   Alps .84, Vestland .544, Pyrenees .521, French Alps .502. This corrected a real error
    here: the old hand-set weights had the Pyrenees as the cheap corner, and the listings do
-   not agree - Pyrenees averages EUR 516,690 all-in against French Alps EUR 515,070, near
-   enough the same, with Vestland at EUR 388,157 and the Italian Alps at EUR 224,910. Only
+   not agree - Pyrenees averages EUR 516,690 all-in against French Alps EUR 501,618, near
+   enough the same, with Vestland at EUR 375,955 and the Italian Alps at EUR 224,910. Only
    Italy separates, and it separates further than it did.
 
-   Vestland and the Pyrenees changed places on this axis in the 15 Sept re-run, by four
-   thousandths. Do not write a caption that claims an order between those two: the chart
-   shows balance rather than level, and at that distance the honest reading is that they
-   score alike.
+   Vestland and the Pyrenees sat four thousandths apart on this axis in the 15 Sept run,
+   close enough that no caption should have claimed an order between them. The 25 Sept
+   re-run opened that gap to about 35 thousandths, with Vestland the more affordable, so
+   they no longer read as scoring alike - but the caption still does not claim an order and
+   should not start. Two listings moved it that far, which is the point: at four responses
+   and thirty-odd listings these are not stable quantities.
 
    EASY TO REACH is deliberately NOT from the listings, and the caption says so. It is rail
    hours from Amsterdam, the group's practical rail gateway, on the fastest service:
@@ -2049,16 +2061,17 @@ function mapSVG(rgT){
    from the Netherlands, which is false. So the two are kept apart.
 
    Carry the tracker's own caveats with these numbers: the priority weights are the mean
-   token spend of four questionnaire answers out of roughly fifteen, renovation is blank
-   on every listing so every price is a floor, the axis scores are desk reads of listing
-   text, and the Italian Alps average is three listings with the widest spread of the four.
+   token spend of four questionnaire answers out of roughly fifteen, renovation is blank on
+   all but one listing so nearly every price is a floor, the axis scores are desk reads of
+   listing text, and the Italian Alps average is three listings with the widest spread of
+   the four.
 
    Last two numbers on each row are where its label sits, and which side it anchors to. */
 const TRI=[
- ["Pyrenees",                          1.00, .525,.71, 306,106,"end"],
- ["Italian Alps",                       .743,1.00,.77,  14,172,"start"],
- ["French Alps, Vercors & Chartreuse",  .812, .470,1.00,306,166,"end"],
- ["Vestland, Norway \u2014 the fjords", .600, .530,.28,  14, 92,"start"]
+ ["Pyrenees",                          1.00, .501,.71, 306,106,"end"],
+ ["Italian Alps",                       .775,1.00,.77,  14,172,"start"],
+ ["French Alps, Vercors & Chartreuse",  .802, .470,1.00,306,166,"end"],
+ ["Vestland, Norway \u2014 the fjords", .600, .536,.28,  14, 92,"start"]
 ];
 const TRIW=320, TRIH=214;
 const TRIA=[160,34], TRIB=[24,190], TRIC=[296,190];   /* apex, bottom left, bottom right */
@@ -2510,14 +2523,14 @@ function result(){
     from home. The circle sizes are votes, in both charts. */
  h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
   <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
-  the average of 30 tracked listings as of 15 September, scored by the search's own cost
-  model &mdash; French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4, so the averages do
+  the average of 32 tracked listings as of 25 September, scored by the search's own cost
+  model &mdash; French Alps 13, Vestland 9, Pyrenees 6, Italian Alps 4, so the averages do
   not rest on equal ground. <b>Easy to reach</b> is not one of them: it is rail hours from the Netherlands,
   about 7&frac12; to Grenoble and about 27 to Bergen. The listings score access
   <i>around</i> a house, which is a different question, so the two are kept apart. A dot's
   place is the balance between the three, not the level of any one. Two things to hold
   against it: the priorities behind those averages are four answers, not fifteen, and
-  renovation is blank on every listing, so every price shown is a floor.</p>`;
+  renovation is blank on all but one listing, so nearly every price shown is a floor.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);
