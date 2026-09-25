@@ -359,7 +359,7 @@ export const HOUSE_ROOF_MAP = null;                                    // plain 
 // its highlight, which is not its real colour. Walls are lifted 8 % for the cladding's average.
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
-const SLICE = { buildings: 50, ms: 8 };   // neighbours are meshed in slices this size, at most
+const SLICE = { buildings: 50, ms: 6 };   // neighbours are meshed in slices this size, at most (B-11: 8 ms ran over 16)
 const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
 const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
 
@@ -612,7 +612,7 @@ class BuildingMesh {
  * ground just outside the downhill wall is lower than that: walls start sunk 2 m below
  * it, and reground() takes them further down, to the lowest ground drawable around the
  * footprint, once the heights there are loaded.
- * The house is meshed at once; the neighbours in slices of at most 50 buildings or 8 ms,
+ * The house is meshed at once; the neighbours in slices of at most 50 buildings or 6 ms,
  * on a setTimeout chain, and drawn in one swap when the last slice ends (`ready`). */
 export function buildBuildings(features) {
   const maps = detailMaps();
