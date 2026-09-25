@@ -429,6 +429,37 @@ function coloursFor(plan, isHouse) {
 
 const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
 
+/* One building's mesh as typed arrays ready to copy: positions, flat normals (a vertex
+ * belongs to one face), uvs, colours by group, the local index per group, the wall
+ * bottoms and the box. */
+function packMesh(m, colours) {
+  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups;
+  const pos = Float32Array.from(P), uv = Float32Array.from(m.uv);
+  const nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
+  const counts = [0, 0, 0];
+  for (let t = 0; t < G.length; t++) counts[G[t]] += 3;
+  const groups = counts.map((n) => new Uint32Array(n)), fill = [0, 0, 0];
+  for (let t = 0; t < G.length; t++) {
+    const a = I[3 * t], b = I[3 * t + 1], c = I[3 * t + 2], g = G[t];
+    const ux = P[3 * b] - P[3 * a], uy = P[3 * b + 1] - P[3 * a + 1], uz = P[3 * b + 2] - P[3 * a + 2];
+    const vx = P[3 * c] - P[3 * a], vy = P[3 * c + 1] - P[3 * a + 1], vz = P[3 * c + 2] - P[3 * a + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    nx /= L; ny /= L; nz /= L;
+    const k = colours[g];
+    for (const v of [a, b, c]) {
+      nor[3 * v] = nx; nor[3 * v + 1] = ny; nor[3 * v + 2] = nz;
+      col[3 * v] = k.r; col[3 * v + 1] = k.g; col[3 * v + 2] = k.b;
+    }
+    groups[g][fill[g]++] = a; groups[g][fill[g]++] = b; groups[g][fill[g]++] = c;
+  }
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let v = 0; v < nv; v++) {
+    for (let k = 0; k < 3; k++) { const x = P[3 * v + k]; if (x < lo[k]) lo[k] = x; if (x > hi[k]) hi[k] = x; }
+  }
+  return { nv, ni: I.length, pos, nor, uv, col, groups, wallBottom: m.wallBottom, lo, hi };
+}
+
 /* One of the two building meshes, built from per-building meshes in one go. Its index is
  * laid out walls, roofs, trim, each a geometry group, and within a group one contiguous
  * block per building, so setShadowFocus() can put the buildings near the sun's box first. */
@@ -467,57 +498,56 @@ class BuildingMesh {
     return g;
   }
 
-  /* entries: [{item, mesh (roofmesh output), colours [walls, roofs, trim]}] */
-  build(entries) {
+  /* entries: [{item, packed (packMesh), order}]. Only copies: every per-building array was
+   * made when that building was meshed, so the swap stays short. */
+  build(entries) { this.finish(this.stage(entries)); }
+
+  /* The first half of a build: the vertex attributes, copied into place. */
+  stage(entries) {
     // within each group, buildings in 240 m squares, row by row, for locality
     const sq = (e) => [Math.floor(e.item.box[1] / 240), Math.floor(e.item.box[0] / 240)];
     entries = entries.slice().sort((a, b) => { const p = sq(a), q = sq(b); return p[0] - q[0] || p[1] - q[1] || a.order - b.order; });
     let nv = 0, ni = 0;
-    for (const e of entries) { e.voff = nv; nv += e.mesh.pos.length / 3; ni += e.mesh.idx.length; }
-    const pos = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), col = new Float32Array(nv * 3);
-    const gnd = new Float32Array(nv);
-    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+    for (const e of entries) { e.voff = nv; nv += e.packed.nv; ni += e.packed.ni; }
+    const st = { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
+                 col: new Float32Array(nv * 3), gnd: new Float32Array(nv) };
     for (const e of entries) {
-      pos.set(e.mesh.pos, e.voff * 3);
-      uv.set(e.mesh.uv, e.voff * 2);
-      gnd.fill(e.item.ground, e.voff, e.voff + e.mesh.pos.length / 3);
-      const I = e.mesh.idx, G = e.mesh.groups;
-      for (let t = 0; t < G.length; t++) {
-        const c = e.colours[G[t]];
-        for (let k = 0; k < 3; k++) {
-          const v = e.voff + I[3 * t + k];
-          col[3 * v] = c.r; col[3 * v + 1] = c.g; col[3 * v + 2] = c.b;
-        }
-      }
+      const p = e.packed;
+      st.pos.set(p.pos, e.voff * 3);
+      st.nor.set(p.nor, e.voff * 3);
+      st.uv.set(p.uv, e.voff * 2);
+      st.col.set(p.col, e.voff * 3);
+      st.gnd.fill(e.item.ground, e.voff, e.voff + p.nv);
     }
+    return st;
+  }
+
+  /* The second half: the index, one group per material, and the swap. */
+  finish(st) {
+    const { entries, nv, ni, pos, nor, uv, col, gnd } = st;
+    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
     const starts = [0, 0, 0], counts = [0, 0, 0];
     let cursor = 0;
     for (let g = 0; g < 3; g++) {
       starts[g] = cursor;
       for (const e of entries) {
         e.blocks = e.blocks || [];
-        const I = e.mesh.idx, G = e.mesh.groups, from = cursor;
-        for (let t = 0; t < G.length; t++) {
-          if (G[t] !== g) continue;
-          idx[cursor++] = e.voff + I[3 * t];
-          idx[cursor++] = e.voff + I[3 * t + 1];
-          idx[cursor++] = e.voff + I[3 * t + 2];
-        }
+        const local = e.packed.groups[g], off = e.voff, from = cursor;
+        for (let i = 0; i < local.length; i++) idx[cursor++] = local[i] + off;
         e.blocks[g] = [from, cursor - from];
       }
       counts[g] = cursor - starts[g];
     }
-    for (const e of entries) e.item.verts = e.mesh.wallBottom.map((v) => v + e.voff);
+    for (const e of entries) e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('cwGround', new THREE.BufferAttribute(gnd, 1));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     for (let g = 0; g < 3; g++) geo.addGroup(starts[g], counts[g], g);
-    geo.computeVertexNormals();
-    geo.computeBoundingBox();
-    geo.computeBoundingSphere();
+    BuildingMesh.bounds(geo, entries.map((e) => e.packed));
     const old = this.mesh.geometry;
     this.mesh.geometry = geo;
     old.dispose();
@@ -527,6 +557,27 @@ class BuildingMesh {
     this.source = idx.slice();
     this.inFocus = counts.slice();
     this.focusKey = null;
+  }
+
+  /* The geometry's box from the buildings' boxes, and a sphere around its centre that
+   * holds every building's box (a little larger than three's own, never smaller). */
+  static bounds(geo, packs) {
+    const box = new THREE.Box3();
+    for (const p of packs) {
+      box.expandByPoint(new THREE.Vector3(p.lo[0], p.lo[1], p.lo[2]));
+      box.expandByPoint(new THREE.Vector3(p.hi[0], p.hi[1], p.hi[2]));
+    }
+    if (box.isEmpty()) box.set(new THREE.Vector3(), new THREE.Vector3());
+    const c = box.getCenter(new THREE.Vector3());
+    let r = 0;
+    for (const p of packs) {
+      const dx = Math.max(Math.abs(p.lo[0] - c.x), Math.abs(p.hi[0] - c.x));
+      const dy = Math.max(Math.abs(p.lo[1] - c.y), Math.abs(p.hi[1] - c.y));
+      const dz = Math.max(Math.abs(p.lo[2] - c.z), Math.abs(p.hi[2] - c.z));
+      r = Math.max(r, Math.hypot(dx, dy, dz));
+    }
+    geo.boundingBox = box;
+    geo.boundingSphere = new THREE.Sphere(c, r);
   }
 
   /* Put the buildings whose box meets rect first within each group; null: all in focus.
@@ -592,7 +643,7 @@ export function buildBuildings(features) {
     if (plan.fallback) info.fallback++;
     else info.byModel[plan.model] = (info.byModel[plan.model] || 0) + 1;
     if (plan.malformed) info.malformed++;
-    const entry = { item, order: order++, colours: coloursFor(plan, isHouse), mesh: null };
+    const entry = { item, order: order++, colours: coloursFor(plan, isHouse), packed: null };
     if (isHouse) {
       houseInfo = { ring: plan.ring, ground: plan.ground, roof: plan.ridge, centroid: ringCentroid(plan.ring),
                     id: f.id, shape: plan.fallback ? null : f.roof_shape };
@@ -601,11 +652,15 @@ export function buildBuildings(features) {
       pending.push(entry);
     }
   }
-  const timing = { houseMs: 0, slices: 0, longestSliceMs: 0, totalMs: 0, swapMs: 0 };
-  const mesh1 = (entry) => meshBuilding(entry.item.plan.prep, entry.item.bottom, meshOptions(entry.item.plan, entry.item.house));
-  let t0 = performance.now();
+  const timing = { houseMs: 0, slices: 0, longestSliceMs: 0, totalMs: 0, swapMs: 0, sliceMs: [] };
+  const mesh1 = (entry) => {
+    const m = meshBuilding(entry.item.plan.prep, entry.item.bottom, meshOptions(entry.item.plan, entry.item.house));
+    entry.packed = packMesh(m, entry.colours);
+    entry.meshedBottom = entry.item.bottom;
+  };
+  const t0 = performance.now();
   if (houseEntry) {
-    houseEntry.mesh = mesh1(houseEntry);
+    mesh1(houseEntry);
     house.build([houseEntry]);
   }
   timing.houseMs = performance.now() - t0;
@@ -614,29 +669,55 @@ export function buildBuildings(features) {
   const ready = new Promise((resolve) => {
     const start = performance.now();
     let next = 0;
+    const note = (ms) => { timing.slices++; timing.sliceMs.push(ms); timing.longestSliceMs = Math.max(timing.longestSliceMs, ms); };
+    // the last step: one swap of the whole geometry, and the walls lowered meanwhile
+    let staged = null;
+    const stage = () => {
+      if (disposed) { resolve(false); return; }
+      const s0 = performance.now();
+      staged = others.stage(pending);
+      const ms = performance.now() - s0;
+      timing.swapMs = ms;
+      note(ms);
+      setTimeout(swap, 0);
+    };
+    const swap = () => {
+      if (disposed) { resolve(false); return; }
+      const s0 = performance.now();
+      others.finish(staged);
+      staged = null;
+      const geo = others.mesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
+      let moved = false;
+      for (const e of pending) {
+        if (e.item.bottom === e.meshedBottom) continue;
+        for (const v of e.item.verts) { P[v * 3 + 1] = e.item.bottom; U[v * 2 + 1] = e.item.bottom / WALL_TILE; }
+        moved = true;
+      }
+      if (moved) {
+        geo.attributes.position.needsUpdate = true;
+        geo.attributes.uv.needsUpdate = true;
+        BuildingMesh.bounds(geo, pending.map((e) => ({ lo: [e.packed.lo[0], Math.min(e.packed.lo[1], e.item.bottom), e.packed.lo[2]], hi: e.packed.hi })));
+      }
+      others.focus(lastRect);
+      const ms = performance.now() - s0;
+      timing.swapMs = Math.max(timing.swapMs, ms);
+      note(ms);
+      timing.totalMs = performance.now() - start;
+      resolve(true);
+    };
     const slice = () => {
       if (disposed) { resolve(false); return; }
       const s0 = performance.now();
       let n = 0;
       while (next < pending.length && n < SLICE.buildings && (n === 0 || performance.now() - s0 < SLICE.ms)) {
-        pending[next].mesh = mesh1(pending[next]);
+        mesh1(pending[next]);
         next++;
         n++;
       }
-      if (next >= pending.length) {
-        const w0 = performance.now();
-        others.build(pending);
-        others.focus(lastRect);
-        timing.swapMs = performance.now() - w0;
-      }
-      const ms = performance.now() - s0;
-      timing.slices++;
-      timing.longestSliceMs = Math.max(timing.longestSliceMs, ms);
-      if (next < pending.length) { setTimeout(slice, 0); return; }
-      timing.totalMs = performance.now() - start;
-      resolve(true);
+      note(performance.now() - s0);
+      setTimeout(next < pending.length ? slice : stage, 0);
     };
-    setTimeout(slice, 0);
+    setTimeout(pending.length ? slice : stage, 0);
   });
 
   const meshes = { house, others };
