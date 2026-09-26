@@ -369,7 +369,10 @@ export const HOUSE_OBSERVED_ROOF = true;                               // false:
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
 const FOCUS_MERGE = 64;                   // triangles: changed runs this close are uploaded as one
-const SLICE = { buildings: 50, ms: 4 };   // neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11)
+// Neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11), and
+// the swap after them runs in steps of `ms`. Exported for the tests: an `ms` below zero ends
+// every slice and step after one building, so each resumes where the last stopped.
+export const SLICE = { buildings: 50, ms: 4 };
 const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
 const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
 

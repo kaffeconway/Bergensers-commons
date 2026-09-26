@@ -641,6 +641,54 @@ test('neighbours arrive after the house', { timeout: 60000 }, async () => {
   assert.ok(r.after.houseSame, 'and the house is untouched');
 });
 
+test('the swap resumes where it stopped, building by building', { timeout: 120000 }, async () => {
+  // B-11 cut the swap into short steps that stop when their time is up and resume on the
+  // next. A negative SLICE.ms stops every slice and step after one building, so every
+  // resume path runs (mid-copy, mid-group, between groups); the geometry must come out
+  // exactly as from the uninterrupted steps.
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const m = await import('./js/objects.js');
+    const { manifest } = window.__cw;
+    const doc = await m.fetchJSON('out/synthetic/' + manifest.files.buildings.file);
+    const snap = (b) => {
+      const g = b.othersMesh.geometry, a = g.attributes;
+      const out = { index: Array.from(g.index.array) };
+      for (const k of ['position', 'normal', 'uv', 'color', 'cwGround']) out[k] = Array.from(a[k].array);
+      out.groups = g.groups.map((x) => [x.start, x.count, x.materialIndex]);
+      out.items = b.items.map((it) => [it.id, it.verts, it.span]);
+      out.focus = b.shadowFocus();
+      return out;
+    };
+    const one = async (ms) => {
+      const keep = m.SLICE.ms;
+      m.SLICE.ms = ms;
+      let b;
+      try {
+        b = m.buildBuildings(m.buildingFeatures(doc));
+        await b.ready;
+      } finally {
+        m.SLICE.ms = keep;
+      }
+      const s = { slices: b.timing.slices, neighbours: b.items.filter((it) => !it.house).length, whole: snap(b) };
+      b.setShadowFocus({ x0: -30, z0: -30, x1: 30, z1: 30 });
+      s.focused = snap(b);
+      b.dispose();
+      return s;
+    };
+    const normal = await one(4), forced = await one(-1);
+    const differ = (x, y) => Object.keys(x).filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+    return { normal: normal.slices, forced: forced.slices, neighbours: forced.neighbours,
+             whole: differ(normal.whole, forced.whole), focused: differ(normal.focused, forced.focused),
+             drawn: normal.whole.index.length, moved: JSON.stringify(normal.whole.focus) !== JSON.stringify(normal.focused.focus) };
+  });
+  assert.ok(r.neighbours >= 5 && r.drawn > 0);
+  assert.ok(r.forced >= 5 * r.neighbours && r.forced > r.normal, `every step stopped after one building: ${JSON.stringify(r)}`);
+  assert.deepEqual(r.whole, [], 'index, attributes, groups, vertices and focus as the uninterrupted swap');
+  assert.ok(r.moved, 'the small shadow focus takes some buildings out');
+  assert.deepEqual(r.focused, [], 'and the same after a shadow focus');
+});
+
 test('walking on a sloped roof', { timeout: 60000 }, async () => {
   const { page } = await shared();
   await page.addScriptTag({ content: PLANES_JS });
@@ -1047,6 +1095,15 @@ test('the fence dims at night and disposes of itself', { timeout: 60000 }, async
   r.low.forEach((c, i) => assert.ok(Math.abs(c - 0.4 * full[i]) < 1e-6));
   assert.ok(r.added && r.removed);
   assert.deepEqual(r.flags, [false, false]);
+});
+
+test('the shared page printed no error and no GL warning', { timeout: READY_MS + 60000 }, async () => {
+  // Most tests above draw on the one shared page (the observed roof colour's rebuilds, the
+  // flat roofs, the swap): its log is read here, after all of them (S2-2).
+  const { log } = await shared();
+  assert.deepEqual(log.errors, [], 'page errors');
+  assert.deepEqual(log.console, [], 'console errors');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
 });
 
 test('no request ever left localhost', () => {

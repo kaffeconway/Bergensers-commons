@@ -113,6 +113,9 @@ def step_buildings(ctx):
         if reproducible(ctx):
             stats["roofs"]["fit_seconds"] = None
     record = buildingslib.buildings_record(found, ctx.origin, shapes)
+    # "buildings" and "register_points_matched" count the footprints as segmented; a
+    # footprint taken for tree crowns is then left out of the file
+    stats["drawn"] = len(record["features"])
     ids = [f["id"] for f in record["features"] if f["house"]]
     stats["house"]["id"] = ids[0] if ids else None
     observedlib.apply(ctx, record, stats)

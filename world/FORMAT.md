@@ -392,6 +392,9 @@ Notes:
   (`dropped`) and those cut down to their roof part (`trimmed`), each as `{"id", "reason"}`
   and never with a position, and `house_canopy_like`, true when the listing house looked
   like tree crowns and was drawn anyway.
+- `stats.map.buildings.buildings` and `register_points_matched` count the footprints as
+  segmented, before any is left out as tree crowns; `drawn` is the number of features in
+  `buildings.json.gz`.
 - `stats.map.buildings.roofs` summarises the roof fitting over the buildings drawn:
   `by_model`, `by_quality`, `fallback_reasons`, `median_rms` and `fit_seconds`.
   `fit_seconds` is `null` in the synthetic world and in a build under `SOURCE_DATE_EPOCH`,

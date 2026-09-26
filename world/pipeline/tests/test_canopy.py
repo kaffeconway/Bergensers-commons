@@ -13,7 +13,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from shapely.geometry import Point, box
+from shapely import contains_xy
+from shapely.geometry import Point, Polygon, box
 
 from commons_world import buildings, mapsteps, roofs, trees
 from commons_world.grid import NEAREST, Level
@@ -67,6 +68,14 @@ def stairs_scene():
     def surface(X, N, dtm):
         return dtm.max() + 3.0 + 1.5 * np.clip(np.floor((X + 9) / 4), 0, 4)
     return scene("surface", 16, 8, 0, 0.0, 0.0, noise=0.03, surface=surface)
+
+
+def narrow_stairs_scene():
+    # steps 3 m wide: only a step's middle column holds a whole 3 x 3 window on it, so its
+    # edge cells count as on a plane only through the window beside them
+    def surface(X, N, dtm):
+        return dtm.max() + 3.0 + 1.5 * np.floor((X + 7.5) / 3)
+    return scene("surface", 15, 6, 0, 0.0, 0.0, noise=0.03, surface=surface)
 
 
 def corner_scene():
@@ -123,9 +132,42 @@ def test_a_footprint_rough_like_tree_crowns_is_not_drawn(make):
     assert r.stats["by_model"] == {} and r.stats["fallback_reasons"] == {}
 
 
+@pytest.mark.parametrize("reason,dropped", [("no model fits", True), ("implausible", True),
+                                            ("too few cells", False)])
+def test_only_a_footprint_no_roof_fits_is_taken_for_crowns(reason, dropped):
+    # FORMAT.md: roof_shape "none" for "no model fits" or "implausible" (a roof was found
+    # and refused). The same crowns, with the fit's verdict given as each reason.
+    sc = canopy_scene()
+    grid = Grid()
+    found, _, labels = buildings.segment(sc["dom"], sc["dtm"], grid, one_point(), return_labels=True)
+    (b,) = found
+    b.house = False
+    shapes, _ = roofs.fit_all(found, sc["dom"], sc["dtm"], grid, labels, (0, 0))
+    assert shapes[b.label] == {"model": "none", "reason": "no model fits"}
+    shapes[b.label] = {"model": "none", "reason": reason}
+    roofs.drop_canopy(found, shapes, sc["dom"], sc["dtm"], grid, labels, (0, 0), 0.0)
+    assert bool(b.dropped) is dropped and not b.trimmed
+    assert (b.label in shapes) is not dropped
+
+
+def test_a_cell_is_on_a_plane_when_a_window_holding_it_is():
+    # a flat strip three cells wide across rough ground: only its middle column is the
+    # centre of a planar 3 x 3 window, and all three columns lie on that plane
+    rng = np.random.default_rng(3)
+    dom = rng.normal(0.0, 1.0, (12, 12))
+    dom[:, 4:7] = 5.0
+    rms = buildings.plane_rms(dom)
+    assert (rms[2:-2, 5] < roofs.CANOPY_PATCH_RMS_M).all()
+    assert not (rms[2:-2, 4] < roofs.CANOPY_PATCH_RMS_M).any()
+    flat = roofs.planar_cells(rms)
+    assert flat[2:-2, 4:7].all()
+    assert not flat[:, :3].any() and not flat[:, 8:].any()
+
+
 @pytest.mark.parametrize("make,reason", [(stairs_scene, "no model fits"),
+                                         (narrow_stairs_scene, "no model fits"),
                                          (corner_scene, "implausible")],
-                         ids=["steps", "eave on the ground"])
+                         ids=["steps", "narrow steps", "eave on the ground"])
 def test_a_roof_that_fits_no_model_but_lies_on_planes_is_still_drawn(make, reason):
     r = run(make(), one_point())
     (b,) = r.found
@@ -165,6 +207,93 @@ def test_canopy_around_a_roof_part_is_cut_down_to_the_part():
     assert roofs.canopy_stats(r.found, r.summary)["trimmed"] == [
         {"id": 1, "reason": roofs.CANOPY_TRIMMED}]
     assert r.stats["by_model"] == {"gable": 1}
+
+
+def test_a_roof_part_more_than_6_m_from_the_register_point_is_not_kept():
+    # the same gable and crowns, with the register point out in the crowns, 10 m east of
+    # the gable (ANCHOR_M is 6 m): the gable is not this point's building
+    r = run(partial_scene(), one_point(9.0, 1.0))
+    (b,) = r.found
+    assert box(-9.0, -2.0, -1.0, 4.0).distance(Point(9.0, 1.0)) > buildings.ANCHOR_M
+    assert r.before[b.label] == {"model": "none", "reason": "no model fits"}
+    assert b.dropped == roofs.CANOPY_DROPPED and not b.trimmed
+    assert not (r.after == b.label).any()
+
+
+def eaves_scene(seed=1):
+    """A 10 x 8 m gable at (-5, 1), ridge along x, 2 m rise, crowns against its east end,
+    and its outermost ring of cells 0.5 m low, as cells half over the eave read in a 1 m
+    surface model: planar enough for the segmentation, not for planar_cells."""
+    def surface(X, N, dtm):
+        roof = gable(X, N, dtm.max() + 3.0, (-5.0, 1.0), 10.0, 8.0, 2.0)
+        edge = np.isfinite(roof) & ((np.abs(X + 5.0) > 4.0) | (np.abs(N - 1.0) > 3.0))
+        roof = np.where(edge, roof - 0.5, roof)
+        trees_ = np.where(X > -1.2, crowns(X - 5.0, N, dtm, seed=seed, n=14, spread=6.0), -np.inf)
+        return np.maximum(np.maximum(roof, trees_), dtm)
+    return scene("surface", 26, 18, 0, 0.0, 0.0, noise=0.03, surface=surface)
+
+
+def test_a_cut_part_takes_back_its_eaves():
+    sc = eaves_scene()
+    r = run(sc, one_point(-5.0, 1.0))
+    (b,) = r.found
+    assert b.trimmed == roofs.CANOPY_TRIMMED
+    truth = box(-10.0, -3.0, 0.0, 5.0)
+    grid = Grid()
+    c = roofs._crop(b.segmented.bounds, sc["dom"], sc["dtm"], r.labels, grid, (0, 0))
+    edge = (c.lab == b.label) & ~contains_xy(truth.buffer(-1.0, join_style=2), c.X, c.N) & \
+        contains_xy(truth, c.X, c.N)
+    # the eave ring is in the footprint as segmented, and almost none of it on a plane ...
+    assert edge.sum() >= 20 and roofs.planar_cells(c.rms)[edge].mean() < 0.2
+    # ... and the part drawn takes it back: the whole gable, and at most a cell beyond it
+    assert b.polygon.intersection(truth).area >= 0.95 * truth.area
+    assert b.polygon.difference(truth.buffer(1.02, join_style=2)).area == 0
+    assert r.shapes[b.label]["model"] == "gable"
+
+
+def test_a_cut_part_is_not_drawn_over_a_neighbours_drawn_outline(monkeypatch):
+    # The gable and crowns of partial_scene, and 3 m west of the gable a flat roof. Every
+    # outline is straightened 1.8 m outward: each stays clear of the other's traced ring,
+    # and the cut part's would still meet the flat roof's drawn outline in the gap, so the
+    # part keeps its traced ring.
+    X, N, dtm, noise = plain(seed=1)
+    part = gable(X, N, dtm.max() + 3.0, (-5.0, 1.0), 8.0, 6.0, 2.0)
+    clump = np.where(X > -1.2, crowns(X - 5.0, N, dtm, seed=1, n=14, spread=6.0), -np.inf)
+    flat = np.where((X > -20) & (X < -12) & (N > -2) & (N < 4), dtm.max() + 4.0, -np.inf)
+    dom = np.maximum(np.maximum(np.maximum(part, clump), flat), dtm) + noise
+    monkeypatch.setattr(roofs, "straighten",
+                        lambda raw, phi: (raw.buffer(1.8, join_style="mitre"), True))
+    r = run({"dom": dom, "dtm": dtm}, [BuildingPoint(181, -5.0, 1.0, 1, "TB"),
+                                       BuildingPoint(181, -16.0, 1.0, 2, "TB")])
+    cut = next(b for b in r.found if b.trimmed)
+    other = next(b for b in r.found if b is not cut)
+    assert r.shapes[other.label]["outline"] == "straightened" and not other.dropped
+    shape = r.shapes[cut.label]
+    assert shape["model"] == "gable" and shape["outline"] == "traced"
+    drawn = [Polygon([(x, -z) for x, z in r.shapes[b.label]["parts"][0]["ring"]])
+             for b in (cut, other)]
+    assert drawn[0].intersection(drawn[1]).area < 1e-6
+
+
+@pytest.mark.xfail(strict=True, reason="B2R-1, open with the owner: a thin planar seam through "
+                                       "crowns is taken for a roof plane")
+@pytest.mark.parametrize("seed", [2, 4], ids=["cut down to the seam", "kept whole"])
+def test_a_crown_clump_crossed_by_a_thin_planar_seam_is_not_drawn(seed):
+    # A surface model can carry a line of cells that fits a plane through tree crowns (an
+    # interpolation seam, say): here a strip three cells wide across the clump. By P2's
+    # words it is still crowns with no roof planes. With the planar share as the only cue
+    # it is not dropped: the strip is either cut out as a roof part (seed 2) or lifts the
+    # share past CANOPY_PLANAR_SHARE (seed 4).
+    sc = canopy_scene(seed=seed)
+    X, N = sc["X"], sc["N"]
+    seam = (np.abs(X - 0.5) <= 1.0) & (np.abs(N) <= 8.5) & (sc["dom"] - sc["dtm"] > 3)
+    noise = np.random.default_rng(5).normal(0.0, 0.03, X.shape)
+    dom = np.where(seam, sc["dtm"] + 12.0 + 0.1 * N + noise, sc["dom"])
+    r = run({"dom": dom, "dtm": sc["dtm"]}, one_point())
+    (b,) = r.found
+    assert r.before[b.label] == {"model": "none", "reason": "no model fits"}
+    assert b.dropped
+    assert buildings.buildings_record(r.found, (0, 0), r.shapes)["features"] == []
 
 
 def test_a_roof_part_that_fits_no_roof_is_dropped_with_the_canopy():
@@ -294,6 +423,7 @@ def test_trees_are_found_under_a_footprint_that_is_not_drawn(monkeypatch):
     (feature,) = drawn["features"]
     assert feature["roof_shape"] == {"model": "none", "reason": "no model fits"}
     assert "canopy" not in stats
+    assert (stats["buildings"], stats["register_points_matched"], stats["drawn"]) == (1, 1, 1)
     ring = feature["ring"]
     assert trees_inside(before, ring) == 0
 
@@ -301,5 +431,7 @@ def test_trees_are_found_under_a_footprint_that_is_not_drawn(monkeypatch):
     dropped, after, stats = build_steps(dom, dtm, [(0.0, 0.0)])
     assert dropped["features"] == []
     assert stats["canopy"]["dropped"] == [{"id": 1, "reason": roofs.CANOPY_DROPPED}]
+    # the segmentation's counts stay as segmented; "drawn" is what the file holds
+    assert (stats["buildings"], stats["register_points_matched"], stats["drawn"]) == (1, 1, 0)
     assert trees_inside(after, ring) >= 2
     assert after["count"] > before["count"]
