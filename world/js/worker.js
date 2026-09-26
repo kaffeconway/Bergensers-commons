@@ -385,7 +385,11 @@ function errorsExact(C) {
 /* The conservative bound (the phone fallback, errors: 'bound'): a triangle's error is at
  * most its midpoint surplus plus the larger of its children's; an all-sea triangle is
  * bounded by the highest visible height under it. Cheaper, still a guarantee, more
- * triangles. */
+ * triangles. Two things keep it a bound: the surplus is taken on the unclamped heights
+ * (the children's surface differs from the parent's plane by a tent that peaks at the
+ * midpoint, and clamping at 0 can hide that peak while it still shows elsewhere), and an
+ * all-sea triangle is never below its children, so the map stays monotone and a graded
+ * extraction leaves no T-junction. */
 function errorsBound(C) {
   var hC = C.hC, sea = C.sea, tab = TRI.tab;
   var E = new Float32Array(NV * NV), HV = new Float32Array(NV * NV), MIX = new Uint8Array(NV * NV);
@@ -406,11 +410,8 @@ function errorsBound(C) {
           mix |= MIX[lc] | MIX[rc];
         }
         var e;
-        if (sea[ia] && sea[ib] && sea[ic]) e = childHV;
-        else {
-          var hm = hC[m] > 0 ? hC[m] : 0, s = (hC[ia] + hC[ib]) / 2;
-          e = Math.abs(hm - (s > 0 ? s : 0)) + childE;
-        }
+        if (sea[ia] && sea[ib] && sea[ic]) e = childHV > childE ? childHV : childE;
+        else e = Math.abs(hC[m] - (hC[ia] + hC[ib]) / 2) + childE;
         if (mix === 3) { var L = Math.hypot(bx - ax, by - ay); if (COAST * L > e) e = COAST * L; }
         if (e > E[m]) E[m] = e;
         if (childHV > HV[m]) HV[m] = childHV;
@@ -457,7 +458,9 @@ function tileRange(C) {
  * borders: [n, e, s, w], each {kind: 'h1' | 'sea' | 'outer', floor: Float32Array(241) or
  *   null}, floor[k] the lowest the neighbouring h5 level can draw at metre k along the side
  *   (N and S run west to east, E and W north to south).
- * Returns {mesh, split}. Skirts: one quad per pair of consecutive used border vertices,
+ * Returns {mesh, split}, plus with keepDropped (a test hook) dropped, the corner triples of
+ * the all-sea leaves left out, and corner, each vertex's corner index (-1 for a skirt's
+ * bottom). Skirts: one quad per pair of consecutive used border vertices,
  * unless both are sea, facing out of the chunk; its bottom, with taus = tau at the
  * segment's nearest point to the camera, is
  *   'h1': top - (0.5 + 3 taus); 'sea': min(that, -3);
@@ -596,13 +599,14 @@ function extractTin(C, E16, nor, tol, borders, keepDropped) {
     yMin: nVerts ? yMin : 0, yMax: nVerts ? yMax : 0, floor: !anySplit, bottoms: bottoms,
     snap: uniform ? null : [cam[0], cam[1], cam[2]]
   };
+  var out = { mesh: mesh, split: split };
   if (keepDropped) {
-    mesh.dropped = dropped.done();
+    out.dropped = dropped.done();
     var corner = new Int32Array(nVerts).fill(-1);
     for (var c3 = 0; c3 < NV * NV; c3++) if (used[c3] >= 0) corner[used[c3]] = c3;
-    mesh.corner = corner;
+    out.corner = corner;
   }
-  return { mesh: mesh, split: split };
+  return out;
 }
 
 // Everything an h1 load computes once from the decoded chunk.
@@ -743,10 +747,10 @@ function transferables(out) {
   var list = [];
   function add(a) { if (a && a.buffer && list.indexOf(a.buffer) < 0) list.push(a.buffer); }
   add(out.v); add(out.classes); add(out.E); add(out.tileMin); add(out.tileMax); add(out.split); add(out.sdf);
+  add(out.dropped); add(out.corner);
   if (out.tex) { add(out.tex.normal); (out.tex.classMips || []).forEach(add); }
   if (out.mesh) {
     add(out.mesh.pos); add(out.mesh.nor); add(out.mesh.col); add(out.mesh.idx);
-    add(out.mesh.dropped); add(out.mesh.corner);
     (out.mesh.bottoms || []).forEach(add);
   }
   return list;
@@ -761,6 +765,7 @@ function tinJob(d, msg, out) {
   var tol = o.tau !== undefined && o.tau !== null ? { tau: o.tau } : { px: o.px, K: o.K, tmin: o.tmin, cam: o.cam };
   var r = extractTin(C, E16, nor, tol, o.borders, !!o.keepDropped);
   out.mesh = r.mesh; out.split = r.split;
+  if (r.dropped) { out.dropped = r.dropped; out.corner = r.corner; }
 }
 
 async function handle(msg) {

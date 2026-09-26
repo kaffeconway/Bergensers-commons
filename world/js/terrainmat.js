@@ -223,9 +223,14 @@ varying vec3 vCwTWorld;
 const vec3 cwTPlotLight = ${glslColour(PLOT_LIGHT)};
 const vec3 cwTPlotStrong = ${glslColour(PLOT_STRONG)};
 // One band-limited octave of the shared noise, centred on 0: one unit of p * cwTFreq is one
-// lattice cell (16 texels); it fades out before a pixel covers half its wavelength.
+// lattice cell (16 texels); it fades out before a pixel covers half its wavelength. The
+// frequency is the class's, so it can change between neighbouring pixels at a class
+// border: the mip is picked from the footprint of p alone (textureGrad), or the jump in
+// p * cwTFreq across the border would read as a huge footprint and a line of flat colour.
 vec4 cwTOct4(vec2 cwTP, float cwTFreq, float cwTMpp) {
-  return (texture(cwTNoise, cwTP * (cwTFreq * 0.0625)) - 0.5) * clamp(1.5 - 2.0 * cwTMpp * cwTFreq, 0.0, 1.0);
+  float cwTK = cwTFreq * 0.0625;
+  return (textureGrad(cwTNoise, cwTP * cwTK, dFdx(cwTP) * cwTK, dFdy(cwTP) * cwTK) - 0.5) *
+         clamp(1.5 - 2.0 * cwTMpp * cwTFreq, 0.0, 1.0);
 }
 float cwTOct(vec2 cwTP, float cwTFreq, float cwTMpp) { return cwTOct4(cwTP, cwTFreq, cwTMpp).r; }
 // The class code at texel cwTT of mip level cwTL (texel q + 1 is cell q; 0 and 241 are the apron).

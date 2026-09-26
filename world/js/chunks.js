@@ -1098,12 +1098,29 @@ export class ChunkManager {
     this._markStale();
   }
 
-  // Re-mesh every loaded h1 chunk for this camera, so meshes do not depend on the path the
-  // camera took (used by settle()).
+  /* Re-mesh every loaded h1 chunk for this camera, so meshes do not depend on the path the
+   * camera took (used by settle()). A chunk whose newest mesh (the one in flight, else the
+   * installed one) was made for exactly this camera, with the same tolerance settings and
+   * the same h5 floors, is left alone, and so is one already queued (a queued job reads the
+   * camera when it is sent): meshing is deterministic, so it would come back the same. A
+   * second call at the same camera therefore costs nothing. */
   forceSnapshots(cam) {
     if (cam) this.cam.copy(cam);
-    for (const c of this.chunks) if (c.level.name === 'h1' && c.status === 'ready') this._queueMesh(c, true);
+    for (const c of this.chunks) {
+      if (c.level.name !== 'h1' || c.status !== 'ready') continue;
+      if (c.queuedMesh || (!c.forceStale && this._meshedHere(c))) continue;
+      this._queueMesh(c, true);
+    }
     this.pump();
+  }
+
+  // Was chunk c's newest mesh made for exactly the current camera and settings?
+  _meshedHere(c) {
+    const t = c.busy ? c.busyTol : c.tolInfo, now = this.tolFor(c);
+    if (!t || t.levelVersion !== this.levelVersion) return false;
+    if (now.tau !== undefined) return t.tau === now.tau;
+    return t.tau === undefined && t.px === now.px && t.K === now.K && t.tmin === now.tmin && !!t.cam &&
+      t.cam[0] === this.cam.x && t.cam[1] === this.cam.y && t.cam[2] === this.cam.z;
   }
 
   // A test hook: hold chunk `key`'s next mesh reply back until the one after it has arrived.
@@ -1131,7 +1148,8 @@ export class ChunkManager {
       .then((res) => ({ mesh: res.mesh, x0: c.x0, z0: c.z0, side: c.level.side }));
   }
 
-  // mode 'tin': opts {tau | px, K, tmin, cam, borders, keepDropped, errors}; 'smooth' as meshSmooth.
+  // mode 'tin': opts {tau | px, K, tmin, cam, borders, keepDropped, errors}, returning {mesh,
+  // split} and, with keepDropped, {dropped, corner} beside them; 'smooth' as meshSmooth.
   meshRaw(data, mode, opts) { return this._post({ type: 'mesh', data, mode, opts }, false); }
 
   dispose() {

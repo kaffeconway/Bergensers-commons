@@ -8,7 +8,8 @@
  *
  * Walking uses the height of the ground as drawn (groundAt), never a raycast: eye
  * height 1.7 m and gravity. A step is refused where the ground rises more steeply than
- * 50 degrees over it (stepAllowed); onto a roof the limit is instead a rise of 1.1 m.
+ * 50 degrees over it (stepAllowed), measured from the ground under the feet even in the
+ * middle of a jump; onto a roof the limit is instead a rise of 1.1 m from the feet.
  * Walking downhill keeps the feet on the ground (snap-down) rather than falling in hops,
  * and the eye eases up a rise rather than jumping.
  */
@@ -302,7 +303,14 @@ export class Controls {
     const t = this.groundAt(nx, nz);
     if (!t) return false;                                    // not loaded yet: wait at the edge
     const g = t.y, horiz = Math.hypot(dx, dz);
-    if (!stepAllowed(g - this.feet.y, horiz, t.level)) return false;   // too steep, or a wall
+    // The rise is measured from the feet onto a roof, and from the ground under them
+    // elsewhere, so a jump cannot carry the walker up a slope too steep to walk.
+    let from = this.feet.y;
+    if (t.level !== 'building') {
+      const here = this.ground(this.feet.x, this.feet.z);
+      if (here !== null && here < from) from = here;
+    }
+    if (!stepAllowed(g - from, horiz, t.level)) return false;          // too steep, or a wall
     this.feet.x = nx;
     this.feet.z = nz;
     if (this.onGround) {

@@ -367,33 +367,59 @@ test('the plot is marked on the ground: area within 1% and a boundary line', { t
   }
   cx /= 3 * a2; cz /= 3 * a2;
   const out = [Math.max(...xs) + 30, cz];
-  const r = await page.evaluate(async ({ cx, cz, out }) => {
-    const I = window.__cw.internals, cw = window.__cw;
+  // a point on the boundary: the middle of the parcels' longest edge
+  let edge = null;
+  for (const p of plot.parcels) {
+    const q = p.ring;
+    for (let k = 0, m = q.length - 1; k < q.length; m = k++) {
+      const len = Math.hypot(q[k][0] - q[m][0], q[k][1] - q[m][1]);
+      if (!edge || len > edge.len) edge = { len, x: (q[k][0] + q[m][0]) / 2, z: (q[k][1] + q[m][1]) / 2 };
+    }
+  }
+  // Each point is read with the plot mark drawn and again with it switched off (its box
+  // emptied), so the difference is the mark itself and not the land cover under it.
+  const r = await page.evaluate(async ({ cx, cz, out, edge }) => {
+    const I = window.__cw.internals, cw = window.__cw, { SHARED } = await import('/world/js/terrainmat.js');
     const hide = [I.buildings && I.buildings.group, I.trees && I.trees.group, I.fence && I.fence.mesh].filter(Boolean);
     const was = hide.map((o) => o.visible);
     const g = I.manager.surfaceAt(cx, cz);
     cw.camera.set({ mode: 'fly', x: cx, z: cz, y: g + 160, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
-    I.manager.forceSnapshots(I.camera.position);
+    if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);   // SPEC 3.9
     await cw.settle();
     if (cw.sunIdle) await cw.sunIdle();
     hide.forEach((o) => { o.visible = false; });
     await cw.frame();
-    const at = (x, z) => {
+    const gl = I.renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    // the warmest (largest R - B) pixel within n pixels of the point
+    const at = (x, z, n) => {
       const v = I.camera.position.clone().set(x, I.manager.surfaceAt(x, z), z).project(I.camera);
-      const gl = I.renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-      const px = Math.round((v.x + 1) / 2 * (w - 1)), py = Math.round((v.y + 1) / 2 * (h - 1));
-      I.renderer.render(I.scene, I.camera);
-      const b = new Uint8Array(4);
-      gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b);
-      return Array.from(b);
+      const px = Math.round((v.x + 1) / 2 * (w - 1)), py = Math.round((v.y + 1) / 2 * (h - 1)), s = 2 * n + 1;
+      const b = new Uint8Array(s * s * 4);
+      gl.readPixels(px - n, py - n, s, s, gl.RGBA, gl.UNSIGNED_BYTE, b);
+      let best = null;
+      for (let k = 0; k < s * s; k++) if (!best || b[k * 4] - b[k * 4 + 2] > best[0] - best[2]) best = [b[k * 4], b[k * 4 + 1], b[k * 4 + 2]];
+      return best;
     };
-    const inside = at(cx, cz), outside = at(out[0], out[1]);
+    const read = () => {
+      I.renderer.render(I.scene, I.camera);
+      return { inside: at(cx, cz, 0), outside: at(out[0], out[1], 0), line: at(edge.x, edge.z, 1) };
+    };
+    const box = SHARED.cwTPlotBox.value.clone();
+    const withMark = read();
+    SHARED.cwTPlotBox.value.set(1, 1, 0, 0);
+    let without;
+    try { without = read(); } finally { SHARED.cwTPlotBox.value.copy(box); }
     hide.forEach((o, k) => { o.visible = was[k]; });
     cw.camera.start();
     await cw.settle();
-    return { inside, outside };
-  }, { cx, cz, out });
-  assert.ok(r.inside[0] - r.inside[2] > r.outside[0] - r.outside[2], 'the parcel is warmer than the ground 30 m outside: ' + JSON.stringify(r));
+    return { withMark, without };
+  }, { cx, cz, out, edge });
+  const warm = (p) => p[0] - p[2], at = JSON.stringify(r);
+  assert.ok(warm(r.withMark.inside) > warm(r.withMark.outside), 'the parcel is warmer than the ground 30 m outside: ' + at);
+  assert.ok(warm(r.withMark.inside) - warm(r.without.inside) > 10, 'the wash warms the parcel: ' + at);
+  assert.deepEqual(r.withMark.outside, r.without.outside, 'and nothing 30 m outside it: ' + at);
+  assert.ok(warm(r.withMark.line) - warm(r.without.line) > 40, 'the boundary line is drawn: ' + at);
+  assert.ok(warm(r.withMark.line) > warm(r.withMark.inside) + 20, 'stronger than the wash: ' + at);
 });
 
 test('credits are visible, include three.js, and the (i) button collapses them', async () => {
@@ -819,7 +845,8 @@ test('the ground under the camera is the surface as drawn, h1 included', { timeo
     return out;
   });
   const settleHere = () => page.evaluate(async () => {
-    window.__cw.internals.manager.forceSnapshots(window.__cw.internals.camera.position);
+    // SPEC 3.9: every h1 chunk re-meshed for this camera, by settle() itself once it does so
+    if (!String(window.__cw.settle).includes('forceSnapshots')) window.__cw.internals.manager.forceSnapshots(window.__cw.internals.camera.position);
     await window.__cw.settle();
   });
   await page.evaluate(() => window.__cw.camera.start());

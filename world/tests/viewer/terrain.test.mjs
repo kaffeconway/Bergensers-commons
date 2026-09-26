@@ -5,8 +5,10 @@
 //
 // The shared harness (harness.mjs) starts the server and the browser, and refuses any
 // request that leaves localhost. Every test on a shared page re-meshes every h1 chunk for
-// the current camera (forceSnapshots) before settle(), so its meshes do not depend on the
-// path earlier tests took, and restores what it changed.
+// the current camera (forceSnapshots) before it settles, so its meshes do not depend on the
+// path earlier tests took, and restores what it changed. Once settle() re-meshes by itself
+// (SPEC 3.9, the sun package's settle), the tests leave that to it rather than do it twice:
+// they call forceSnapshots only when settle's own source does not.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +37,7 @@ async function phonePage() {
 function settleHere(page) {
   return page.evaluate(async () => {
     const I = window.__cw.internals;
-    I.manager.forceSnapshots(I.camera.position);
+    if (!String(window.__cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
     const ok = await window.__cw.settle(300000);
     if (window.__cw.sunIdle) await window.__cw.sunIdle();
     return ok;
@@ -57,6 +59,18 @@ const FIELD = `
       v[t] = dm;
     }
     return { header: { width: W, height: W, cell: 1, cellCm: 100, base: 0, apron: true, hasClasses: true }, v, classes };
+  };
+  // A low coast: ground a few metres up, cut by ripples into islets and inlets, falling to
+  // the sea westward, with a lake in the south-west corner.
+  window.__cwCoast = function () {
+    const W = 242, base = -50, v = new Uint16Array(W * W), classes = new Uint8Array(W * W);
+    for (let r = 0; r < W; r++) for (let q = 0; q < W; q++) {
+      const t = r * W + q, dm = 40 + 30 * Math.sin(r / 5) + 20 * Math.cos(q / 3) - 0.6 * q;
+      if (dm <= 0) classes[t] = 5;
+      if (r > 200 && q < 60) classes[t] = 4;
+      v[t] = Math.max(0, Math.round(dm - base));
+    }
+    return { header: { width: W, height: W, cell: 1, cellCm: 100, base, apron: true, hasClasses: true }, v, classes };
   };
 `;
 
@@ -178,7 +192,7 @@ test('h1 TIN faces up and its skirts face out', { timeout: READY_MS + 60000 }, a
     const field = window.__cwField();
     const borders = [{ kind: 'h1' }, { kind: 'sea' }, { kind: 'outer', floor: null }, { kind: 'h1' }];
     const res = await window.__cw.meshRaw(field, 'tin', { tau: 0.25, borders, keepDropped: true });
-    const m = res.mesh, P = m.pos, I = m.idx, corner = m.corner;
+    const m = res.mesh, P = m.pos, I = m.idx, corner = res.corner;
     const out = { surface: 0, up: 0, skirts: 0, outward: 0, degenerate: 0, shallow: [], unskirted: [], seaHigh: 0 };
     const skirtAt = new Map();          // side:along -> [top, bottom]
     const sideOf = (vs) => {
@@ -257,103 +271,111 @@ test('h1 TIN stays within tolerance and has no T-junctions, with either error ma
   await page.addScriptTag({ content: FIELD });
   const runs = await page.evaluate(async () => {
     const { cornerHeight, tinLeaf } = await import('/world/js/chunks.js');
-    const field = window.__cwField(), NV = 241;
-    const hC = new Float64Array(NV * NV), sea = new Uint8Array(NV * NV);
-    let yVis = 0;
-    for (let a = 0; a < NV; a++) for (let b = 0; b < NV; b++) {
-      const c = cornerHeight(field, a, b);
-      hC[a * NV + b] = c.y; sea[a * NV + b] = c.sea ? 1 : 0;
-      yVis = Math.max(yVis, c.y);
-    }
-    const vis = (h) => (h > 0 ? h : 0);
-    const cam = [236, 60, 115];                      // over the pit, 60 m up (chunk-local)
-    const cases = [{ tau: 0.1 }, { tau: 0.5 }, { tau: 2 }, { px: 2, K: 0.00237, tmin: 0.05, cam }];
+    const NV = 241, K = 0.00237;
+    // the hills with the pit and the bay, and the low coast (where clamping at the water and
+    // all-sea triangles decide the error maps); graded cameras over the pit, and on, above
+    // and beside the coast (chunk-local)
+    const fields = [
+      { name: 'hills', data: window.__cwField(), cases: [{ tau: 0.1 }, { tau: 0.5 }, { tau: 2 }, { px: 2, K, tmin: 0.05, cam: [236, 60, 115] }] },
+      { name: 'coast', data: window.__cwCoast(), cases: [{ tau: 0.05 }, { tau: 0.5 }, { tau: 3 }, { px: 2, K, tmin: 0.05, cam: [10, 5, 10] },
+        { px: 1, K, tmin: 0.05, cam: [-300, 400, 120] }, { px: 2, K, tmin: 0.05, cam: [120, 80, 250] }] }
+    ];
     let seed = 7;
     const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
     const out = [];
-    for (const tol of cases) {
-      const tris = {};
-      for (const errors of ['exact', 'bound']) {
-        const res = await window.__cw.meshRaw(field, 'tin', Object.assign({ errors, keepDropped: true }, tol));
-        const m = res.mesh, I = m.idx, corner = m.corner;
-        const leaves = [];
-        for (let t = 0; t < I.length; t += 3) {
-          const k = [corner[I[t]], corner[I[t + 1]], corner[I[t + 2]]];
-          if (k.some((x) => x < 0)) continue;          // a skirt
-          leaves.push([k, false]);
-        }
-        for (let t = 0; t < m.dropped.length; t += 3) leaves.push([[m.dropped[t], m.dropped[t + 1], m.dropped[t + 2]], true]);
-        // rasterise every leaf over the corners: the drawn height there (water at 0 under a
-        // dropped leaf) and any disagreement between leaves at a shared corner
-        const drawn = new Float64Array(NV * NV).fill(NaN);
-        let disagree = 0;
-        const bary = (k, x, z) => {
-          const [A, B, C] = k.map((i) => [i % NV, Math.floor(i / NV)]);
-          const d = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
-          const wa = ((B[1] - C[1]) * (x - C[0]) + (C[0] - B[0]) * (z - C[1])) / d;
-          const wb = ((C[1] - A[1]) * (x - C[0]) + (A[0] - C[0]) * (z - C[1])) / d;
-          return [wa, wb, 1 - wa - wb];
-        };
-        for (const [k, dropped] of leaves) {
-          const xs = k.map((i) => i % NV), zs = k.map((i) => Math.floor(i / NV));
-          for (let z = Math.min(...zs); z <= Math.max(...zs); z++) for (let x = Math.min(...xs); x <= Math.max(...xs); x++) {
-            const w = bary(k, x, z);
-            if (w.some((q) => q < -1e-9)) continue;
-            const s = dropped ? 0 : w[0] * hC[k[0]] + w[1] * hC[k[1]] + w[2] * hC[k[2]], p = z * NV + x;
-            if (!Number.isNaN(drawn[p])) disagree = Math.max(disagree, Math.abs(vis(drawn[p]) - vis(s)));
-            drawn[p] = s;
-          }
-        }
-        let worst = -Infinity, uncovered = 0;
-        const dy = tol.cam ? Math.max(0, tol.cam[1] - yVis) : 0;
-        for (let p = 0; p < NV * NV; p++) {
-          if (Number.isNaN(drawn[p])) { uncovered++; continue; }
-          const x = p % NV, z = Math.floor(p / NV);
-          const tau = tol.tau !== undefined ? tol.tau : Math.max(tol.tmin, tol.px * tol.K * Math.hypot(Math.hypot(x - cam[0], z - cam[2]), dy));
-          worst = Math.max(worst, Math.abs(vis(hC[p]) - vis(drawn[p])) - tau);
-        }
-        // every interior edge is shared by exactly two leaves, a border edge by one
-        const edges = new Map();
-        for (const [k] of leaves) for (let e = 0; e < 3; e++) {
-          const a = k[e], b = k[(e + 1) % 3], key = Math.min(a, b) + ':' + Math.max(a, b);
-          edges.set(key, (edges.get(key) || 0) + 1);
-        }
-        let badEdges = 0;
-        for (const [key, n] of edges) {
-          const [a, b] = key.split(':').map(Number);
-          const ax = a % NV, az = Math.floor(a / NV), bx = b % NV, bz = Math.floor(b / NV);
-          const border = (ax === bx && (ax === 0 || ax === 240)) || (az === bz && (az === 0 || az === 240));
-          if (n !== (border ? 1 : 2)) badEdges++;
-        }
-        // the split-bit descent finds the same height as a brute-force search (over the leaves
-        // of the point's tile: a leaf never crosses a tile)
-        const byTile = new Map();
-        for (const leaf of leaves) {
-          const xs = leaf[0].map((i) => i % NV), zs = leaf[0].map((i) => Math.floor(i / NV));
-          const key = Math.min(14, Math.floor((xs[0] + xs[1] + xs[2]) / 48)) + ':' + Math.min(14, Math.floor((zs[0] + zs[1] + zs[2]) / 48));
-          if (!byTile.has(key)) byTile.set(key, []);
-          byTile.get(key).push(leaf);
-        }
-        let locWorst = 0;
-        for (let k = 0; k < 2000; k++) {
-          const x = rnd() * 240, z = rnd() * 240, tx = Math.min(14, Math.floor(x / 16)), tz = Math.min(14, Math.floor(z / 16));
-          const L = tinLeaf(res.split, tz * 15 + tx, x - 16 * tx, z - 16 * tz);
-          const kk = [[L[0], L[1]], [L[2], L[3]], [L[4], L[5]]].map(([u, v]) => (16 * tz + v) * NV + 16 * tx + u);
-          const wd = bary(kk, x, z), allSea = kk.every((i) => sea[i]);
-          const sd = allSea ? 0 : vis(wd[0] * hC[kk[0]] + wd[1] * hC[kk[1]] + wd[2] * hC[kk[2]]);
-          let sb = null;
-          for (const [k2, dropped] of byTile.get(tx + ':' + tz) || []) {
-            const w = bary(k2, x, z);
-            if (w.some((q) => q < -1e-9)) continue;
-            sb = dropped ? 0 : vis(w[0] * hC[k2[0]] + w[1] * hC[k2[1]] + w[2] * hC[k2[2]]);
-            break;
-          }
-          locWorst = Math.max(locWorst, sb === null ? Infinity : Math.abs(sd - sb));
-        }
-        tris[errors] = m.surfaceTriangles;
-        out.push({ tol: JSON.stringify(tol), errors, triangles: m.surfaceTriangles, worstOverTau: worst, uncovered, disagree, badEdges, locWorst });
+    for (const { name, data: field, cases } of fields) {
+      const hC = new Float64Array(NV * NV), sea = new Uint8Array(NV * NV);
+      let yVis = 0;
+      for (let a = 0; a < NV; a++) for (let b = 0; b < NV; b++) {
+        const c = cornerHeight(field, a, b);
+        hC[a * NV + b] = c.y; sea[a * NV + b] = c.sea ? 1 : 0;
+        yVis = Math.max(yVis, c.y);
       }
-      out.push({ tol: JSON.stringify(tol), boundAtLeastExact: tris.bound >= tris.exact });
+      const vis = (h) => (h > 0 ? h : 0);
+      for (const tol of cases) {
+        const tris = {}, cam = tol.cam;
+        for (const errors of ['exact', 'bound']) {
+          const res = await window.__cw.meshRaw(field, 'tin', Object.assign({ errors, keepDropped: true }, tol));
+          const m = res.mesh, I = m.idx, corner = res.corner;
+          const leaves = [];
+          for (let t = 0; t < I.length; t += 3) {
+            const k = [corner[I[t]], corner[I[t + 1]], corner[I[t + 2]]];
+            if (k.some((x) => x < 0)) continue;          // a skirt
+            leaves.push([k, false]);
+          }
+          for (let t = 0; t < res.dropped.length; t += 3) leaves.push([[res.dropped[t], res.dropped[t + 1], res.dropped[t + 2]], true]);
+          // rasterise every leaf over the corners: the drawn height there (water at 0 under a
+          // dropped leaf) and any disagreement between leaves at a shared corner
+          const drawn = new Float64Array(NV * NV).fill(NaN);
+          let disagree = 0;
+          const bary = (k, x, z) => {
+            const [A, B, C] = k.map((i) => [i % NV, Math.floor(i / NV)]);
+            const d = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+            const wa = ((B[1] - C[1]) * (x - C[0]) + (C[0] - B[0]) * (z - C[1])) / d;
+            const wb = ((C[1] - A[1]) * (x - C[0]) + (A[0] - C[0]) * (z - C[1])) / d;
+            return [wa, wb, 1 - wa - wb];
+          };
+          for (const [k, dropped] of leaves) {
+            const xs = k.map((i) => i % NV), zs = k.map((i) => Math.floor(i / NV));
+            for (let z = Math.min(...zs); z <= Math.max(...zs); z++) for (let x = Math.min(...xs); x <= Math.max(...xs); x++) {
+              const w = bary(k, x, z);
+              if (w.some((q) => q < -1e-9)) continue;
+              const s = dropped ? 0 : w[0] * hC[k[0]] + w[1] * hC[k[1]] + w[2] * hC[k[2]], p = z * NV + x;
+              if (!Number.isNaN(drawn[p])) disagree = Math.max(disagree, Math.abs(vis(drawn[p]) - vis(s)));
+              drawn[p] = s;
+            }
+          }
+          let worst = -Infinity, uncovered = 0;
+          const dy = tol.cam ? Math.max(0, tol.cam[1] - yVis) : 0;
+          for (let p = 0; p < NV * NV; p++) {
+            if (Number.isNaN(drawn[p])) { uncovered++; continue; }
+            const x = p % NV, z = Math.floor(p / NV);
+            const tau = tol.tau !== undefined ? tol.tau : Math.max(tol.tmin, tol.px * tol.K * Math.hypot(Math.hypot(x - cam[0], z - cam[2]), dy));
+            worst = Math.max(worst, Math.abs(vis(hC[p]) - vis(drawn[p])) - tau);
+          }
+          // every interior edge is shared by exactly two leaves, a border edge by one
+          const edges = new Map();
+          for (const [k] of leaves) for (let e = 0; e < 3; e++) {
+            const a = k[e], b = k[(e + 1) % 3], key = Math.min(a, b) + ':' + Math.max(a, b);
+            edges.set(key, (edges.get(key) || 0) + 1);
+          }
+          let badEdges = 0;
+          for (const [key, n] of edges) {
+            const [a, b] = key.split(':').map(Number);
+            const ax = a % NV, az = Math.floor(a / NV), bx = b % NV, bz = Math.floor(b / NV);
+            const border = (ax === bx && (ax === 0 || ax === 240)) || (az === bz && (az === 0 || az === 240));
+            if (n !== (border ? 1 : 2)) badEdges++;
+          }
+          // the split-bit descent finds the same height as a brute-force search (over the leaves
+          // of the point's tile: a leaf never crosses a tile)
+          const byTile = new Map();
+          for (const leaf of leaves) {
+            const xs = leaf[0].map((i) => i % NV), zs = leaf[0].map((i) => Math.floor(i / NV));
+            const key = Math.min(14, Math.floor((xs[0] + xs[1] + xs[2]) / 48)) + ':' + Math.min(14, Math.floor((zs[0] + zs[1] + zs[2]) / 48));
+            if (!byTile.has(key)) byTile.set(key, []);
+            byTile.get(key).push(leaf);
+          }
+          let locWorst = 0;
+          for (let k = 0; k < 2000; k++) {
+            const x = rnd() * 240, z = rnd() * 240, tx = Math.min(14, Math.floor(x / 16)), tz = Math.min(14, Math.floor(z / 16));
+            const L = tinLeaf(res.split, tz * 15 + tx, x - 16 * tx, z - 16 * tz);
+            const kk = [[L[0], L[1]], [L[2], L[3]], [L[4], L[5]]].map(([u, v]) => (16 * tz + v) * NV + 16 * tx + u);
+            const wd = bary(kk, x, z), allSea = kk.every((i) => sea[i]);
+            const sd = allSea ? 0 : vis(wd[0] * hC[kk[0]] + wd[1] * hC[kk[1]] + wd[2] * hC[kk[2]]);
+            let sb = null;
+            for (const [k2, dropped] of byTile.get(tx + ':' + tz) || []) {
+              const w = bary(k2, x, z);
+              if (w.some((q) => q < -1e-9)) continue;
+              sb = dropped ? 0 : vis(w[0] * hC[k2[0]] + w[1] * hC[k2[1]] + w[2] * hC[k2[2]]);
+              break;
+            }
+            locWorst = Math.max(locWorst, sb === null ? Infinity : Math.abs(sd - sb));
+          }
+          tris[errors] = m.surfaceTriangles;
+          out.push({ tol: name + ' ' + JSON.stringify(tol), errors, triangles: m.surfaceTriangles, worstOverTau: worst, uncovered, disagree, badEdges, locWorst });
+        }
+        out.push({ tol: name + ' ' + JSON.stringify(tol), boundAtLeastExact: tris.bound >= tris.exact });
+      }
     }
     return out;
   });
@@ -460,7 +482,7 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
     const patch = async (x, z, up, n) => {
       const g = I.manager.surfaceAt(x, z);
       cw.camera.set({ mode: 'fly', x, z, y: g + up, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
-      I.manager.forceSnapshots(I.camera.position);
+      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       if (cw.sunIdle) await cw.sunIdle();
       hide.forEach((o) => { o.visible = false; });
@@ -477,7 +499,7 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
     };
     const road = await patch(110 - 0.5, -500 - 0.5, 6, 160), forest = await patch(520 - 0.5, -650 - 0.5, 20, 360);
     cw.camera.start();
-    I.manager.forceSnapshots(I.camera.position);
+    if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
     await cw.settle(300000);
     return { road, forest };
   });
@@ -570,7 +592,10 @@ test('one terrain program, with lights and shadows intact, on both tiers', { tim
     const tier = 'cwT1-' + name;
     assert.ok(r.h1 > 0 && r.lambert === r.h1, name + ': every h1 material is a MeshLambertMaterial');
     assert.equal(r.shared, r.h1, name + ': one material per chunk');
-    assert.deepEqual(r.keys, [tier], name + ': one cache key');
+    // one key shared by every h1 material; it starts with the tier's (the sun's patch appends
+    // its own part to it, SPEC 3.6)
+    assert.equal(r.keys.length, 1, name + ': one cache key: ' + JSON.stringify(r.keys));
+    assert.ok(r.keys[0].startsWith(tier), name + ': the key starts with ' + tier + ': ' + JSON.stringify(r.keys));
     assert.equal(r.live.filter((k) => k.includes(tier)).length, 1, name + ': exactly one live terrain program');
     assert.equal(r.live.filter((k) => k.includes('cwT1-')).length, 1, name + ': and no other tier');
     assert.ok(r.info.textures >= 2 * r.h1 && r.info.textures <= 2 * r.h1 + 2, name + ': ' + JSON.stringify(r.info));
@@ -589,22 +614,68 @@ test('moving re-meshes only what it must, and returns to the same mesh', { timeo
   const first = await page.evaluate(() => window.__cw.internals.manager.chunks.filter((c) => c.level.name === 'h1')
     .map((c) => [c.key, c.mesh.userData.triangles]));
   const before = await page.evaluate(() => window.__cw.loadOrder().length);
-  // a 64 m walk along the start's view, 2 m at a time, letting the page update as it goes
-  await page.evaluate(async () => {
-    const cw = window.__cw, s = cw.camera.get(), dx = -Math.sin(s.yaw), dz = -Math.cos(s.yaw);
-    for (let m = 2; m <= 64; m += 2) {
-      const x = s.x + dx * m, z = s.z + dz * m, g = cw.internals.manager.surfaceAt(x, z);
-      cw.camera.set({ mode: 'walk', x, z, y: g + 1.7 });
-      await cw.frame();
-      await new Promise((r) => setTimeout(r, 260));
-      await cw.frame();
+  // A 64 m walk along the start's view, 2 m at a time, letting the page update as it goes,
+  // then waiting (without settle(), which re-meshes every chunk) until the last job is in.
+  // Every h1 mesh job is recorded as it is sent, with the camera it reads: a chunk is sent a
+  // second job only once the camera has moved on from the first by the refresh rule,
+  // max(16 m, a quarter of the distance), so no chunk is ever meshed twice for one move.
+  const walk = await page.evaluate(async () => {
+    const cw = window.__cw, M = cw.internals.manager, s = cw.camera.get(), dx = -Math.sin(s.yaw), dz = -Math.cos(s.yaw);
+    const last = new Map(), close = [], run = M._run;
+    for (const c of M.chunks) if (c.level.name === 'h1' && c.tolInfo && c.tolInfo.cam) last.set(c.key, c.tolInfo.cam.slice());
+    M._run = function (job) {
+      const c = job.c;
+      if (c.level.name === 'h1' && job.kind === 'mesh') {
+        const cam = [M.cam.x, M.cam.y, M.cam.z], prev = last.get(c.key);
+        const rule = Math.max(M.tin.snapMin, M.tin.snapFrac * M.distance(c, M.cam));
+        if (!c.forceStale && prev && Math.hypot(cam[0] - prev[0], cam[1] - prev[1], cam[2] - prev[2]) < 0.9 * rule) {
+          close.push({ key: c.key, moved: Math.hypot(cam[0] - prev[0], cam[1] - prev[1], cam[2] - prev[2]), rule });
+        }
+        last.set(c.key, cam);
+      }
+      return run.call(this, job);
+    };
+    try {
+      for (let m = 2; m <= 64; m += 2) {
+        const x = s.x + dx * m, z = s.z + dz * m, g = M.surfaceAt(x, z);
+        cw.camera.set({ mode: 'walk', x, z, y: g + 1.7 });
+        await cw.frame();
+        await new Promise((r) => setTimeout(r, 260));
+        await cw.frame();
+      }
+      M.update(cw.internals.camera.position);
+      const t0 = performance.now();
+      while (M.queue.length + M.inflight > 0 && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      M._run = run;
     }
-    await cw.settle(300000);
+    return { close: close.slice(0, 5), n: close.length, idle: M.queue.length + M.inflight === 0 };
   });
   const jobs = await page.evaluate((n) => window.__cw.loadOrder().slice(n).filter((j) => j.level === 'h1'), before);
+  assert.ok(walk.idle, 'the walk\'s jobs finished');
   assert.ok(jobs.length < 40, jobs.length + ' h1 mesh jobs for a 64 m walk');
   assert.ok(jobs.every((j) => j.kind === 'mesh'), 'only mesh jobs: ' + [...new Set(jobs.map((j) => j.kind))]);
-  await page.evaluate(() => window.__cw.camera.start());
+  assert.equal(walk.n, 0, 'a chunk re-meshed before the camera moved on by the refresh rule: ' + JSON.stringify(walk.close));
+  // Back at the start: forceSnapshots re-meshes exactly the chunks whose mesh was made for
+  // another camera, and a second call at the same camera re-meshes nothing.
+  const snap = await page.evaluate(async () => {
+    const cw = window.__cw, I = cw.internals, M = I.manager;
+    cw.camera.start();
+    const p = I.camera.position.clone();
+    const elsewhere = M.chunks.filter((c) => c.level.name === 'h1' && c.status === 'ready' &&
+      !(c.tolInfo.cam[0] === p.x && c.tolInfo.cam[1] === p.y && c.tolInfo.cam[2] === p.z)).length;
+    const n0 = cw.loadOrder().length;
+    M.forceSnapshots(p);
+    const firstCall = cw.loadOrder().length - n0 + M.queue.length;
+    const t0 = performance.now();
+    while (M.queue.length + M.inflight > 0 && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 50));
+    const n1 = cw.loadOrder().length;
+    M.forceSnapshots(p);
+    return { elsewhere, firstCall, secondCall: cw.loadOrder().length - n1 + M.queue.length };
+  });
+  assert.ok(snap.elsewhere > 0, 'the walk re-meshed some chunks: ' + JSON.stringify(snap));
+  assert.equal(snap.firstCall, snap.elsewhere, 'forceSnapshots re-meshes the chunks meshed elsewhere: ' + JSON.stringify(snap));
+  assert.equal(snap.secondCall, 0, 'and nothing when called again at the same camera: ' + JSON.stringify(snap));
   await settleHere(page);
   const back = await page.evaluate(() => window.__cw.internals.manager.chunks.filter((c) => c.level.name === 'h1')
     .map((c) => [c.key, c.mesh.userData.triangles]));
@@ -780,7 +851,7 @@ test('no see-through cracks (magenta), on both tiers', { timeout: READY_MS + 900
           I.manager.tinForce(tol);
           const yaw = Math.atan2(-(pose.tx - pose.x), -(pose.tz - pose.z));
           cw.camera.set({ mode: 'fly', x: pose.x, z: pose.z, y: pose.y, yaw, pitch: -(I.camera.fov / 2 + 4) * Math.PI / 180 });
-          I.manager.forceSnapshots(I.camera.position);
+          if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
           await cw.settle(600000);
           if (cw.sunIdle) await cw.sunIdle();
           return window.__cwMagenta();
@@ -825,6 +896,73 @@ test('h1 sides facing h5 hang below the h5 edge', { timeout: 120000 }, async (t)
   t.diagnostic('levelSeamRemeshes ' + r.remeshes + ', outer sides ' + r.sides + ', metres checked ' + r.metres);
   assert.ok(r.sides > 10 && r.metres > 2000, JSON.stringify(r));
   assert.equal(r.n, 0, 'skirt bottoms above the h5 floor: ' + JSON.stringify(r.above));
+});
+
+// The derived floor when h5 arrives after the h1 chunks facing it: those were meshed with the
+// fixed 16 m + 3 tau fallback, and an h5 chunk drawn 60 m lower (served 15 s late) must make
+// checkLevelSeams re-mesh them to hang below it.
+test('h1 sides facing an h5 chunk that arrives late and lower are re-meshed below it', { timeout: READY_MS + 120000 }, async (t) => {
+  const manifest = manifestOf();
+  const h1 = manifest.levels.find((l) => l.name === 'h1'), h5 = manifest.levels.find((l) => l.name === 'h5');
+  const S5 = h5.cell * h5.chunk_samples, { origin_e: oe, origin_n: on } = manifest.crs;
+  // the h5 chunk across an outer side of the h1 chunk nearest the start
+  let key5 = null, best = Infinity;
+  for (const key of Object.keys(h1.chunks)) {
+    const [i, j] = key.split('_').map(Number);
+    for (const [di, dj] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+      const k = (i + di) + '_' + (j + dj);
+      if (h1.chunks[k] || (h1.sea || []).includes(k)) continue;
+      const e = (i + di) * 240 + 120, n = (j + dj) * 240 + 120, d = Math.hypot(e - oe, n - on);
+      const k5 = Math.floor(e / S5) + '_' + Math.floor(n / S5);
+      if (h5.chunks[k5] && d < best) { best = d; key5 = k5; }
+    }
+  }
+  assert.ok(key5, 'an h5 chunk facing an h1 side');
+  const low = reencodeChunk(manifest, 'h5', key5, (dm) => { for (let k = 0; k < dm.length; k++) dm[k] -= 600; });
+  const ctx = await newContext();
+  await ctx.route('**/out/synthetic/manifest.json', async (route) => {
+    const res = await route.fetch();
+    const m = await res.json();
+    const l = m.levels.find((x) => x.name === 'h5');
+    l.chunks[key5] = Object.assign({}, l.chunks[key5], { file: low.file, bytes: low.gz.length, min: low.min, max: low.max });
+    await route.fulfill({ response: res, body: JSON.stringify(m), headers: { 'content-type': 'application/json' } });
+  });
+  let served = 0;
+  await ctx.route('**/out/synthetic/' + low.file, async (route) => {
+    await new Promise((r) => setTimeout(r, 15000));
+    served = Date.now();
+    await route.fulfill({ status: 200, body: low.gz, contentType: 'application/gzip' });
+  });
+  const { page, log } = await openWorld(ctx);
+  const r = await page.evaluate(async (key5) => {
+    const cw = window.__cw, M = cw.internals.manager, lv = M.levels.h1;
+    await cw.settle(300000);
+    const above = [];
+    let sides = 0, facing = 0;
+    for (const c of M.chunks) {
+      if (c.level.name !== 'h1' || !c.bottoms) continue;
+      for (let s = 0; s < 4; s++) {
+        const k = M.neighbourKey(c, s);
+        if (lv.present.has(k) || lv.sea.has(k)) continue;
+        const f = M.outerFloor(c, s);
+        if (!f) continue;
+        sides++;
+        if (M.h5Across(c, s) === M.byKey['h5:' + key5]) facing++;
+        for (let m = 0; m <= 240; m++) {
+          const b = c.bottoms[s][m];
+          if (Number.isFinite(b) && b > f[m] + 1e-4) above.push({ key: c.key, side: s, m, bottom: b, floor: f[m] });
+        }
+      }
+    }
+    return { remeshes: M.tinStats().levelSeamRemeshes, sides, facing, above: above.slice(0, 3), n: above.length };
+  }, key5);
+  t.diagnostic('levelSeamRemeshes ' + r.remeshes + ', outer sides ' + r.sides + ', facing the late chunk ' + r.facing);
+  assert.ok(served > 0, 'the lowered h5 chunk was served');
+  assert.ok(r.facing > 0, 'some h1 sides face it: ' + JSON.stringify(r));
+  assert.ok(r.remeshes > 0, 'its arrival re-meshed the h1 chunks facing it: ' + JSON.stringify(r));
+  assert.equal(r.n, 0, 'skirt bottoms above the h5 floor: ' + JSON.stringify(r.above));
+  assert.deepEqual(log.errors, []);
+  await page.close();
 });
 
 test('the drawn horizon agrees with the world\'s own 1 m horizon', { timeout: READY_MS + 600000 }, async (t) => {
@@ -874,27 +1012,38 @@ test('terrain frees its GPU memory', { timeout: READY_MS + 60000 }, async () => 
   const ctx = await newContext();
   const { page, log } = await openWorld(ctx);
   const r = await page.evaluate(async () => {
-    const M = window.__cw.internals.manager;
+    const M = window.__cw.internals.manager, { sharedTextures } = await import('/world/js/terrainmat.js');
     await window.__cw.settle(300000);
-    const fired = new Map();
-    let meshes = 0;
+    // a 'dispose' listener on every chunk geometry of every level, every h1 material, both
+    // textures of every h1 chunk, and the shared noise and plot textures
+    const fired = new Map(), kinds = { geometry: 0, material: 0, texture: 0, shared: 0 };
+    const listen = (o, kind) => {
+      if (!o || fired.has(o)) return;
+      kinds[kind]++;
+      fired.set(o, 0);
+      o.addEventListener('dispose', () => fired.set(o, fired.get(o) + 1));
+    };
     for (const c of M.chunks) {
-      if (!c.mesh) continue;
-      meshes++;
-      const g = c.mesh.geometry;
-      fired.set(g, 0);
-      g.addEventListener('dispose', () => fired.set(g, fired.get(g) + 1));
+      if (c.mesh) listen(c.mesh.geometry, 'geometry');
+      if (c.material) listen(c.material, 'material');
+      if (c.tex) { listen(c.tex.classTex, 'texture'); listen(c.tex.normalTex, 'texture'); }
     }
+    for (const tx of sharedTextures()) listen(tx, 'shared');
     const before = M.terrainInfo();
     M.dispose();
     const counts = [...fired.values()];
-    return { meshes, before, after: M.terrainInfo(), once: counts.filter((n) => n === 1).length, other: counts.filter((n) => n !== 1).length };
+    return { kinds, before, after: M.terrainInfo(), shared: sharedTextures().length, once: counts.filter((n) => n === 1).length,
+             other: counts.filter((n) => n !== 1).length, total: counts.length };
   });
-  assert.ok(r.meshes > 100 && r.before.textures > 0 && r.before.materials > 0, JSON.stringify(r));
-  assert.equal(r.once, r.meshes, 'every chunk geometry was disposed once');
+  assert.ok(r.kinds.geometry > 100 && r.before.textures > 0 && r.before.materials > 0, JSON.stringify(r));
+  assert.equal(r.kinds.material, r.before.materials, 'a listener on every h1 material: ' + JSON.stringify(r));
+  assert.equal(r.kinds.texture + r.kinds.shared, r.before.textures, 'and on every terrain texture: ' + JSON.stringify(r));
+  assert.equal(r.kinds.shared, 2, 'the noise and the plot outline: ' + JSON.stringify(r));
+  assert.equal(r.once, r.total, 'every geometry, material and texture was disposed exactly once: ' + JSON.stringify(r));
   assert.equal(r.other, 0);
   assert.equal(r.after.textures, 0);
   assert.equal(r.after.materials, 0);
+  assert.equal(r.shared, 0, 'no shared texture is left');
   assert.deepEqual(log.errors, []);
   await page.close();
 });
@@ -995,7 +1144,7 @@ test('the slope limit refuses steep ground, and roofs keep the step', { timeout:
       const cw = window.__cw, I = cw.internals, M = I.manager, c = M.byKey['h1:' + key];
       const x = c.x0 + XS - 4, z = c.z0 + r0 + 6;
       cw.camera.set({ mode: 'walk', x, z, y: M.surfaceAt(x, z) + 1.7, yaw: -Math.PI / 2, pitch: 0 });
-      M.forceSnapshots(I.camera.position);
+      if (!String(cw.settle).includes('forceSnapshots')) M.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       const C = I.controls;
       for (let k = 0; k < 60 && !C.onGround; k++) C.update(1 / 60);
@@ -1003,15 +1152,192 @@ test('the slope limit refuses steep ground, and roofs keep the step', { timeout:
       C.keys.add('KeyW');
       for (let k = 0; k < 120; k++) C.update(1 / 60);
       C.keys.delete('KeyW');
-      return { start, end: C.feet.y, moved: C.feet.x - x, onGround: C.onGround };
+      const walked = { start, end: C.feet.y, moved: C.feet.x - x, onGround: C.onGround };
+      // the same for 4 s with Space pressed again on every landing: a jump must not carry the
+      // walker up ground too steep to walk (the rise is measured from the ground, not the feet)
+      cw.camera.set({ mode: 'walk', x, z, y: M.surfaceAt(x, z) + 1.7, yaw: -Math.PI / 2, pitch: 0 });
+      for (let k = 0; k < 60 && !C.onGround; k++) C.update(1 / 60);
+      const start2 = C.feet.y;
+      let jumps = 0;
+      C.keys.add('KeyW');
+      for (let k = 0; k < 240; k++) {
+        if (C.onGround) {
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ' }));
+          window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ' }));
+          if (C.vy > 0) jumps++;
+        }
+        C.update(1 / 60);
+      }
+      C.keys.delete('KeyW');
+      for (let k = 0; k < 120 && !C.onGround; k++) C.update(1 / 60);
+      const jumped = { start: start2, end: C.feet.y, moved: C.feet.x - x, onGround: C.onGround, jumps };
+      return { walked, jumped };
     }, { key, r0, XS });
     rises[deg] = r;
   }
-  assert.ok(rises[40].end - rises[40].start > 1, 'up the 40 degree ramp: ' + JSON.stringify(rises[40]));
-  assert.ok(rises[55].end - rises[55].start < 0.3, 'not up the 55 degree ramp: ' + JSON.stringify(rises[55]));
+  const up = (r) => r.end - r.start;
+  assert.ok(up(rises[40].walked) > 1, 'up the 40 degree ramp: ' + JSON.stringify(rises[40]));
+  assert.ok(up(rises[55].walked) < 0.3, 'not up the 55 degree ramp: ' + JSON.stringify(rises[55]));
+  assert.ok(rises[55].jumped.jumps >= 4 && rises[55].jumped.onGround, 'the walker jumped and landed: ' + JSON.stringify(rises[55]));
+  assert.ok(up(rises[55].jumped) < 0.3, 'nor up it by jumping: ' + JSON.stringify(rises[55]));
+  assert.ok(up(rises[40].jumped) > 1, 'jumping up the 40 degree ramp still climbs it: ' + JSON.stringify(rises[40]));
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();
+});
+
+test('the held-triangle cap raises px, and lets it back down', { timeout: 240000 }, async () => {
+  const { page } = await mainPage();
+  await page.evaluate(() => window.__cw.camera.start());
+  await settleHere(page);
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, I = cw.internals, M = I.manager, cap = M.tin.heldCap;
+    const idle = async () => {
+      const t0 = performance.now();
+      while (M.queue.length + M.inflight > 0 && performance.now() - t0 < 120000) await new Promise((res) => setTimeout(res, 50));
+    };
+    const held0 = M.heldTriangles(), px0 = M.px();
+    // a cap under what is held: px rises x1.25 (at most once a second), every h1 chunk
+    // re-meshes, and fewer triangles are held
+    M.tin.heldCap = Math.round(0.8 * held0);
+    try {
+      const t0 = performance.now();
+      while (performance.now() - t0 < 30000 && M.pxScale < 1.25 * 1.25 - 1e-9 && M.heldTriangles() > M.tin.heldCap) {
+        M.update(I.camera.position);
+        await idle();
+        await new Promise((res) => setTimeout(res, 250));
+      }
+      M.update(I.camera.position);
+      await idle();
+      const raised = { pxScale: M.pxScale, px: M.px(), held: M.heldTriangles(), cap: M.tin.heldCap };
+      // the profile's cap again, far above what is held: after 5 s under half of it, px steps back
+      M.tin.heldCap = cap;
+      const t1 = performance.now();
+      while (performance.now() - t1 < 15000 && M.pxScale >= raised.pxScale) {
+        M.update(I.camera.position);
+        await new Promise((res) => setTimeout(res, 250));
+      }
+      return { held0, px0, raised, relaxed: { pxScale: M.pxScale, afterMs: Math.round(performance.now() - t1) } };
+    } finally {
+      M.tin.heldCap = cap;
+      M.pxScale = 1;
+      M.underHalfSince = null;
+      M.tinForce(null);          // every h1 chunk stale again, for the settle below
+    }
+  });
+  await settleHere(page);
+  assert.ok(r.raised.pxScale > 1 && r.raised.px > r.px0, 'px rose over the cap: ' + JSON.stringify(r));
+  assert.ok(r.raised.held < r.held0, 'and fewer triangles are held: ' + JSON.stringify(r));
+  assert.ok(r.relaxed.pxScale < r.raised.pxScale && r.relaxed.afterMs >= 5000, 'px stepped back under half the cap: ' + JSON.stringify(r));
+});
+
+test('installs go on while the tab is hidden', { timeout: 240000 }, async () => {
+  const { page } = await mainPage();
+  await page.evaluate(() => window.__cw.camera.start());
+  await settleHere(page);
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, I = cw.internals, M = I.manager, raf = window.requestAnimationFrame;
+    // a hidden tab: document.hidden, and no animation frames at all
+    window.requestAnimationFrame = () => 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    try {
+      const h1 = M.chunks.filter((c) => c.level.name === 'h1' && c.status === 'ready');
+      const seq0 = h1.map((c) => c.installedSeq);
+      const p = I.camera.position.clone();
+      p.y += 40;
+      M.forceSnapshots(p);         // a re-mesh of every h1 chunk, for a camera 40 m up
+      const t0 = performance.now();
+      while (M.queue.length + M.inflight > 0 && performance.now() - t0 < 120000) await new Promise((res) => setTimeout(res, 50));
+      return { chunks: h1.length, installed: h1.filter((c, k) => c.installedSeq > seq0[k]).length, left: M.queue.length + M.inflight,
+               pending: M.pendingInstalls.length };
+    } finally {
+      delete document.hidden;
+      delete document.visibilityState;
+      window.requestAnimationFrame = raf;
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+  });
+  await settleHere(page);
+  assert.equal(r.left, 0, 'every job was installed with no animation frame: ' + JSON.stringify(r));
+  assert.equal(r.installed, r.chunks, 'every h1 chunk has its new mesh: ' + JSON.stringify(r));
+});
+
+test('the ground\'s noise is read at its own footprint across class borders, on both tiers', { timeout: READY_MS + 240000 }, async () => {
+  for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
+    const { page } = await get();
+    // Close up and straight down over a border of the road (whose noise is finer than its
+    // neighbours'), the noise's mips above level 1 are replaced by white: a pixel that reads
+    // a coarse mip then shows it. Rendered against the same noise mid-grey at every level,
+    // nothing may differ. (A class's own noise frequency changes across the border; reading
+    // the mip from that jump, not from the footprint, drew a line of flat colour.)
+    const r = await page.evaluate(async () => {
+      const cw = window.__cw, I = cw.internals, M = I.manager;
+      const { SHARED } = await import('/world/js/terrainmat.js');
+      let x = 110 - 0.5, z = -500 - 0.5;
+      const road = M.materialAt(x, z).cls;
+      while (M.materialAt(x + 0.25, z).cls === road && x < 160) x += 0.25;
+      const other = M.materialAt(x + 0.25, z).cls;
+      const g = M.surfaceAt(x, z);
+      cw.camera.set({ mode: 'fly', x, z, y: g + 1.5, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
+      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
+      await cw.settle(300000);
+      if (cw.sunIdle) await cw.sunIdle();
+      const hide = [I.buildings && I.buildings.group, I.trees && I.trees.group, I.fence && I.fence.mesh].filter(Boolean);
+      const was = hide.map((o) => o.visible);
+      const own = SHARED.cwTNoise.value;
+      const noise = (coarse) => {      // the same kind of texture as the page's own noise
+        const levels = [];
+        for (let w = 256, k = 0; w >= 1; w >>= 1, k++) {
+          levels.push({ data: new Uint8Array(w * w * 4).fill(k >= 2 ? coarse : 128), width: w, height: w });
+        }
+        const t = new own.constructor(levels[0].data, 256, 256, own.format, own.type);
+        t.mipmaps = levels;
+        t.generateMipmaps = false;
+        t.wrapS = own.wrapS; t.wrapT = own.wrapT;
+        t.minFilter = own.minFilter;
+        t.magFilter = own.magFilter;
+        t.colorSpace = own.colorSpace;
+        t.needsUpdate = true;
+        return t;
+      };
+      const grey = noise(128), marked = noise(255);
+      const gl = I.renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const shot = (t) => {
+        SHARED.cwTNoise.value = t;
+        I.renderer.render(I.scene, I.camera);
+        const px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        return px;
+      };
+      hide.forEach((o) => { o.visible = false; });
+      let a, b;
+      try {
+        a = shot(grey);
+        b = shot(marked);
+      } finally {
+        SHARED.cwTNoise.value = own;
+        hide.forEach((o, k) => { o.visible = was[k]; });
+        grey.dispose();
+        marked.dispose();
+      }
+      let differ = 0;
+      for (let k = 0; k < w * h; k++) {
+        if (Math.max(Math.abs(a[k * 4] - b[k * 4]), Math.abs(a[k * 4 + 1] - b[k * 4 + 1]), Math.abs(a[k * 4 + 2] - b[k * 4 + 2])) > 6) differ++;
+      }
+      // both classes in view
+      const seen = new Set();
+      for (let q = -1; q <= 1; q += 0.25) seen.add(M.materialAt(x + q, z).cls);
+      cw.camera.start();
+      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
+      await cw.settle(300000);
+      return { road, other, border: x, differ, pixels: w * h, seen: [...seen] };
+    });
+    assert.equal(r.road, 7, name + ': the road point is road: ' + JSON.stringify(r));
+    assert.ok(r.other !== 7 && r.seen.length >= 2, name + ': a border in view: ' + JSON.stringify(r));
+    assert.equal(r.differ, 0, name + ': pixels that read a noise mip coarser than their footprint: ' + JSON.stringify(r));
+  }
 });
 
 test('no request ever left localhost', () => {
