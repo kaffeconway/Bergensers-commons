@@ -1,5 +1,5 @@
 // Commons World viewer tests: the sun, the terrain shade, the near shadow map and the
-// date/time slider (SPEC section 6.3, ST1-ST23).
+// date/time slider (SPEC section 6.3, ST1-ST23; ST24-ST32 were added after the reviews).
 //
 //   CW_PYTHON=<python with numpy, pandas and pvlib> node --test --test-concurrency=1 world/tests/viewer/sun.test.mjs
 //
@@ -21,6 +21,10 @@ const read = (name) => JSON.parse(fs.readFileSync(path.join(SYN, name), 'ascii')
 const DAY = 86400000, MIN = 60000;
 const ASCII = /^[\x20-\x7e]*$/;
 const BAD_WORDS = /undefined|NaN|null/;
+// Console warnings that mean GL refused what it was asked. SPEC 6.3 names PCFSoftShadowMap and
+// GL_INVALID; Chromium reports a refused call as "WebGL: INVALID_OPERATION: ...", which the
+// second does not match, so any INVALID and any "WebGL:" message counts too.
+const GL_WARNING = /PCFSoftShadowMap|INVALID|WebGL:/i;
 
 function site() {
   const m = read('manifest.json'), f = read('facts.json');
@@ -365,44 +369,60 @@ test('ST7 the GPU draws what the CPU says', { timeout: 600000 }, async () => {
   assert.ok(r.out.lit.G > 0.9, 'outside it: G ' + r.out.lit.G);
 });
 
-/* ST8, as built (see the hand-off, deviation 5; the owner or the integrator to confirm).
+/* ST8, as built (see the hand-off, deviation 5). NOT THE SPEC'S ST8, and not settled: the
+ * owner decides (visible choice 23) before merge, and ST8 is then set to the chosen rule.
  * "Luminance" is read as in ST11 and test 14: Rec. 709 luma on the displayed 8-bit values.
  * The spec's 0.85 is held at the default time, a 44 deg sun on the synthetic world, where the
  * design's own light table puts shade on flat ground about half as bright as sunlit. At the
  * spec's 21 Jun 19:00 UTC (an 11.5 deg sun) that table leaves the sky's fill as most of the
  * light on flat ground, so the shadow there is only a little darker: it must be darker, and
  * the numbers are reported. Holding 0.85 at 19:00 needs a different light table (visible
- * choice 23), a different test time or a different threshold, which is not this test's call. */
+ * choice 23), a different test time or a different threshold, which is not this test's call.
+ * The spec's own condition runs below as a TODO test, so every run shows it is not met. */
 const ST8_RATIO = 0.85;
 const ST8_EVENING = '2026-06-21T19:00Z';
+// the house's shadow point and a lit point 3 m outside it (ST7's rule), 9 x 9 luma patches
+// round each, seen from 40 m straight above, with the page's own UI hidden
+const shadowPatches = (page, time) => page.evaluate(async (time) => {
+  const cw = window.__cw;
+  cw.setSunTime(time === null ? cw.internals.sun.defaultUtc : time);
+  cw.camera.start();
+  await cw.settle();
+  const pts = await window.__pickShadowPoints();
+  if (!pts) return null;
+  await window.__lookDownAt((pts.shade.x + pts.lit.x) / 2, (pts.shade.z + pts.lit.z) / 2, 40);
+  for (const id of ['bar', 'credits', 'hint', 'dock', 'house-label']) document.getElementById(id).style.visibility = 'hidden';
+  const [a, b] = window.__patch([pts.shade, pts.lit], 9, false);
+  for (const id of ['bar', 'credits', 'hint', 'dock', 'house-label']) document.getElementById(id).style.visibility = '';
+  return { a, b, same: pts.lit.same, el: cw.sun.elevation };
+}, time);
+const saySt8 = (name, r) => name + ' (sun ' + r.el.toFixed(1) + ' deg): shadow patch luma ' + r.a.L.toFixed(1) + ' against lit ' +
+  r.b.L.toFixed(1) + ', ratio ' + (r.a.L / r.b.L).toFixed(3) + '; in linear light ' + (r.a.Y / r.b.Y).toFixed(3) + (r.same ? '' : ' (different ground classes)');
 test('ST8 shadows are visible', { timeout: 600000 }, async (t) => {
   const { page } = await mainPage();
   await page.addScriptTag({ content: PICK });
   await atStart(page);
-  const at = (time) => page.evaluate(async (time) => {
-    const cw = window.__cw;
-    cw.setSunTime(time === null ? cw.internals.sun.defaultUtc : time);
-    cw.camera.start();
-    await cw.settle();
-    const pts = await window.__pickShadowPoints();
-    if (!pts) return null;
-    await window.__lookDownAt((pts.shade.x + pts.lit.x) / 2, (pts.shade.z + pts.lit.z) / 2, 40);
-    for (const id of ['bar', 'credits', 'hint', 'dock', 'house-label']) document.getElementById(id).style.visibility = 'hidden';
-    const [a, b] = window.__patch([pts.shade, pts.lit], 9, false);
-    for (const id of ['bar', 'credits', 'hint', 'dock', 'house-label']) document.getElementById(id).style.visibility = '';
-    return { a, b, same: pts.lit.same, el: cw.sun.elevation };
-  }, time);
-  const say = (name, r) => name + ' (sun ' + r.el.toFixed(1) + ' deg): shadow patch luma ' + r.a.L.toFixed(1) + ' against lit ' +
-    r.b.L.toFixed(1) + ', ratio ' + (r.a.L / r.b.L).toFixed(3) + '; in linear light ' + (r.a.Y / r.b.Y).toFixed(3) + (r.same ? '' : ' (different ground classes)');
-  const hi = await at(null);
+  const hi = await shadowPatches(page, null);
   assert.ok(hi, 'found the two points at the default time');
-  t.diagnostic(say('default time', hi));
-  assert.ok(hi.a.L < ST8_RATIO * hi.b.L, say('default time', hi));
-  const lo = await at(ST8_EVENING);
+  t.diagnostic(saySt8('default time', hi));
+  assert.ok(hi.a.L < ST8_RATIO * hi.b.L, saySt8('default time', hi));
+  const lo = await shadowPatches(page, ST8_EVENING);
   assert.ok(lo, 'found the two points at ' + ST8_EVENING);
-  t.diagnostic(say(ST8_EVENING, lo));
-  assert.ok(lo.a.L < lo.b.L, say(ST8_EVENING, lo));
+  t.diagnostic(saySt8(ST8_EVENING, lo));
+  assert.ok(lo.a.L < lo.b.L, saySt8(ST8_EVENING, lo));
 });
+
+// SPEC 6.3's ST8 exactly, kept as a TODO until the owner decides visible choice 23: it fails
+// with the design's light table, and a TODO failure does not fail the run.
+test('ST8 as specified: at 21 Jun 19:00 UTC the shadow is below 0.85 x lit',
+  { timeout: 600000, todo: 'the owner decides visible choice 23 (hand-off deviation 5)' }, async (t) => {
+    const { page } = await mainPage();
+    await page.addScriptTag({ content: PICK });
+    const lo = await shadowPatches(page, ST8_EVENING);
+    assert.ok(lo, 'found the two points at ' + ST8_EVENING);
+    t.diagnostic(saySt8(ST8_EVENING, lo));
+    assert.ok(lo.a.L < ST8_RATIO * lo.b.L, saySt8(ST8_EVENING, lo));
+  });
 
 test('ST9 the slider works by keyboard', { timeout: READY_MS + 120000 }, async () => {
   const ctx = await newContext();
@@ -491,7 +511,12 @@ test('ST10 the layout with the sun chip and panel', { timeout: READY_MS * 2 + 12
     const box = (id) => { const e = document.getElementById(id); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width > 0 ? { l: b.left, t: b.top, r: b.right, b: b.bottom, h: b.height } : null; };
     return { W: innerWidth, H: innerHeight, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
              chip: box('btn-sun'), sun: box('sun'), stick: box('stick'), creditsToggle: box('credits-toggle'), credits: box('credits'),
-             hint: box('hint'), status: box('status'), pills: ['btn-specs', 'btn-mode', 'btn-help'].map(box),
+             hint: box('hint'), status: box('status'), specs: box('specs'), pills: ['btn-specs', 'btn-mode', 'btn-help'].map(box),
+             chipOnTop: (() => {
+               const c = document.getElementById('btn-sun'), b = c.getBoundingClientRect();
+               const e = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+               return !!e && c.contains(e);
+             })(),
              controls: ['sun-day', 'sun-time', 'sun-now', 'sun-dec', 'sun-jun', 'sun-noon', 'sun-close'].map(box) };
   });
   const inside = (m, b) => b && b.l >= -0.5 && b.t >= -0.5 && b.r <= m.W + 0.5 && b.b <= m.H + 0.5;
@@ -567,6 +592,22 @@ test('ST10 the layout with the sun chip and panel', { timeout: READY_MS * 2 + 12
         }
         if (withError) assert.ok(m.status, tag + ': the status line shows the error');
       }
+      // an open Specs side panel: the chip is neither under it nor over its content
+      await page.click('#btn-specs');
+      for (const folded of [false, true]) {
+        const isFolded = await page.evaluate(() => document.getElementById('credits').classList.contains('collapsed'));
+        if (isFolded !== folded) await page.click('#credits-toggle');
+        await page.evaluate(() => window.__cw.frame());
+        const m = await measure(page);
+        const where = tag + ', Specs open' + (folded ? ', credits folded' : '');
+        assert.ok(m.specs, where + ': Specs is open');
+        assert.ok(inside(m, m.chip), where + ': the chip is inside the viewport');
+        assert.ok(m.chipOnTop, where + ': the chip can be reached');
+        for (const [name, o] of [['specs', m.specs], ['hint', m.hint], ['credits', m.credits], ['status', m.status]]) {
+          assert.ok(!meets(m.chip, o), where + ': the chip meets #' + name);
+        }
+      }
+      await page.click('#specs-close');
       // one panel at a time, with a mouse
       await page.click('#btn-specs');
       await page.click('#btn-sun');
@@ -679,7 +720,8 @@ test('ST15 the far gate', { timeout: READY_MS + 120000 }, async () => {
     await cw.settle();
     const light = I.scene.children.find((o) => o.isDirectionalLight);
     return { intensity: light.intensity, disc: I.sky.material.uniforms.showSunDisc.value, far: cw.sun.behindFar,
-             lines: cw.sunReadout().lines, az: cw.sun.trueAzimuth, el: cw.sun.elevation };
+             lines: cw.sunReadout().lines, az: cw.sun.trueAzimuth, el: cw.sun.elevation, night: I.sun.night,
+             crescent: document.getElementById('btn-sun').classList.contains('night') };
   }, t);
   const dec = await at('2026-12-21T11:40Z');
   assert.ok(dec.az > 150 && dec.az < 210 && dec.el < 10, 'the sun is in the gated sector, below 10 deg');
@@ -687,10 +729,16 @@ test('ST15 the far gate', { timeout: READY_MS + 120000 }, async () => {
   assert.equal(dec.disc, 0);
   assert.equal(dec.far, true);
   assert.ok(dec.lines.some((l) => /behind mountains beyond the edge of this world/.test(l)), dec.lines.join(' | '));
+  // the gate closes the light by day, but the chip still shows the sun's disc, not the night
+  assert.ok(dec.el > 0 && dec.night === true);
+  assert.equal(dec.crescent, false, 'no night crescent on the chip while the sun is up behind the gate');
   const jun = await at('2026-06-21T12:00Z');
   assert.ok(jun.intensity > 0);
   assert.equal(jun.disc, 1);
   assert.equal(jun.far, false);
+  assert.equal(jun.crescent, false);
+  const night = await at('2026-12-21T20:00Z');
+  assert.equal(night.crescent, true, 'the crescent at night');
   await page.close();
 });
 
@@ -773,7 +821,19 @@ test('ST18 every lit material is shaded by the sun', { timeout: 300000 }, async 
       const m = shade.withSunShade(new THREE.MeshLambertMaterial(), 'zero');
       m.onBeforeCompile({ vertexShader: 'void main() {}', fragmentShader: 'void main() {}', uniforms: {} });
     } catch (e) { thrown = e.message; }
-    return { coverage: cw.sunCoverage(), missing, drawn, drawnNames: [...drawnNames], before, after, key, thrown };
+    // program keys: three's own key is a material's hook source, so two materials with their
+    // own hooks and three's key must keep distinct keys once decorated; an own key is kept
+    const hookA = new THREE.MeshLambertMaterial(), hookB = new THREE.MeshLambertMaterial();
+    hookA.onBeforeCompile = function (sh) { sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n// hook A'); };
+    hookB.onBeforeCompile = function (sh) { sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n// hook B'); };
+    const keyed = new THREE.MeshLambertMaterial(), plain = new THREE.MeshLambertMaterial();
+    keyed.onBeforeCompile = hookA.onBeforeCompile;
+    keyed.customProgramCacheKey = () => 'own-key';
+    for (const m of [hookA, hookB, keyed, plain]) shade.withSunShade(m, 'zero');
+    const keys = { a: hookA.customProgramCacheKey(), b: hookB.customProgramCacheKey(),
+                   keyed: keyed.customProgramCacheKey(), plain: plain.customProgramCacheKey() };
+    for (const m of [hookA, hookB, keyed, plain]) m.dispose();
+    return { coverage: cw.sunCoverage(), missing, drawn, drawnNames: [...drawnNames], before, after, key, thrown, keys };
   });
   assert.deepEqual(r.coverage, []);
   assert.ok(r.drawn > 0 && r.drawnNames.includes('h1'), 'the check saw drawn h1 terrain: ' + r.drawnNames.join(', '));
@@ -782,6 +842,10 @@ test('ST18 every lit material is shaded by the sun', { timeout: 300000 }, async 
   assert.equal(r.after, 'zero');
   assert.match(r.key, /cwS1-zero/);
   assert.match(r.thrown || '', /cw patch anchor missing/);
+  assert.notEqual(r.keys.a, r.keys.b, 'two own hooks under three\'s key keep distinct program keys');
+  assert.ok(r.keys.a.endsWith('|cwS1-zero') && r.keys.b.endsWith('|cwS1-zero'));
+  assert.equal(r.keys.keyed, 'own-key|cwS1-zero');
+  assert.equal(r.keys.plain, '|cwS1-zero');
 });
 
 test('ST19 no shadow work at night', { timeout: 120000 }, async () => {
@@ -1069,6 +1133,7 @@ test('ST27 the near map follows the camera; T, Comma and the address', { timeout
     cw.camera.start();
     await cw.settle();
     await cw.frame();
+    const full = I.sun.bytes().pageBytes;
     const still = cw.stats().shadowRedrawn;
     const c = cw.camera.get();
     cw.camera.set({ x: c.x + 25 });   // more than Rn / 8 on a laptop
@@ -1076,7 +1141,7 @@ test('ST27 the near map follows the camera; T, Comma and the address', { timeout
     const moved = cw.stats().shadowRedrawn;
     cw.camera.start();
     await cw.settle();
-    return { still, moved };
+    return { still, moved, full };
   });
   assert.equal(r.still, false, 'a frame with nothing changed redraws no shadow');
   assert.equal(r.moved, true, 'a 25 m move redraws the near map');
@@ -1094,7 +1159,70 @@ test('ST27 the near map follows the camera; T, Comma and the address', { timeout
   const want = '?w=out/synthetic/&t=' + lp.y + '-' + two(lp.mo) + '-' + two(lp.d) + 'T' + two(lp.h) + ':' + two(lp.mi);
   await page.waitForFunction((want) => location.search === want, want, { timeout: 30000, polling: 100 })
     .catch(async () => assert.fail('the address is ' + await page.evaluate(() => location.search) + ', not ' + want));
-  assert.deepEqual(await page.evaluate(() => window.__cw.errors), []);
+  // Period is a drag step (a coarse sweep); once it settles (the address is written then) a
+  // full sweep follows, so the textures end as large as a full sweep's, not the drag's
+  const after = await page.evaluate(async () => {
+    const cw = window.__cw, S = cw.internals.sun;
+    await cw.sunIdle();
+    return { bytes: S.bytes().pageBytes, ids: S.jobIds(), errors: cw.errors.slice() };
+  });
+  assert.equal(after.ids.landed, after.ids.requested);
+  assert.equal(after.bytes, r.full, 'after the step settles the shade is full quality (' + after.bytes + ' against ' + r.full + ' bytes)');
+  assert.deepEqual(after.errors, []);
+});
+
+// The h1 window follows the camera: a move of more than a quarter of its half-width sends a
+// window job, and the shade near the new place is then read from 1 m heights and agrees with a
+// direct march there. Phone quality, so a 300 m move east and south leaves the old +-256 m
+// window. A 5 deg evening sun puts some of those points in the terrain's shade (SYN).
+test('ST32 the h1 window follows the camera', { timeout: 300000 }, async (t) => {
+  const { page } = await mainPage();
+  await atStart(page);
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, S = cw.internals.sun;
+    try {
+      cw.setSunQuality('phone');
+      cw.setSunTime('2026-06-21T20:00Z');
+      await cw.settle();
+      const c0 = cw.camera.get(), ids0 = S.jobIds();
+      const x = c0.x + 300, z = c0.z + 300, g = cw.groundAt(x, z);
+      const near = [];
+      for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) near.push({ x: x + 15 * i, z: z + 15 * j, eye: 1.5 });
+      const before = near.map((p) => cw.sunShadeAt(p.x, p.z, p.eye).level);
+      cw.camera.set({ mode: 'fly', x, y: g.y + 30, z });   // no time change: only the window moves
+      await cw.frame();
+      await cw.sunIdle();
+      const ids1 = S.jobIds();
+      const shade = near.map((p) => cw.sunShadeAt(p.x, p.z, p.eye));
+      const march = await S.march(near);
+      return { ids0, ids1, before, shade, march, el: cw.sun.elevation, errors: cw.errors.slice() };
+    } finally {
+      cw.setSunQuality(null);
+      cw.setSunTime(S.defaultUtc);
+      cw.camera.start();
+      await cw.settle();
+    }
+  });
+  assert.ok(r.el > 3, 'the sun is up');
+  assert.ok(r.before.every((l) => l !== 'h1'), 'before the move these points lie outside the h1 window: ' + r.before.join(','));
+  assert.ok(r.ids1.sent.window > r.ids0.sent.window, 'the move sent a window job');
+  assert.equal(r.ids1.sent.sun, r.ids0.sent.sun, 'and no sun job: the time did not change');
+  assert.equal(r.ids1.landed, r.ids1.requested);
+  assert.deepEqual(r.shade.map((s) => s.level), r.shade.map(() => 'h1'), 'the shade near the new place is read from 1 m heights');
+  let decidable = 0, lit = 0;
+  const wrong = [];
+  r.shade.forEach((s, i) => {
+    const m = r.march[i];
+    if (!m || m.lit === null || !(Math.abs(s.margin_m) > 0.5)) return;
+    decidable++;
+    if (s.lit) lit++;
+    if (s.lit !== m.lit) wrong.push(i + ': drawn ' + s.lit + ' (' + s.margin_m.toFixed(2) + ' m), march ' + m.lit);
+  });
+  t.diagnostic('ST32 ' + decidable + ' of ' + r.shade.length + ' points decidable, ' + lit + ' of them lit');
+  assert.ok(decidable >= 13, 'most points are decidable');
+  assert.ok(lit > 0 && lit < decidable, 'some decidable points are lit and some shaded');
+  assert.deepEqual(wrong, [], 'the window job\'s shade agrees with a direct march');
+  assert.deepEqual(r.errors, []);
 });
 
 test('ST28 with no latitude or longitude the fixed sun stays', { timeout: READY_MS + 120000 }, async () => {
@@ -1168,10 +1296,75 @@ test('ST29 the open panel follows the sweep, and idle is heard', { timeout: 3000
   assert.deepEqual(r.errors, []);
 });
 
+// three caches the GL pixel-store state and sets a value only when its cache says it differs.
+// The sun's texture upload must go through that cache: a raw gl.pixelStorei would leave GL on
+// the sun's alignment and flip while three believes its own are still set, and three's next
+// odd-width 1-byte upload (a class mip, say) would then fail. The test leaves three believing
+// in a 1-byte alignment and a flip, lets a sweep land, and at once (the page's onShade call,
+// in the same task as the upload) compares three's belief with GL and uploads such a texture.
+test('ST31 a sun upload leaves three\'s pixel-store cache true', { timeout: 300000 }, async (t) => {
+  const { page, log } = await mainPage();
+  await atStart(page);
+  const warnings0 = log.warnings.length;
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, I = cw.internals, R = I.renderer, gl = R.getContext(), st = R.state, sun = I.sun;
+    const THREE = await import('three');
+    const NAMES = ['UNPACK_FLIP_Y_WEBGL', 'UNPACK_PREMULTIPLY_ALPHA_WEBGL', 'UNPACK_ALIGNMENT',
+                   'UNPACK_ROW_LENGTH', 'UNPACK_SKIP_PIXELS', 'UNPACK_SKIP_ROWS'];
+    // what three's cache holds: the last value set through it, since its last reset
+    const belief = new Map(), set0 = st.pixelStorei, reset0 = st.reset;
+    st.pixelStorei = function (p, v) { belief.set(p, v); return set0.call(this, p, v); };
+    st.reset = function () { belief.clear(); return reset0.apply(this, arguments); };
+    let seen = null;
+    const shade0 = sun.onShade;
+    try {
+      st.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      st.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      st.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      for (let k = 0; k < 16 && gl.getError() !== gl.NO_ERROR; k++);
+      sun.onShade = function () {
+        if (!seen) {
+          seen = { err: gl.getError(), after: [] };
+          for (const n of NAMES) if (belief.has(gl[n])) seen.after.push([n, belief.get(gl[n]), gl.getParameter(gl[n])]);
+          const n = 121, data = new Uint8Array(n * n);
+          for (let i = 0; i < data.length; i++) data[i] = i % 251;
+          const t = new THREE.DataTexture(data, n, n, THREE.RedFormat, THREE.UnsignedByteType);
+          t.unpackAlignment = 1;
+          t.flipY = true;
+          t.needsUpdate = true;
+          R.initTexture(t);
+          seen.oddErr = gl.getError();
+          t.dispose();
+        }
+        if (shade0) return shade0.apply(this, arguments);
+      };
+      cw.setSunTime('2026-06-21T12:10Z');
+      await cw.sunIdle();
+    } finally {
+      sun.onShade = shade0;
+      st.pixelStorei = set0;
+      st.reset = reset0;
+    }
+    cw.setSunTime(sun.defaultUtc);
+    await cw.sunIdle();
+    return { seen, errors: cw.errors.slice() };
+  });
+  assert.ok(r.seen, 'a sweep landed');
+  t.diagnostic('ST31 ' + JSON.stringify(r.seen));
+  assert.equal(r.seen.err, 0, 'the sun upload raised no GL error');
+  assert.ok(r.seen.after.length >= 3, 'three\'s belief was compared');
+  for (const [name, want, got] of r.seen.after) {
+    assert.equal(got, want, name + ': three believes ' + want + ' but GL holds ' + got + ' after a sun upload');
+  }
+  assert.equal(r.seen.oddErr, 0, 'an odd-width 1-byte texture uploads after a sun upload (GL error ' + r.seen.oddErr + ')');
+  assert.deepEqual(log.warnings.slice(warnings0).filter((w) => GL_WARNING.test(w)), []);
+  assert.deepEqual(r.errors, []);
+});
+
 test('ST12 the console stays clean with shadows', async () => {
   const { page, log } = await mainPage();
   await page.evaluate(() => window.__cw.frame());
-  assert.deepEqual(log.warnings.filter((w) => /PCFSoftShadowMap|GL_INVALID/.test(w)), []);
+  assert.deepEqual(log.warnings.filter((w) => GL_WARNING.test(w)), []);
   assert.deepEqual(log.console, []);
   assert.deepEqual(log.errors, []);
   assert.deepEqual(await page.evaluate(() => window.__cw.errors), []);

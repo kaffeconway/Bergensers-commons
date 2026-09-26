@@ -119,7 +119,8 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
     dayOut.textContent = d.d + ' ' + MONTHS[d.mo - 1];
     timeOut.textContent = pad(lp.h) + ':' + pad(lp.mi) + ' ' + zl;
     chipText.textContent = lp.d + ' ' + MONTHS[lp.mo - 1] + ' ' + pad(lp.h) + ':' + pad(lp.mi);
-    chip.classList.toggle('night', sun.night || sun.state.elevation <= 0);
+    // the crescent means the sun is down; a far gate that hides it by day leaves the disc
+    chip.classList.toggle('night', !(sun.state.elevation > 0));
     chip.setAttribute('aria-label', 'Sun and time: ' + lp.d + ' ' + MONTHS_LONG[lp.mo - 1] + ', ' + pad(lp.h) + ':' +
                       pad(lp.mi) + ' ' + zl + '. Change');
     track(p);

@@ -224,8 +224,11 @@ export function withSunShade(material, kind) {
     if (ownCompile && prevCompile) prevCompile.call(this, shader, renderer);
     patchSunShader(shader, kind);
   };
+  // three's own key is the hook's source text; a material with its own hook but three's key
+  // keeps that source in the new key, or two such materials would share one program
+  const prevHookKey = ownCompile && prevCompile ? prevCompile.toString() : '';
   material.customProgramCacheKey = function () {
-    return (ownKey && prevKey ? prevKey.call(this) : '') + '|cwS1-' + kind;
+    return (ownKey && prevKey ? prevKey.call(this) : prevHookKey) + '|cwS1-' + kind;
   };
   decorated.set(material, kind);
   material.needsUpdate = true;
@@ -350,15 +353,18 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
   }
   ensureTextures(base);
   function upload(name, res) {
-    const t = tex[name], gl = renderer.getContext(), props = renderer.properties.get(t);
+    const t = tex[name], gl = renderer.getContext(), props = renderer.properties.get(t), st = renderer.state;
     if (!props.__webglTexture) renderer.initTexture(t);
-    renderer.state.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
-    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    st.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
+    // Through three's state, never gl.pixelStorei: three caches these and skips setting a value
+    // it believes is already set, so a raw call here would leave its next upload (an odd-width
+    // 1-byte texture, say, or a flipped one) running with our alignment or flip.
+    st.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    st.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    st.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+    st.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    st.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    st.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, res.n, res.n, res.withD ? gl.RG : gl.RED, gl.HALF_FLOAT, res.m);
   }
 
@@ -391,9 +397,11 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
   // readout compares drawn shade with the measurement only when the two agree.
   let sentSun = null, shownSun = null;
   const sunKey = () => [state.elevation, state.gridBearing, state.gate ? state.gate.tanG : '', state.gate ? state.gate.dG : ''].join('|');
+  const sentKinds = { sun: 0, window: 0 };
   function send(job) {
     inflight = job;
     posted++;
+    sentKinds[job.kind]++;
     if (job.kind === 'sun') sentSun = sunKey();
     job.sunKey = sentSun;
     if (job.kind === 'sun') {
@@ -918,12 +926,14 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     markShadowsDirty,
     addChunk,
     idle() { return new Promise((resolve) => { waiters.push(resolve); wake(); }); },
-    jobIds() { return { requested, landed, posted, inflight: inflight ? inflight.id : null, pending: pending ? pending.id : null }; },
+    jobIds() {
+      return { requested, landed, posted, sent: { ...sentKinds }, inflight: inflight ? inflight.id : null,
+               pending: pending ? pending.id : null };
+    },
     // the last job id asked for when a chunk's heights reached the worker (a test hook)
     arrivalOf(level, key) { const v = arrivals.get(level + ':' + key); return v === undefined ? null : v; },
     shadeAt,
     march(points) {
-      if (!site && state.utc === null && !state.dir) return Promise.resolve(null);
       return ask({ type: 'march', points, gridBearing: state.gridBearing, el: state.elevation,
                    gate: state.gate }).then((r) => r.points);
     },

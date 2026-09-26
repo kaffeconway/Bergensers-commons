@@ -440,18 +440,35 @@ async function main() {
     if (touchUi) { add($('stick')); add($('vert')); }
     const sunOpen = !sunPanel.hidden, sheet = sheetMedia.matches;
     if (sunOpen && sheet) add(sunPanel);
-    if (!specs.hidden && getComputedStyle(specs).bottom === '0px') add(specs);
-    dock.style.bottom = '';
-    let r = dock.getBoundingClientRect();
-    for (let k = 0; k < 4 && r.height > 0; k++) {
-      let raise = -1;
-      for (const b of boxes) {
-        if (b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top) raise = Math.max(raise, H - b.top + 8);
+    const specsOpen = !specs.hidden, specsSheet = specsOpen && getComputedStyle(specs).bottom === '0px';
+    if (specsSheet) add(specs);
+    const meets = (a, b) => b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top;
+    const lift = () => {
+      dock.style.bottom = '';
+      let r = dock.getBoundingClientRect();
+      for (let k = 0; k < 4 && r.height > 0; k++) {
+        let raise = -1;
+        for (const b of boxes) if (meets(r, b)) raise = Math.max(raise, H - b.top + 8);
+        if (raise < 0) break;
+        raise = Math.min(raise, H - 70 - r.height);   // below the header, whatever it meets
+        dock.style.bottom = raise + 'px';
+        r = dock.getBoundingClientRect();
       }
-      if (raise < 0) break;
-      raise = Math.min(raise, H - 70 - r.height);   // below the header, whatever it meets
-      dock.style.bottom = raise + 'px';
-      r = dock.getBoundingClientRect();
+      return r;
+    };
+    dock.style.left = dock.style.maxWidth = '';
+    let r = lift();
+    // An open Specs side panel (on the right) that meets the dock: the dock moves into the
+    // space left of the panel when the chip fits there (a long status line wraps), and stays
+    // clear of the rest as before. Where it does not fit, the dock stays above the panel
+    // (z-index), so the chip can still be reached.
+    const side = specsOpen && !specsSheet ? specs.getBoundingClientRect() : null;
+    const free = side ? side.left - 8 : 0, chipW = $('btn-sun').getBoundingClientRect().width;
+    if (side && side.width > 0 && r.height > 0 && meets(r, side) && free - 16 >= chipW) {
+      dock.style.maxWidth = free - 16 + 'px';
+      dock.style.left = free / 2 + 'px';
+      r = lift();
+      if (meets(r, side)) { dock.style.left = dock.style.maxWidth = ''; r = lift(); }
     }
     if (sunOpen && !sheet) {
       const pr = sunPanel.getBoundingClientRect();

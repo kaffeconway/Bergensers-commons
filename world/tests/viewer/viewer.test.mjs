@@ -27,7 +27,9 @@ test('the synthetic world loads with no console errors and becomes ready', { tim
   const errors = await page.evaluate(() => window.__cw.errors);
   assert.deepEqual(log.errors, [], 'page errors');
   assert.deepEqual(log.console, [], 'console errors');
-  assert.deepEqual(log.warnings.filter((w) => /PCFSoftShadowMap|GL_INVALID/.test(w)), [], 'shadow-map warnings');
+  // SPEC 6.3 names PCFSoftShadowMap and GL_INVALID; Chromium words a refused call
+  // "WebGL: INVALID_OPERATION: ...", so any INVALID and any "WebGL:" message counts too
+  assert.deepEqual(log.warnings.filter((w) => /PCFSoftShadowMap|INVALID|WebGL:/i.test(w)), [], 'GL warnings');
   assert.deepEqual(errors, [], '__cw.errors');
   assert.equal(await page.locator('#error').isVisible(), false);
 });

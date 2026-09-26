@@ -56,8 +56,9 @@ a{color:var(--glacier)}
 #progress span{display:block;height:3px;width:0;background:var(--glacier);transition:width .2s}
 #progress.done{opacity:0;transition:opacity .6s .4s}
 /* #dock: bottom centre, the sun chip above the status line; main.js placeDock() raises it
-   clear of the hint, the credits and an open bottom sheet. It stays above the side panels
-   (z-index), so the chip can always be reached */
+   clear of the hint, the credits and an open bottom sheet, and moves it left of an open Specs
+   side panel where it fits. Where it does not, it stays above the side panels (z-index), so
+   the chip can always be reached */
 #dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:26;
  display:flex;flex-direction:column;align-items:center;gap:6px;width:max-content;max-width:calc(100% - 32px);pointer-events:none}
 #dock > *{pointer-events:auto}
