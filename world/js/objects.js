@@ -530,44 +530,71 @@ class BuildingMesh {
 
   /* entries: [{item, packed (packMesh), order}]. Only copies: every per-building array was
    * made when that building was meshed, so the swap stays short. */
-  build(entries) { this.finish(this.stage(entries)); }
+  build(entries) {
+    const st = this.stage(entries);
+    this.copy(st, Infinity);
+    this.index(st, Infinity);
+    this.finish(st);
+  }
 
-  /* The first half of a build: the vertex attributes, copied into place. */
+  /* A build in steps, each of which stops once performance.now() passes `until` (having
+   * done at least one building): stage() orders the buildings and allocates the arrays;
+   * copy() copies the vertex attributes into place; index() writes the index, one group per
+   * material; finish() swaps the new geometry in. Only copies: every per-building array was
+   * made when that building was meshed. */
   stage(entries) {
     // within each group, buildings in 240 m squares, row by row, for locality
     const sq = (e) => [Math.floor(e.item.box[1] / 240), Math.floor(e.item.box[0] / 240)];
     entries = entries.slice().sort((a, b) => { const p = sq(a), q = sq(b); return p[0] - q[0] || p[1] - q[1] || a.order - b.order; });
     let nv = 0, ni = 0;
     for (const e of entries) { e.voff = nv; nv += e.packed.nv; ni += e.packed.ni; }
-    const st = { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
-                 col: new Float32Array(nv * 3), gnd: new Float32Array(nv) };
-    for (const e of entries) {
-      const p = e.packed;
+    return { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
+             col: new Float32Array(nv * 3), gnd: new Float32Array(nv), copied: 0,
+             idx: nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni), group: 0, next: 0, cursor: 0,
+             starts: [0, 0, 0], counts: [0, 0, 0] };
+  }
+
+  /* Copy vertex attributes until `until`; true when every building is copied. */
+  copy(st, until) {
+    const E = st.entries;
+    while (st.copied < E.length) {
+      const e = E[st.copied++], p = e.packed;
       st.pos.set(p.pos, e.voff * 3);
       st.nor.set(p.nor, e.voff * 3);
       st.uv.set(p.uv, e.voff * 2);
       st.col.set(p.col, e.voff * 3);
       st.gnd.fill(e.item.ground, e.voff, e.voff + p.nv);
+      if (performance.now() > until) break;
     }
-    return st;
+    return st.copied >= E.length;
   }
 
-  /* The second half: the index, one group per material, and the swap. */
-  finish(st) {
-    const { entries, nv, ni, pos, nor, uv, col, gnd } = st;
-    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
-    const starts = [0, 0, 0], counts = [0, 0, 0];
-    let cursor = 0;
-    for (let g = 0; g < 3; g++) {
-      starts[g] = cursor;
-      for (const e of entries) {
+  /* Write the index until `until`: group by group, building by building; true when done. */
+  index(st, until) {
+    const E = st.entries, idx = st.idx;
+    while (st.group < 3) {
+      const g = st.group;
+      if (st.next === 0) st.starts[g] = st.cursor;
+      while (st.next < E.length) {
+        const e = E[st.next++];
         e.blocks = e.blocks || [];
-        const local = e.packed.groups[g], off = e.voff, from = cursor;
-        for (let i = 0; i < local.length; i++) idx[cursor++] = local[i] + off;
-        e.blocks[g] = [from, cursor - from];
+        const local = e.packed.groups[g], off = e.voff, from = st.cursor;
+        for (let i = 0; i < local.length; i++) idx[st.cursor++] = local[i] + off;
+        e.blocks[g] = [from, st.cursor - from];
+        if (performance.now() > until) break;
       }
-      counts[g] = cursor - starts[g];
+      if (st.next < E.length) return false;
+      st.counts[g] = st.cursor - st.starts[g];
+      st.group++;
+      st.next = 0;
+      if (performance.now() > until && st.group < 3) return false;
     }
+    return true;
+  }
+
+  /* The swap: the new geometry from the copied arrays and the written index. */
+  finish(st) {
+    const { entries, ni, pos, nor, uv, col, gnd, idx, starts, counts } = st;
     for (const e of entries) {
       e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
       e.item.span = [e.voff, e.packed.nv];            // its vertices in the mesh: first, count
@@ -671,7 +698,9 @@ class BuildingMesh {
  * it, and reground() takes them further down, to the lowest ground drawable around the
  * footprint, once the heights there are loaded.
  * The house is meshed at once; the neighbours in slices of at most 50 buildings or 4 ms,
- * on a setTimeout chain, and drawn in one swap when the last slice ends (`ready`). */
+ * on a setTimeout chain. Then, in steps as short (B-11: the one-step swap ran long), their
+ * vertices are copied into place and their index written, the whole geometry is swapped in
+ * at once, and the shadow focus is set (`ready`). */
 export function buildBuildings(features) {
   const maps = detailMaps();
   const matsFor = (roofMap) => {
@@ -728,20 +757,23 @@ export function buildBuildings(features) {
     const start = performance.now();
     let next = 0;
     const note = (ms) => { timing.slices++; timing.sliceMs.push(ms); timing.longestSliceMs = Math.max(timing.longestSliceMs, ms); };
-    // the last step: one swap of the whole geometry, and the walls lowered meanwhile
+    // the last steps, each as short as a slice: order and allocate, copy the vertices, write
+    // the index, swap the whole geometry in at once (the walls lowered meanwhile fixed up),
+    // and put the buildings in the shadow focus first
     let staged = null;
-    const stage = () => {
+    const step = (fn) => () => {
       if (disposed) { resolve(false); return; }
       const s0 = performance.now();
-      staged = others.stage(pending);
+      const then = fn(s0 + SLICE.ms);
       const ms = performance.now() - s0;
-      timing.swapMs = ms;
+      timing.swapMs = Math.max(timing.swapMs, ms);
       note(ms);
-      setTimeout(swap, 0);
+      if (then) setTimeout(then, 0);
     };
-    const swap = () => {
-      if (disposed) { resolve(false); return; }
-      const s0 = performance.now();
+    const stage = step(() => { staged = others.stage(pending); return copy; });
+    const copy = step((until) => (others.copy(staged, until) ? index : copy));
+    const index = step((until) => (others.index(staged, until) ? swap : index));
+    const swap = step(() => {
       others.finish(staged);
       staged = null;
       const geo = others.mesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
@@ -756,13 +788,14 @@ export function buildBuildings(features) {
         geo.attributes.uv.needsUpdate = true;
         BuildingMesh.bounds(geo, pending.map((e) => ({ lo: [e.packed.lo[0], Math.min(e.packed.lo[1], e.item.bottom), e.packed.lo[2]], hi: e.packed.hi })));
       }
+      return focus;
+    });
+    const focus = step(() => {
       others.focus(lastRect);
-      const ms = performance.now() - s0;
-      timing.swapMs = Math.max(timing.swapMs, ms);
-      note(ms);
       timing.totalMs = performance.now() - start;
       resolve(true);
-    };
+      return null;
+    });
     const slice = () => {
       if (disposed) { resolve(false); return; }
       const s0 = performance.now();
