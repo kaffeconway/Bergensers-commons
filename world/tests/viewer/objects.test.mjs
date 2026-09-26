@@ -769,6 +769,8 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     light.shadow.camera.updateProjectionMatrix();
     scene.add(light, light.target);
     const rect = { x0: h.centroid[0] - 30, z0: h.centroid[1] - 30, x1: h.centroid[0] + 30, z1: h.centroid[1] + 30 };
+    // from everything in focus (the sun, once merged, sets its own focus every frame)
+    B.setShadowFocus(null);
     const said = { first: B.setShadowFocus(rect), again: B.setShadowFocus(rect) };
     // Another casting light (the sun's, once it is merged) draws its own pass, and may set
     // its own focus before the shadow pass: only this light's pass is counted, and this
@@ -794,6 +796,7 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     const expected = B.items.filter((it) => meets(it.box)).reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0);
     const within = ['house', 'others'].every((k) => focus[k].inFocus.every((n, g) => n <= focus[k].counts[g]));
     const inFocusTotal = ['house', 'others'].reduce((s, k) => s + focus[k].inFocus.reduce((a, b) => a + b, 0) / 3, 0);
+    T.setShadowFocus(null);
     said.trees = T.setShadowFocus(rect);
     said.treesAgain = T.setShadowFocus(rect);
     const trees = T.groups.map((g) => ({ meets: g.x0 <= rect.x1 && g.x0 + g.side >= rect.x0 && g.z0 <= rect.z1 && g.z0 + g.side >= rect.z0,
