@@ -393,7 +393,8 @@ Notes:
   and never with a position, and `house_canopy_like`, true when the listing house looked
   like tree crowns and was drawn anyway.
 - `stats.map.buildings.roofs` summarises the roof fitting over the buildings drawn:
-  `by_model`, `by_quality`, `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
-  synthetic world and in a build under `SOURCE_DATE_EPOCH`, where a build promises the
-  same bytes every time; the build log records the time in every build.
+  `by_model`, `by_quality`, `fallback_reasons`, `median_rms` and `fit_seconds`.
+  `fit_seconds` is `null` in the synthetic world and in a build under `SOURCE_DATE_EPOCH`,
+  where a build promises the same bytes every time; the build log records the time in
+  every build.
 - The viewer ignores unknown keys, and refuses a `version` it does not know.
