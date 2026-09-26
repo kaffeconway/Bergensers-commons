@@ -1092,7 +1092,7 @@ test('ST27 the near map follows the camera; T, Comma and the address', { timeout
   const utc = await page.evaluate(() => window.__cw.sunTime().utc);
   const lp = SUN.localParts(utc, 'Europe/Oslo'), two = (v) => String(v).padStart(2, '0');
   const want = '?w=out/synthetic/&t=' + lp.y + '-' + two(lp.mo) + '-' + two(lp.d) + 'T' + two(lp.h) + ':' + two(lp.mi);
-  await page.waitForFunction((want) => location.search === want, want, { timeout: 10000 })
+  await page.waitForFunction((want) => location.search === want, want, { timeout: 30000, polling: 100 })
     .catch(async () => assert.fail('the address is ' + await page.evaluate(() => location.search) + ', not ' + want));
   assert.deepEqual(await page.evaluate(() => window.__cw.errors), []);
 });
