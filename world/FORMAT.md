@@ -177,8 +177,9 @@ Buildings within `h1` radius.
     area, 1.5 m of every traced vertex and 0.45 m of the traced outline on average
     (symmetric difference over perimeter); otherwise it is traced. Either may also be
     grown where the fitted roof clearly continues past the traced cells. The listing
-    house is always `"traced"`: it is neither grown nor straightened, and its one part's
-    `ring` is its `ring`.
+    house is always `"traced"`: it is neither grown nor straightened, and its parts tile
+    its `ring`, so the drawn outline is its `ring` (one part, whose `ring` is its `ring`,
+    unless the roof is split).
   - `model` is `flat`, `shed`, `gable`, `hip` (a pyramid is a hip), `split` (two or three
     parts, each with its own `model` of `flat`, `shed` or `gable`), or `none`. `quality`
     is `good` or `fair`. `rms` (m, 0.01) and `inliers` (a share, 0.01) describe the fit to

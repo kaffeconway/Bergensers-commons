@@ -203,6 +203,8 @@ def test_buildings_file(world, world_manifest):
     assert shape["parts"][0]["ring"] == houses[0]["ring"]
     roofs = stats["roofs"]
     assert roofs["by_model"] == {"flat": 3, "gable": 5} and roofs["fallback_reasons"] == {}
+    # a synthetic build promises the same bytes every time, so it records no fitting time
+    assert "fit_seconds" in roofs and roofs["fit_seconds"] is None
 
 
 def test_trees_file(world):

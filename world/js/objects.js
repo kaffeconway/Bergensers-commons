@@ -350,16 +350,19 @@ export function pointInRing(ring, x, z) {
 // Drawn, not measured (a visible choice each, one line to change):
 export const OVERHANG = { pitched: 0.4, flat: 0.15, fallback: 0 };   // eave inset of the walls, m
 export const FASCIA = 0.2;                                             // trim board under the eaves, m
-// The listing house is drawn only as measured (Joseph's answer, A2): no drawn eave, no
-// fascia, and a plain roof in its highlight colour. Its walls keep the cladding.
+// The listing house is drawn only as measured (Joseph's answer, A2): its roof as fitted, no
+// drawn eave, no fascia, and a plain roof in its highlight colour. Its walls keep the cladding.
+export const HOUSE_ROOF = 'fitted';                                    // 'prism': the flat prism at `roof` instead
 export const HOUSE_OVERHANG = { pitched: 0, flat: 0, fallback: 0 };   // walls at the measured roof edge
 export const HOUSE_FASCIA = 0;
 export const HOUSE_ROOF_MAP = null;                                    // plain roof: no tile courses ('tiles' to add them)
+export const HOUSE_WALL_LIFT = 1;                                      // 1.08: lifted for the cladding, as the neighbours
 // Colours: neighbours neutral with a +-5 % lightness jitter and no hue change; the house keeps
-// its highlight, which is not its real colour. Walls are lifted 8 % for the cladding's average.
+// its highlight, which is not its real colour. The neighbours' walls are lifted 8 % for the
+// cladding's average.
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
-const SLICE = { buildings: 50, ms: 6 };   // neighbours are meshed in slices this size, at most (B-11: 8 ms ran over 16)
+const SLICE = { buildings: 50, ms: 6 };   // neighbours are meshed in slices this size, at most (lowered from 8 ms per B-11)
 const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
 const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
 
@@ -384,7 +387,7 @@ function planOf(f) {
   const ground = Number(f.ground), roof = Number(f.roof);
   if (Array.isArray(f.ring) && f.ring.length >= 3 && Number.isFinite(ground) && Number.isFinite(roof)) {
     const top = Math.max(roof, ground + 2);
-    const s = f.roof_shape;
+    const s = f.house === true && HOUSE_ROOF === 'prism' ? undefined : f.roof_shape;
     let prep = null, malformed = false, ridge = top;
     if (s !== undefined && s !== null && !(typeof s === 'object' && s.model === 'none')) {
       try {
@@ -421,7 +424,7 @@ function meshOptions(plan, isHouse, opts = {}) {
 function coloursFor(plan, isHouse) {
   const c = COLOURS[isHouse ? 'house' : 'others'];
   const j = isHouse ? 1 : 1 + JITTER * (2 * hash2(Number(plan.id) * 7919 + 13, 101) - 1);
-  const walls = new THREE.Color(c.walls).multiplyScalar(WALL_LIFT * j);
+  const walls = new THREE.Color(c.walls).multiplyScalar((isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
   const roof = new THREE.Color(c.roof).multiplyScalar(j);
   const trim = roof.clone().multiplyScalar(TRIM_SHADE);
   return [walls, roof, trim];
@@ -538,7 +541,10 @@ class BuildingMesh {
       }
       counts[g] = cursor - starts[g];
     }
-    for (const e of entries) e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
+    for (const e of entries) {
+      e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
+      e.item.span = [e.voff, e.packed.nv];            // its vertices in the mesh: first, count
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));

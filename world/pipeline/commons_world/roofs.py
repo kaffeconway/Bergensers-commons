@@ -378,6 +378,29 @@ def _percentile_masked(a, M, cnt, q):
     return srt[rows, lo] + f * (srt[rows, hi] - srt[rows, lo])
 
 
+SHED_SINGULAR = 1e-9    # the Gram matrix's determinant over its diagonal's product
+
+
+def _shed_rows(W, A, z):
+    """The weighted least-squares shed z ~ A beta for each row of weights W, as (K, 3).
+
+    Solved from the normal equations all at once, except where the weighted cells do not
+    fix a plane (one row of cells along the grid, or weights of 0 leaving too few): there
+    the Gram matrix is singular, and that row gets np.linalg.lstsq's minimum-norm answer,
+    as fit_single's own shed does, instead of an exception."""
+    G = np.einsum("km,mi,mj->kij", W, A, A)
+    b = np.einsum("km,mi,m->ki", W, A, z)
+    diag = np.prod(np.einsum("kii->ki", G), axis=1)
+    bad = ~(np.linalg.det(G) > SHED_SINGULAR * diag)
+    out = np.empty((W.shape[0], 3))
+    if (~bad).any():
+        out[~bad] = np.linalg.solve(G[~bad], b[~bad][:, :, None])[:, :, 0]
+    for k in np.flatnonzero(bad):
+        sw = np.sqrt(W[k])
+        out[k] = np.linalg.lstsq(A * sw[:, None], z * sw, rcond=None)[0]
+    return out
+
+
 def _fit_sides(x, n, z, M, phis):
     """fit_single(..., phis, hip=False, fine=False) for every cell subset (row of M) at
     once: [{model, k, planes, r (on the subset's cells), trunc}] per row."""
@@ -404,9 +427,7 @@ def _fit_sides(x, n, z, M, phis):
     for it in range(max(ITERS_FIT, ITERS_SEARCH)):
         hf = (W0 @ z) / W0.sum(1)
         rf = z[None, :] - hf[:, None]
-        G = np.einsum("km,mi,mj->kij", W1, A, A)
-        bvec = np.einsum("km,mi,m->ki", W1, A, z)
-        bs = np.linalg.solve(G, bvec[:, :, None])[:, :, 0]
+        bs = _shed_rows(W1, A, z)
         rs = z[None, :] - bs @ A.T
         nw0, nw1 = _tukey_masked(rf, M, cnt), _tukey_masked(rs, M, cnt)
         W0 = np.where((nw0.sum(1) < 3)[:, None], Mf, nw0)
@@ -944,7 +965,13 @@ def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False):
             "grown": int((comp2 & ~comp).sum())}
     if lowest < CLEARANCE_M or top > TOP_MARGIN_M:
         return _none("implausible"), info
-    shape = _record(fit, pieces, outline)
+    try:
+        shape = _record(fit, pieces, outline)
+    except shapely.errors.GEOSException as exc:
+        # rounding the parts to 0.1 m can fold a thin one over itself; the union in
+        # _record then fails before check_shape could say so
+        info["problems"] = ["the parts could not be recorded: {}".format(exc)]
+        return _none("implausible"), info
     problems = check_shape(shape)
     if problems:
         info["problems"] = problems

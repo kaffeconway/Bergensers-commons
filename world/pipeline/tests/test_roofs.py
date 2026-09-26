@@ -233,6 +233,63 @@ def test_the_house_is_drawn_over_its_traced_ring_and_not_regrown(monkeypatch):
     assert other["outline"] == "straightened" and info["grown"] > 0
 
 
+def _sawtooth(width, depth, period, amp):
+    """A thin building along the grid whose roof is a sawtooth no single model explains."""
+    def saw(X, N, dtm):
+        return dtm.max() + 4.0 + amp * ((X % period) / period)
+    return scene("surface", width, depth, 0, 0.0, 0.0, surface=saw, noise=0.02)
+
+
+@pytest.mark.parametrize("width,depth,period,amp", [(16, 4, 5, 1.5), (16, 4, 8, 2.0),
+                                                    (20, 5, 5, 1.5), (24, 6, 5, 1.5)])
+def test_a_thin_building_along_the_grid_that_fits_poorly_never_stops_the_build(
+        monkeypatch, width, depth, period, amp):
+    # Split lines along a raster row leave one side a single row of cells, which does not
+    # fix a plane: the batched shed solve must answer as the per-offset path does, not raise
+    batched, _, _ = fit(_sawtooth(width, depth, period, amp))
+    monkeypatch.setattr(roofs, "SPLIT_BATCH_CELLS", 0)
+    per_offset, _, _ = fit(_sawtooth(width, depth, period, amp))
+    assert batched == per_offset
+    assert batched["model"] in ("split", "none")
+
+
+def test_the_batched_shed_solve_takes_the_minimum_norm_answer_on_one_row_of_cells():
+    # one row of cells along x: the plane's slope across it is not fixed by the data
+    x = np.arange(12) - 5.5
+    n = np.zeros(12)
+    z = 30.0 + 0.2 * x
+    A = np.stack([x, n, np.ones(12)], axis=1)
+    W = np.vstack([np.ones(12), np.r_[np.ones(6), np.zeros(6)]])
+    got = roofs._shed_rows(W, A, z)
+    for k in range(2):
+        sw = np.sqrt(W[k])
+        want = np.linalg.lstsq(A * sw[:, None], z * sw, rcond=None)[0]
+        assert np.allclose(got[k], want, atol=1e-9)
+    assert np.allclose(got[0], [0.2, 0.0, 30.0], atol=1e-9)
+
+
+def test_a_split_whose_parts_fold_when_rounded_falls_back_instead_of_stopping_the_build(
+        monkeypatch):
+    # With no reflex corner to snap to, the cut can leave a part thin enough that the
+    # 0.1 m rounding folds it over itself: that building is refused, the build goes on
+    monkeypatch.setattr(roofs, "SPLIT_SNAP_M", 0.0)
+    shape, _, info = fit(scene("wings", 14, 8, 10, 3.0, 2.3, wing=(3.5, 7.0, 7.0, 8.0)),
+                         house=True)
+    assert shape == {"model": "none", "reason": "implausible"}
+    assert any("could not be recorded" in p for p in info["problems"])
+
+
+def test_a_reproducible_build_records_no_clock_reading(monkeypatch):
+    from types import SimpleNamespace
+
+    from commons_world import mapsteps
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    assert mapsteps.reproducible(SimpleNamespace(synthetic=True))
+    assert not mapsteps.reproducible(SimpleNamespace(synthetic=False))
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    assert mapsteps.reproducible(SimpleNamespace(synthetic=False))
+
+
 def test_a_roof_that_comes_down_to_the_ground_is_refused():
     # the ground rises under one corner, to within half a metre of the eave: the drawn
     # roof over that corner would stand on the ground

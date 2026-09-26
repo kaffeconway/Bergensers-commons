@@ -852,12 +852,13 @@ test('building walls reach the drawn ground all round, even where the recorded g
     for (const it of buildings.items) {
       const P = (it.house ? buildings.houseMesh : buildings.othersMesh).geometry.attributes.position.array;
       // the wall bottoms as drawn, in pairs along each wall; the lowest drawn ground 0.3 m
-      // either side of every wall
-      let bottom = Infinity, ground = Infinity;
+      // either side of every wall. `bottom` is the HIGHEST wall bottom: all round means
+      // every wall, not just the lowest
+      let bottom = -Infinity, ground = Infinity;
       for (let k = 0; k + 1 < it.verts.length; k += 2) {
         const a = it.verts[k], b = it.verts[k + 1];
         const ax = P[a * 3], az = P[a * 3 + 2], bx = P[b * 3], bz = P[b * 3 + 2];
-        bottom = Math.min(bottom, P[a * 3 + 1], P[b * 3 + 1]);
+        bottom = Math.max(bottom, P[a * 3 + 1], P[b * 3 + 1]);
         const len = Math.hypot(bx - ax, bz - az);
         if (len < 1e-6) continue;
         const nx = -(bz - az) / len, nz = (bx - ax) / len, steps = Math.max(1, Math.ceil(len * 2));

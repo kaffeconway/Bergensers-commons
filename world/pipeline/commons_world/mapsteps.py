@@ -21,6 +21,7 @@ synthetic build fills it from invented shapes (commons_world.synthetic). No
 step here touches the network.
 """
 
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -79,6 +80,12 @@ def step_classes(ctx):
     ctx.class_source = band.source
 
 
+def reproducible(ctx):
+    """True for a build that promises the same bytes every time: the synthetic world, or a
+    build under SOURCE_DATE_EPOCH. Its manifest records no clock reading."""
+    return bool(ctx.synthetic or os.environ.get("SOURCE_DATE_EPOCH"))
+
+
 def step_buildings(ctx):
     m = inputs(ctx)
     h1 = level_named(ctx, "h1")
@@ -97,6 +104,9 @@ def step_buildings(ctx):
     shapes = None
     if roofslib.FIT:
         shapes, stats["roofs"] = roofslib.fit_all(found, dom, dtm, grid, labels, ctx.origin)
+        ctx.log("buildings: roofs fitted in {:.1f} s".format(stats["roofs"]["fit_seconds"]))
+        if reproducible(ctx):
+            stats["roofs"]["fit_seconds"] = None
     record = buildingslib.buildings_record(found, ctx.origin, shapes)
     ids = [f["id"] for f in record["features"] if f["house"]]
     stats["house"]["id"] = ids[0] if ids else None

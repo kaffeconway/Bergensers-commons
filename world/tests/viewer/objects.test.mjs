@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { SYN, READY_MS, offenders, newContext, openWorld, mainPage } from './harness.mjs';
+import { SYN, WORLD, READY_MS, offenders, newContext, openWorld, mainPage } from './harness.mjs';
 
 const manifest = () => JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
 const buildingsDoc = () => JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest().files.buildings.file))).toString('utf8'));
@@ -37,90 +37,99 @@ const PLANES_JS = `
   };
 `;
 
+// One building's mesh at overhang 0, closed with a bottom cap: whether it is closed, faces
+// out and holds the volume under `roofAt`; its roofs face up and its walls are vertical.
+const SOLID_JS = `
+  window.__solid = function (THREE, m, roofAt) {
+    const P = m.pos, I = m.idx, res = { uvPairs: m.uv.length / 2 === P.length / 3 };
+    let roofDown = 0, tilted = 0;
+    for (let t = 0; t < I.length / 3; t++) {
+      const n = window.__triNormal(P, I[3 * t], I[3 * t + 1], I[3 * t + 2]);
+      const top = m.groups[t] === 1 || (m.groups[t] === 2 && Math.abs(n[1]) > 0.5);
+      if (top) { if (!(n[1] > 0)) roofDown++; } else if (Math.abs(n[1]) > 1e-6) tilted++;
+    }
+    Object.assign(res, { roofDown, tilted });
+    // the outline, from the wall bottoms in order, closed with a bottom cap
+    const ring = [];
+    for (let k = 0; k < m.wallBottom.length; k += 2) {
+      const v = m.wallBottom[k], p = [P[3 * v], P[3 * v + 2]], l = ring[ring.length - 1];
+      if (!l || Math.hypot(l[0] - p[0], l[1] - p[1]) > 1e-6) ring.push(p);
+    }
+    if (Math.hypot(ring[0][0] - ring[ring.length - 1][0], ring[0][1] - ring[ring.length - 1][1]) < 1e-6) ring.pop();
+    const bottom = P[3 * m.wallBottom[0] + 1];
+    const pos = P.slice(), idx = I.slice(), v0 = pos.length / 3;
+    for (const p of ring) pos.push(p[0], bottom, p[1]);
+    for (const t of THREE.ShapeUtils.triangulateShape(ring.map((p) => new THREE.Vector2(p[0], p[1])), [])) {
+      const a = ring[t[0]], b = ring[t[1]], c = ring[t[2]];
+      const ny = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
+      if (ny <= 0) idx.push(v0 + t[0], v0 + t[1], v0 + t[2]); else idx.push(v0 + t[0], v0 + t[2], v0 + t[1]);
+    }
+    // weld at 0.1 mm; every directed edge left over must be covered, point for point, by
+    // collinear edges running the other way (a vertex lying on an edge is closed geometry)
+    const key = (v) => pos[3 * v].toFixed(4) + ',' + pos[3 * v + 1].toFixed(4) + ',' + pos[3 * v + 2].toFixed(4);
+    const weld = new Map(), id = [], first = [];
+    for (let v = 0; v < pos.length / 3; v++) {
+      const k = key(v);
+      if (!weld.has(k)) { weld.set(k, weld.size); first.push([pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]]); }
+      id.push(weld.get(k));
+    }
+    const edges = new Map();
+    let vol = 0;
+    for (let t = 0; t < idx.length / 3; t++) {
+      const a = id[idx[3 * t]], b = id[idx[3 * t + 1]], c = id[idx[3 * t + 2]];
+      if (a === b || b === c || a === c) continue;
+      for (const [u, w] of [[a, b], [b, c], [c, a]]) edges.set(u + '>' + w, (edges.get(u + '>' + w) || 0) + 1);
+      const A = idx[3 * t], B2 = idx[3 * t + 1], C = idx[3 * t + 2];
+      const ax = pos[3 * A], ay = pos[3 * A + 1], az = pos[3 * A + 2], bx = pos[3 * B2], by = pos[3 * B2 + 1], bz = pos[3 * B2 + 2];
+      const cx = pos[3 * C], cy = pos[3 * C + 1], cz = pos[3 * C + 2];
+      vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+    }
+    const rest = [];
+    for (const [e, n] of edges) {
+      const [u, w] = e.split('>');
+      const back = edges.get(w + '>' + u) || 0;
+      for (let k = 0; k < n - Math.min(n, back); k++) rest.push([first[Number(u)], first[Number(w)]]);
+    }
+    let open = 0;
+    for (const [a, b] of rest) {
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d), u = d.map((x) => x / L);
+      const cover = [];
+      for (const [c, e] of rest) {
+        const off = (p) => { const w = [p[0] - a[0], p[1] - a[1], p[2] - a[2]]; const t = w[0] * u[0] + w[1] * u[1] + w[2] * u[2]; return [t, Math.hypot(w[0] - t * u[0], w[1] - t * u[1], w[2] - t * u[2])]; };
+        const [tc, dc] = off(c), [te, de] = off(e);
+        if (dc > 2e-4 || de > 2e-4 || !(tc > te)) continue;
+        cover.push([te, tc]);
+      }
+      cover.sort((x, y) => x[0] - y[0]);
+      let reach = 0;
+      for (const [s0, s1] of cover) { if (s0 > reach + 2e-4) break; reach = Math.max(reach, s1); }
+      if (reach < L - 2e-4) open++;
+    }
+    // the volume against a 0.1 m integral of the drawn roof over the outline
+    const xs = ring.map((p) => p[0]), zs = ring.map((p) => p[1]);
+    let num = 0;
+    for (let x = Math.min(...xs) + 0.05; x < Math.max(...xs); x += 0.1) {
+      for (let z = Math.min(...zs) + 0.05; z < Math.max(...zs); z += 0.1) {
+        const y = roofAt(x, z);
+        if (y !== null) num += (y - bottom) * 0.01;
+      }
+    }
+    Object.assign(res, { open, vol, volErr: Math.abs(vol - num) / num });
+    return res;
+  };
+`;
+
 // ------------------------------------------------------------------------------------------
 test('buildings are closed and face out', { timeout: READY_MS + 60000 }, async () => {
   const { page } = await shared();
-  await page.addScriptTag({ content: PLANES_JS });
+  await page.addScriptTag({ content: PLANES_JS + SOLID_JS });
   const r = await page.evaluate(async () => {
     const THREE = await import('three');
     const { buildings: B, footprints: F } = window.__cw.internals;
     const out = [];
     for (const it of B.items) {
       const m = B.meshFor(it.id, { overhang: 0 });
-      const P = m.pos, I = m.idx, res = { id: it.id, uvPairs: m.uv.length / 2 === P.length / 3 };
-      let roofDown = 0, tilted = 0;
-      for (let t = 0; t < I.length / 3; t++) {
-        const n = window.__triNormal(P, I[3 * t], I[3 * t + 1], I[3 * t + 2]);
-        const top = m.groups[t] === 1 || (m.groups[t] === 2 && Math.abs(n[1]) > 0.5);
-        if (top) { if (!(n[1] > 0)) roofDown++; } else if (Math.abs(n[1]) > 1e-6) tilted++;
-      }
-      Object.assign(res, { roofDown, tilted });
-      // the outline, from the wall bottoms in order, closed with a bottom cap
-      const ring = [];
-      for (let k = 0; k < m.wallBottom.length; k += 2) {
-        const v = m.wallBottom[k], p = [P[3 * v], P[3 * v + 2]], l = ring[ring.length - 1];
-        if (!l || Math.hypot(l[0] - p[0], l[1] - p[1]) > 1e-6) ring.push(p);
-      }
-      if (Math.hypot(ring[0][0] - ring[ring.length - 1][0], ring[0][1] - ring[ring.length - 1][1]) < 1e-6) ring.pop();
-      const bottom = P[3 * m.wallBottom[0] + 1];
-      const pos = P.slice(), idx = I.slice(), v0 = pos.length / 3;
-      for (const p of ring) pos.push(p[0], bottom, p[1]);
-      for (const t of THREE.ShapeUtils.triangulateShape(ring.map((p) => new THREE.Vector2(p[0], p[1])), [])) {
-        const a = ring[t[0]], b = ring[t[1]], c = ring[t[2]];
-        const ny = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
-        if (ny <= 0) idx.push(v0 + t[0], v0 + t[1], v0 + t[2]); else idx.push(v0 + t[0], v0 + t[2], v0 + t[1]);
-      }
-      // weld at 0.1 mm; every directed edge left over must be covered, point for point, by
-      // collinear edges running the other way (a vertex lying on an edge is closed geometry)
-      const key = (v) => pos[3 * v].toFixed(4) + ',' + pos[3 * v + 1].toFixed(4) + ',' + pos[3 * v + 2].toFixed(4);
-      const weld = new Map(), id = [], first = [];
-      for (let v = 0; v < pos.length / 3; v++) {
-        const k = key(v);
-        if (!weld.has(k)) { weld.set(k, weld.size); first.push([pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]]); }
-        id.push(weld.get(k));
-      }
-      const edges = new Map();
-      let vol = 0;
-      for (let t = 0; t < idx.length / 3; t++) {
-        const a = id[idx[3 * t]], b = id[idx[3 * t + 1]], c = id[idx[3 * t + 2]];
-        if (a === b || b === c || a === c) continue;
-        for (const [u, w] of [[a, b], [b, c], [c, a]]) edges.set(u + '>' + w, (edges.get(u + '>' + w) || 0) + 1);
-        const A = idx[3 * t], B2 = idx[3 * t + 1], C = idx[3 * t + 2];
-        const ax = pos[3 * A], ay = pos[3 * A + 1], az = pos[3 * A + 2], bx = pos[3 * B2], by = pos[3 * B2 + 1], bz = pos[3 * B2 + 2];
-        const cx = pos[3 * C], cy = pos[3 * C + 1], cz = pos[3 * C + 2];
-        vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
-      }
-      const rest = [];
-      for (const [e, n] of edges) {
-        const [u, w] = e.split('>');
-        const back = edges.get(w + '>' + u) || 0;
-        for (let k = 0; k < n - Math.min(n, back); k++) rest.push([first[Number(u)], first[Number(w)]]);
-      }
-      let open = 0;
-      for (const [a, b] of rest) {
-        const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d), u = d.map((x) => x / L);
-        const cover = [];
-        for (const [c, e] of rest) {
-          const off = (p) => { const w = [p[0] - a[0], p[1] - a[1], p[2] - a[2]]; const t = w[0] * u[0] + w[1] * u[1] + w[2] * u[2]; return [t, Math.hypot(w[0] - t * u[0], w[1] - t * u[1], w[2] - t * u[2])]; };
-          const [tc, dc] = off(c), [te, de] = off(e);
-          if (dc > 2e-4 || de > 2e-4 || !(tc > te)) continue;
-          cover.push([te, tc]);
-        }
-        cover.sort((x, y) => x[0] - y[0]);
-        let reach = 0;
-        for (const [s0, s1] of cover) { if (s0 > reach + 2e-4) break; reach = Math.max(reach, s1); }
-        if (reach < L - 2e-4) open++;
-      }
-      // the volume against a 0.1 m integral of the drawn roof over the outline
-      const xs = ring.map((p) => p[0]), zs = ring.map((p) => p[1]);
-      let num = 0;
-      for (let x = Math.min(...xs) + 0.05; x < Math.max(...xs); x += 0.1) {
-        for (let z = Math.min(...zs) + 0.05; z < Math.max(...zs); z += 0.1) {
-          const y = F.roofAt(x, z);
-          if (y !== null) num += (y - bottom) * 0.01;
-        }
-      }
-      Object.assign(res, { open, vol, volErr: Math.abs(vol - num) / num });
+      const res = Object.assign({ id: it.id }, window.__solid(THREE, m, (x, z) => F.roofAt(x, z)));
       out.push(res);
     }
     return out;
@@ -134,6 +143,136 @@ test('buildings are closed and face out', { timeout: READY_MS + 60000 }, async (
     assert.equal(b.roofDown, 0, 'roofs face up: ' + JSON.stringify(b));
     assert.equal(b.tilted, 0, 'walls are vertical: ' + JSON.stringify(b));
   }
+});
+
+// Invented roofs as the pipeline fits them (the scenes of pipeline/tests/test_roofs.py, laid
+// 40 m apart): splits (an L square to the grid, at 30 degrees, and traced as the house's is,
+// twice; a T; and a flat part standing above a gable, which needs step faces), a hip, a
+// pyramid, a shed, a flat roof, and a patch that fits no model. The synthetic world itself
+// holds only one-part gables and flat roofs, so these are the mesher's other paths.
+const SHAPES = [
+  {"id":1,"label":"L","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[0.0,-11.0],[0.0,-4.0],[-7.0,-4.0],[-7.0,4.0],[7.0,4.0],[7.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":0.95,"cells":107,"outline":"straightened","at":[1.1,-2.3],"pitch":29.3,"eave":23.38,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[0.0,-11.0],[0.0,-4.0],[7.0,-4.0],[7.0,-11.0]],"planes":[[-0.5673,0.0,26.76],[0.5673,0.0,24.03]]},
+     {"model":"gable","ring":[[7.0,4.0],[7.0,-4.0],[0.0,-4.0],[-7.0,-4.0],[-7.0,4.0]],"planes":[[0.0,-0.5547,26.87],[0.0,0.5547,24.46]]}]}},
+  {"id":2,"label":"L at 30","type":111,"source":"dom","ground":19.9,"roof":25.3,"house":false,
+   "ring":[[38.0,-12.0],[38.0,-11.0],[36.0,-11.0],[36.0,-6.0],[37.0,-6.0],[37.0,-4.0],[38.0,-4.0],[38.0,-3.0],[36.0,-3.0],[35.0,-1.0],[33.0,-1.0],[33.0,3.0],[35.0,4.0],[35.0,6.0],[38.0,6.0],[38.0,5.0],[40.0,5.0],[40.0,4.0],[44.0,3.0],[45.0,1.0],[47.0,1.0],[47.0,-3.0],[45.0,-3.0],[45.0,-6.0],[44.0,-6.0],[43.0,-10.0],[42.0,-10.0],[41.0,-12.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":1.0,"cells":88,"outline":"straightened","at":[39.8,-2.5],"pitch":30.1,"eave":23.3,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[36.0,-6.8],[37.9,-3.4],[44.0,-6.8],[40.4,-13.0],[36.0,-10.5]],"planes":[[0.5128,-0.2925,24.01],[-0.5128,0.2925,26.77]]},
+     {"model":"gable","ring":[[47.0,-1.5],[44.0,-6.8],[37.9,-3.4],[33.0,-0.6],[33.0,1.8],[35.9,6.8],[47.0,0.5]],"planes":[[-0.2822,-0.4948,26.89],[0.2822,0.4948,24.42]]}]}},
+  {"id":3,"label":"T","type":111,"source":"dom","ground":19.9,"roof":25.4,"house":false,
+   "ring":[[77.0,-11.0],[77.0,-4.0],[73.0,-4.0],[73.0,4.0],[87.0,4.0],[87.0,-4.0],[83.0,-4.0],[83.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.03,"inliers":1.0,"cells":100,"outline":"straightened","at":[80.0,-2.0],"pitch":30.3,"eave":23.36,"ridge":25.7,"parts":[
+     {"model":"gable","ring":[[77.0,-11.0],[77.0,-4.0],[83.0,-4.0],[83.0,-11.0]],"planes":[[-0.5894,0.0,25.13],[0.5894,0.0,25.13]]},
+     {"model":"gable","ring":[[87.0,-4.0],[83.6,-4.0],[83.0,-4.0],[77.0,-4.0],[73.0,-4.0],[73.0,4.0],[87.0,4.0]],"planes":[[0.0,-0.5807,26.86],[0.0,0.5807,24.54]]}]}},
+  {"id":4,"label":"stepped","type":111,"source":"dom","ground":20.0,"roof":29.6,"house":false,
+   "ring":[[112.0,-4.0],[112.0,4.0],[128.0,4.0],[128.0,-4.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.03,"inliers":1.0,"cells":84,"outline":"straightened","at":[120.0,0.0],"pitch":26.6,"eave":25.07,"ridge":29.56,"parts":[
+     {"model":"gable","ring":[[112.0,4.0],[120.0,4.0],[120.0,-4.0],[112.0,-4.0]],"planes":[[0.0,-0.5002,27.07],[0.0,0.5002,27.07]]},
+     {"model":"flat","ring":[[128.0,-4.0],[120.0,-4.0],[120.0,4.0],[128.0,4.0]],"planes":[[0.0,0.0,29.56]]}]}},
+  {"id":5,"label":"hip","type":111,"source":"dom","ground":20.0,"roof":25.5,"house":false,
+   "ring":[[162.0,-6.0],[162.0,-5.0],[159.0,-5.0],[159.0,-4.0],[156.0,-4.0],[156.0,-3.0],[154.0,-3.0],[154.0,-2.0],[153.0,-2.0],[153.0,3.0],[154.0,3.0],[154.0,5.0],[155.0,5.0],[155.0,6.0],[158.0,6.0],[158.0,5.0],[161.0,5.0],[161.0,4.0],[164.0,4.0],[164.0,3.0],[166.0,3.0],[166.0,2.0],[167.0,2.0],[167.0,-3.0],[166.0,-3.0],[166.0,-5.0],[165.0,-5.0],[165.0,-6.0]],
+   "roof_shape":{"model":"hip","quality":"good","rms":0.03,"inliers":1.0,"cells":78,"outline":"straightened","at":[160.0,0.0],"pitch":30.0,"ridge_bearing":69.6,"eave":23.33,"ridge":26.0,"parts":[
+     {"model":"hip","ring":[[151.8,-1.7],[154.2,4.8],[155.9,6.3],[168.2,1.7],[165.8,-4.8],[164.1,-6.3]],"planes":[[-0.2017,-0.5412,26.0],[0.2017,0.5412,26.0],[-0.5412,0.2017,27.44],[0.5412,-0.2017,27.44]]}]}},
+  {"id":6,"label":"pyramid","type":111,"source":"dom","ground":20.0,"roof":25.0,"house":false,
+   "ring":[[200.0,-5.0],[200.0,-4.0],[195.0,-4.0],[195.0,0.0],[196.0,0.0],[196.0,5.0],[200.0,5.0],[200.0,4.0],[205.0,4.0],[205.0,0.0],[204.0,0.0],[204.0,-5.0]],
+   "roof_shape":{"model":"hip","quality":"good","rms":0.03,"inliers":1.0,"cells":44,"outline":"straightened","at":[200.0,0.0],"pitch":29.8,"ridge_bearing":79.7,"eave":23.31,"ridge":25.88,"parts":[
+     {"model":"hip","ring":[[194.8,-3.6],[196.4,5.2],[205.2,3.6],[203.6,-5.2]],"planes":[[-0.1027,-0.5643,25.88],[0.1027,0.5643,25.88],[-0.5643,0.1027,25.88],[0.5643,-0.1027,25.88]]}]}},
+  {"id":7,"label":"shed","type":111,"source":"dom","ground":20.0,"roof":25.1,"house":false,
+   "ring":[[240.0,-5.0],[240.0,-4.0],[238.0,-4.0],[238.0,-3.0],[236.0,-3.0],[236.0,-2.0],[234.0,-1.0],[234.0,2.0],[235.0,2.0],[235.0,4.0],[236.0,4.0],[236.0,5.0],[240.0,5.0],[240.0,4.0],[242.0,4.0],[242.0,3.0],[244.0,3.0],[244.0,2.0],[246.0,1.0],[246.0,-2.0],[245.0,-2.0],[245.0,-4.0],[244.0,-4.0],[244.0,-5.0]],
+   "roof_shape":{"model":"shed","quality":"good","rms":0.03,"inliers":1.0,"cells":54,"outline":"straightened","at":[240.0,0.0],"pitch":14.0,"ridge_bearing":150.1,"eave":23.27,"ridge":25.39,"parts":[
+     {"model":"shed","ring":[[232.9,-0.8],[236.4,6.2],[247.1,0.8],[243.6,-6.2]],"planes":[[-0.1246,-0.2167,24.33]]}]}},
+  {"id":8,"label":"flat","type":111,"source":"dom","ground":20.0,"roof":26.4,"house":false,
+   "ring":[[273.0,-5.0],[273.0,5.0],[287.0,5.0],[287.0,-5.0]],
+   "roof_shape":{"model":"flat","quality":"good","rms":0.03,"inliers":1.0,"cells":96,"outline":"straightened","at":[280.0,0.0],"pitch":0.0,"eave":26.41,"ridge":26.41,"parts":[
+     {"model":"flat","ring":[[273.0,-5.0],[273.0,5.0],[287.0,5.0],[287.0,-5.0]],"planes":[[0.0,0.0,26.41]]}]}},
+  {"id":9,"label":"L traced","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[320.0,-11.0],[320.0,-4.0],[313.0,-4.0],[313.0,4.0],[327.0,4.0],[327.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":0.95,"cells":107,"outline":"traced","at":[321.1,-2.3],"pitch":29.3,"eave":23.38,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[320.0,-11.0],[320.0,-4.0],[327.0,-4.0],[327.0,-11.0]],"planes":[[-0.5673,0.0,26.76],[0.5673,0.0,24.03]]},
+     {"model":"gable","ring":[[327.0,4.0],[327.0,-4.0],[320.0,-4.0],[313.0,-4.0],[313.0,4.0]],"planes":[[0.0,-0.5547,26.87],[0.0,0.5547,24.46]]}]}},
+  {"id":10,"label":"L at 10 traced","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[362.0,-12.0],[362.0,-11.0],[359.0,-11.0],[359.0,-4.0],[357.0,-4.0],[357.0,-3.0],[353.0,-3.0],[353.0,3.0],[354.0,3.0],[354.0,5.0],[358.0,5.0],[358.0,4.0],[363.0,4.0],[363.0,3.0],[367.0,3.0],[366.0,-9.0],[365.0,-9.0],[365.0,-12.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.15,"inliers":1.0,"cells":98,"outline":"traced","at":[360.7,-2.4],"pitch":28.2,"eave":22.24,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[357.0,-4.0],[357.0,-3.0],[366.4,-3.8],[366.0,-9.0],[365.0,-9.0],[365.0,-12.0],[362.0,-12.0],[362.0,-11.0],[359.0,-11.0],[359.0,-4.0]],"planes":[[0.5509,-0.0463,24.25],[-0.5509,0.0463,26.52]]},
+     {"model":"gable","ring":[[363.0,3.0],[367.0,3.0],[366.4,-3.8],[357.0,-3.0],[353.0,-3.0],[353.0,-2.7],[353.0,3.0],[354.0,3.0],[354.0,5.0],[358.0,5.0],[358.0,4.0],[363.0,4.0]],"planes":[[-0.0436,-0.5193,26.87],[0.0436,0.5193,24.44]]}]}},
+  {"id":11,"label":"none","type":111,"source":"dom","ground":20.0,"roof":32.8,"house":false,
+   "ring":[[393.0,-7.0],[393.0,7.0],[407.0,7.0],[407.0,-7.0]],
+   "roof_shape":{"model":"none","reason":"no model fits"}}
+];
+
+test('split, stepped, hipped and unfitted roofs are closed and meet their walls', { timeout: 120000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS + SOLID_JS });
+  const r = await page.evaluate(async (features) => {
+    const THREE = await import('three');
+    const m = await import('./js/objects.js');
+    const b = m.buildBuildings(m.buildingFeatures({ version: 1, features }));
+    await b.ready;
+    const F = new m.FootprintIndex(features);
+    // the roof of every part whose ring holds (x, z), its edges included; a prism's top
+    const inRing = (r, x, z) => {
+      let inside = false;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [xi, zi] = r[i], [xj, zj] = r[j];
+        if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    const onEdge = (r, x, z) => r.some((a, i) => {
+      const c = r[(i + 1) % r.length], dx = c[0] - a[0], dz = c[1] - a[1];
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(a[0] + t * dx - x, a[1] + t * dz - z) < 1e-6;
+    });
+    const roofs = (f, x, z) => {
+      const s = f.roof_shape;
+      if (!s.parts) return [Math.max(f.roof, f.ground + 2)];
+      return s.parts.filter((p) => inRing(p.ring, x, z) || onEdge(p.ring, x, z))
+        .map((p) => Math.min(...p.planes.map(([sx, sz, y0]) => y0 + sx * (x - s.at[0]) + sz * (z - s.at[1]))));
+    };
+    const out = [];
+    for (const f of features) {
+      const res = Object.assign({ label: f.label, parts: f.roof_shape.parts ? f.roof_shape.parts.length : 0 },
+                                window.__solid(THREE, b.meshFor(f.id, { overhang: 0 }), (x, z) => F.roofAt(x, z)));
+      for (const [name, opts] of [['bare', { overhang: 0 }], ['live', {}]]) {
+        const mm = b.meshFor(f.id, opts), P = mm.pos, bottoms = new Set(mm.wallBottom);
+        let tops = 0, topsOff = 0, roofOff = 0, steps = 0;
+        for (let t = 0; t < mm.groups.length; t++) {
+          const g = mm.groups[t], vs = [0, 1, 2].map((k) => mm.idx[3 * t + k]);
+          if (g === 0 && !vs.some((v) => bottoms.has(v))) steps++;     // a wall piece with no foot
+          for (const v of vs) {
+            const x = P[3 * v], y = P[3 * v + 1], z = P[3 * v + 2], ys = roofs(f, x, z);
+            if (g === 0 && !bottoms.has(v)) { tops++; if (!ys.some((h) => Math.abs(h - y) <= 1e-4)) topsOff++; }
+            if (g === 1 && !ys.some((h) => Math.abs(h - y) <= 1e-6)) roofOff++;
+          }
+        }
+        res[name] = { tops, topsOff, roofOff, steps };
+      }
+      out.push(res);
+    }
+    const info = b.info();
+    b.dispose();
+    return { out, info };
+  }, SHAPES);
+  assert.deepEqual(r.info, { byModel: { split: 6, hip: 2, shed: 1, flat: 1 }, fallback: 1, malformed: 0 });
+  for (const b of r.out) {
+    const say = JSON.stringify(b);
+    assert.ok(b.uvPairs, 'one uv pair per vertex: ' + say);
+    assert.equal(b.open, 0, 'closed: ' + say);
+    assert.ok(b.vol > 0, 'faces out: ' + say);
+    assert.ok(b.volErr < 0.01, 'volume: ' + say);
+    assert.equal(b.roofDown, 0, 'roofs face up: ' + say);
+    assert.equal(b.tilted, 0, 'walls are vertical: ' + say);
+    for (const at of [b.bare, b.live]) {
+      assert.ok(at.tops > 0, say);
+      assert.equal(at.topsOff, 0, 'every wall top and step face is on a part\'s roof: ' + say);
+      assert.equal(at.roofOff, 0, 'every roof vertex is on its part\'s planes: ' + say);
+    }
+    if (b.parts < 2) assert.equal(b.bare.steps, 0, 'a one-part roof has no step face: ' + say);
+  }
+  const stepped = r.out.find((b) => b.label === 'stepped');
+  assert.ok(stepped.bare.steps > 0 && stepped.live.steps > 0, 'the flat part above the gable is joined by a step face');
 });
 
 test('the listing house draws nothing made up', { timeout: 60000 }, async () => {
@@ -162,9 +301,13 @@ test('the listing house draws nothing made up', { timeout: 60000 }, async () => 
         if (Math.abs(P[3 * v + 1] - window.__roofOf(f.roof_shape, P[3 * v], P[3 * v + 2])) > 1e-4) offRoof++;
       }
     }
+    // the house's wall colour, as drawn (three keeps vertex colours in its linear working space)
+    const k = B.houseMesh.geometry.attributes.color, w = B.houseMesh.geometry.groups[0];
+    const v = B.houseMesh.geometry.index.getX(w.start);
     return { tops, offRing, offRoof, trim, roofMap: B.houseMesh.material[1].map, wallMap: !!B.houseMesh.material[0].map,
-             outline: B.house.ring, shape: B.house.shape && B.house.shape.model };
+             outline: B.house.ring, shape: B.house.shape && B.house.shape.model, walls: [k.getX(v), k.getY(v), k.getZ(v)] };
   }, feature);
+  const want = await page.evaluate(async () => (new (await import('three')).Color(0xc98e5c)).toArray());
   assert.ok(r.tops > 0);
   assert.equal(r.offRing, 0, 'the walls stand on the traced ring: no drawn eave');
   assert.equal(r.offRoof, 0, 'and meet the measured roof');
@@ -173,6 +316,37 @@ test('the listing house draws nothing made up', { timeout: 60000 }, async () => 
   assert.ok(r.wallMap, 'the walls keep the cladding');
   assert.deepEqual(r.outline, feature.ring, 'the drawn outline is the traced ring');
   assert.equal(r.shape, 'gable');
+  r.walls.forEach((c, i) => assert.ok(Math.abs(c - want[i]) < 1e-6, 'the walls are the highlight colour, unlifted: ' + r.walls));
+});
+
+test('the house roof can be drawn as the flat prism instead, in one line', { timeout: READY_MS + 60000 }, async () => {
+  // A2 (a): the alternative to the fitted roof is one constant; served with it changed, the
+  // house is the flat prism at max(roof, ground + 2), and nothing else is
+  const src = fs.readFileSync(path.join(WORLD, 'js', 'objects.js'), 'ascii');
+  const line = "export const HOUSE_ROOF = 'fitted';";
+  assert.equal(src.split(line).length, 2, 'the constant is one line');
+  const ctx = await newContext();
+  await ctx.route('**/js/objects.js', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: src.replace(line, "export const HOUSE_ROOF = 'prism';") }));
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const f = buildingsDoc().features.find((x) => x.house);
+  const r = await page.evaluate((f) => {
+    const { buildings: B, footprints: F } = window.__cw.internals;
+    const m = B.meshFor(f.id), c = window.__cw.house.centroid;
+    return { info: B.info(), shape: B.house.shape, roof: B.house.roof, at: F.roofAt(c[0], c[1]),
+             roofs: m.groups.filter((g) => g === 1).length, tops: m.groups.filter((g) => g === 2).length,
+             errors: window.__cw.errors };
+  }, f);
+  assert.deepEqual(r.info, { byModel: { flat: 3, gable: 4 }, fallback: 1, malformed: 0 });
+  assert.equal(r.shape, null);
+  assert.equal(r.roof, Math.max(f.roof, f.ground + 2));
+  assert.equal(r.at, r.roof, 'walking on it finds the flat top');
+  assert.equal(r.roofs, 0);
+  assert.ok(r.tops > 0, 'a plain top, as every unmeasured roof');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(log.errors, []);
+  await page.close();
 });
 
 test('wall tops meet the roof', { timeout: 60000 }, async () => {
@@ -383,14 +557,18 @@ test('every building carries its ground for the sun', { timeout: 60000 }, async 
       const a = mesh.geometry.attributes.cwGround;
       out.meshes.push(!!a && a.itemSize === 1 && a.count === mesh.geometry.attributes.position.count);
     }
+    // every vertex of every building, roofs, trim and step faces included: each building's
+    // vertices are one span of its mesh, and the spans cover the mesh
+    const total = [B.othersMesh, B.houseMesh].reduce((s, mesh) => s + mesh.geometry.attributes.position.count, 0);
     for (const it of B.items) {
       const a = (it.house ? B.houseMesh : B.othersMesh).geometry.attributes.cwGround;
-      for (const v of it.verts) { out.checked++; if (Math.abs(a.getX(v) - it.ground) > 1e-4) out.wrong++; }
+      for (let v = it.span[0]; v < it.span[0] + it.span[1]; v++) { out.checked++; if (Math.abs(a.getX(v) - it.ground) > 1e-4) out.wrong++; }
     }
+    out.total = total;
     return out;
   });
   assert.deepEqual(r.meshes, [true, true]);
-  assert.ok(r.checked > 0);
+  assert.equal(r.checked, r.total, 'every vertex is checked');
   assert.equal(r.wrong, 0);
 });
 
@@ -510,11 +688,17 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     scene.add(light, light.target);
     const rect = { x0: h.centroid[0] - 30, z0: h.centroid[1] - 30, x1: h.centroid[0] + 30, z1: h.centroid[1] + 30 };
     B.setShadowFocus(rect);
+    // Another casting light (the sun's, once it is merged) draws its own pass, and may set
+    // its own focus before the shadow pass: only this light's pass is counted, and this
+    // rect is set again after anything else before three renders the shadows.
+    const before = scene.onBeforeRender;
+    scene.onBeforeRender = function (...a) { before.apply(this, a); B.setShadowFocus(rect); };
     const drawn = { house: 0, others: 0 };
     for (const [name, mesh] of [['house', B.houseMesh], ['others', B.othersMesh]]) {
       const orig = mesh.onBeforeShadow;
       mesh.onBeforeShadow = function (r, o, cam, sc, geometry, depth, group) {
         orig.call(this, r, o, cam, sc, geometry, depth, group);
+        if (sc !== light.shadow.camera) return;
         const end = Math.min(geometry.drawRange.start + geometry.drawRange.count, group.start + group.count);
         drawn[name] += Math.max(0, end - Math.max(geometry.drawRange.start, group.start)) / 3;
       };
@@ -522,6 +706,7 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     }
     renderer.shadowMap.needsUpdate = true;
     await window.__cw.frame();
+    scene.onBeforeRender = before;
     const focus = B.shadowFocus();
     const meets = (b) => b[0] <= rect.x1 && b[2] >= rect.x0 && b[1] <= rect.z1 && b[3] >= rect.z0;
     const expected = B.items.filter((it) => meets(it.box)).reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0);
