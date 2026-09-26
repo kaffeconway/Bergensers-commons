@@ -350,6 +350,7 @@ export function pointInRing(ring, x, z) {
 // Drawn, not measured (a visible choice each, one line to change):
 export const OVERHANG = { pitched: 0.4, flat: 0.15, fallback: 0 };   // eave inset of the walls, m
 export const FASCIA = 0.2;                                             // trim board under the eaves, m
+export const FLAT_ROOF_MAP = null;                                     // measured flat roofs plain ('tiles': the tile map stretched to 4 m)
 // The listing house is drawn only as measured (Joseph's answer, A2): its roof as fitted, no
 // drawn eave, no fascia, and a plain roof in its highlight colour. Its walls keep the cladding.
 export const HOUSE_ROOF = 'fitted';                                    // 'prism': the flat prism at `roof` instead
@@ -431,7 +432,10 @@ function meshOptions(plan, isHouse, opts = {}) {
   const kind = plan.fallback ? 'fallback' : plan.pitched ? 'pitched' : 'flat';
   const overhang = opts.overhang !== undefined ? opts.overhang : (isHouse ? HOUSE_OVERHANG : OVERHANG)[kind];
   const fascia = opts.fascia !== undefined ? opts.fascia : (plan.fallback ? 0 : isHouse ? HOUSE_FASCIA : FASCIA);
-  return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs };
+  // a measured flat roof face is drawn plain, as a prism's top is: in the untextured trim
+  // group, in its roof colour. The house's roof material has no map, so its flat faces stay.
+  const flatGroup = isHouse || FLAT_ROOF_MAP === 'tiles' ? undefined : GROUP.trim;
+  return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs, flatGroup };
 }
 
 /* hex, its sRGB values times f (so f is a lightness factor as the eye sees it, with no hue
@@ -456,10 +460,10 @@ function coloursFor(plan, isHouse) {
 const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
 
 /* One building's mesh as typed arrays ready to copy: positions, flat normals (a vertex
- * belongs to one face), uvs, colours by group, the local index per group, the wall
- * bottoms and the box. */
+ * belongs to one face), uvs, colours by tone (a plain flat roof sits in the trim group in
+ * its roof colour), the local index per group, the wall bottoms and the box. */
 function packMesh(m, colours) {
-  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups;
+  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups, K = m.tones || m.groups;
   const pos = Float32Array.from(P), uv = Float32Array.from(m.uv);
   const nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
   const counts = [0, 0, 0];
@@ -472,7 +476,7 @@ function packMesh(m, colours) {
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const L = Math.hypot(nx, ny, nz) || 1;
     nx /= L; ny /= L; nz /= L;
-    const k = colours[g];
+    const k = colours[K[t]];
     for (const v of [a, b, c]) {
       nor[3 * v] = nx; nor[3 * v + 1] = ny; nor[3 * v + 2] = nz;
       col[3 * v] = k.r; col[3 * v + 1] = k.g; col[3 * v + 2] = k.b;
@@ -661,7 +665,8 @@ class BuildingMesh {
 
 /* Buildings: each drawn from its measured roof where the file has a sound roof_shape, and
  * as a flat-topped prism at max(roof, ground + 2) where it does not (the top then plain,
- * in the trim group). `ground` is the median terrain under a footprint, so on a slope the
+ * in the trim group, in the trim colour). A measured flat roof is plain too, in its roof
+ * colour (FLAT_ROOF_MAP). `ground` is the median terrain under a footprint, so on a slope the
  * ground just outside the downhill wall is lower than that: walls start sunk 2 m below
  * it, and reground() takes them further down, to the lowest ground drawable around the
  * footprint, once the heights there are loaded.
@@ -812,7 +817,7 @@ export function buildBuildings(features) {
       const it = byId.get(id);
       if (!it) return null;
       const m = meshBuilding(it.plan.prep, it.bottom, meshOptions(it.plan, it.house, opts));
-      return { pos: m.pos, uv: m.uv, idx: m.idx, groups: m.groups, wallBottom: m.wallBottom };
+      return { pos: m.pos, uv: m.uv, idx: m.idx, groups: m.groups, tones: m.tones, wallBottom: m.wallBottom };
     },
     setShadowFocus(rect) {
       lastRect = rect || null;

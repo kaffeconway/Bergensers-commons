@@ -21,6 +21,7 @@ export const TOL = 1e-6;              // metres: two heights closer than this ar
 const MIN_AREA = 1e-9;                // square metres: smaller triangles are not drawn
 export const GROUP = { walls: 0, roofs: 1, trim: 2 };
 // texture tiles, in metres (detailmaps.js draws one tile per texture)
+// (TILE.flat is used only when flat roofs take the tile map: objects.js FLAT_ROOF_MAP)
 export const TILE = { wall: 1.6, roofAcross: 1.2, roofDown: 1.4, flat: 4.0 };
 
 export function areaXZ(r) {
@@ -178,23 +179,29 @@ export function insetRing(ring, d) {
   return out;
 }
 
-/* The mesh of one building: {pos, uv, idx, groups (one per triangle), wallBottom, inset}.
- * opts: overhang (m), fascia (m), topGroup (the group of the roof faces, default roofs). */
+/* The mesh of one building: {pos, uv, idx, groups (one per triangle), tones (one per triangle:
+ * the colour it takes, walls, roofs or trim), wallBottom, inset}.
+ * opts: overhang (m), fascia (m), topGroup (the group of the roof faces, default roofs),
+ * flatGroup (the group of the roof faces that are flat, default topGroup). A roof face keeps
+ * the roofs tone in any group, unless topGroup is trim (a prism's plain top). */
 export function meshBuilding(prep, bottom, opts = {}) {
   const overhang = opts.overhang || 0, fascia = opts.fascia || 0;
   const topGroup = opts.topGroup === undefined ? GROUP.roofs : opts.topGroup;
+  const flatGroup = opts.flatGroup === undefined ? topGroup : opts.flatGroup;
+  const roofTone = topGroup === GROUP.trim ? GROUP.trim : GROUP.roofs;
   const parts = prep.parts.map((p) => ({ ring: p.ring, Ps: p.Ps }));
   sharedEdgePoints(parts);
   const outline = prep.outline;
-  const pos = [], uv = [], groups = [], idx = [], wallBottom = [];
+  const pos = [], uv = [], groups = [], tones = [], idx = [], wallBottom = [];
   const addV = (x, y, z, u, v) => { pos.push(x, y, z); uv.push(u, v); return pos.length / 3 - 1; };
-  const tri = (a, b, c, g) => {
+  const tri = (a, b, c, g, tone = g) => {
     const ux = pos[3 * b] - pos[3 * a], uy = pos[3 * b + 1] - pos[3 * a + 1], uz = pos[3 * b + 2] - pos[3 * a + 2];
     const vx = pos[3 * c] - pos[3 * a], vy = pos[3 * c + 1] - pos[3 * a + 1], vz = pos[3 * c + 2] - pos[3 * a + 2];
     const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
     if (area < MIN_AREA) return;
     idx.push(a, b, c);
     groups.push(g);
+    tones.push(tone);
   };
   const partAt = (x, z) => { for (let k = 0; k < parts.length; k++) if (pointInRing(parts[k].ring, x, z)) return k; return -1; };
   const roofY = (k, x, z) => { const Ps = parts[k].Ps; return ev(Ps[minPlane(Ps, x, z)], x, z); };
@@ -215,7 +222,7 @@ export function meshBuilding(prep, bottom, opts = {}) {
         poly = withExtra(poly, part.extra);
         // texture coordinates, in tiles: on a pitched face u along the contour and v down the
         // slope (slope metres); on a flat face u = x and v = z
-        const g = Math.hypot(Ps[i].sx, Ps[i].sz);
+        const g = Math.hypot(Ps[i].sx, Ps[i].sz), faceGroup = g > 1e-6 ? topGroup : flatGroup;
         let vUV;
         if (g > 1e-6) {
           const cos = 1 / Math.sqrt(1 + g * g), dx = -Ps[i].sx / g, dz = -Ps[i].sz / g;
@@ -235,13 +242,13 @@ export function meshBuilding(prep, bottom, opts = {}) {
           for (let k = 0; k < vi.length; k++) {
             const a = poly[k], b = poly[(k + 1) % poly.length];
             if (Math.abs(up(cp, a, b)) < 1e-12) continue;
-            if (up(cp, a, b) >= 0) tri(ci, vi[k], vi[(k + 1) % vi.length], topGroup);
-            else tri(ci, vi[(k + 1) % vi.length], vi[k], topGroup);
+            if (up(cp, a, b) >= 0) tri(ci, vi[k], vi[(k + 1) % vi.length], faceGroup, roofTone);
+            else tri(ci, vi[(k + 1) % vi.length], vi[k], faceGroup, roofTone);
           }
         } else {
           for (let k = 1; k + 1 < vi.length; k++) {
-            if (up(poly[0], poly[k], poly[k + 1]) >= 0) tri(vi[0], vi[k], vi[k + 1], topGroup);
-            else tri(vi[0], vi[k + 1], vi[k], topGroup);
+            if (up(poly[0], poly[k], poly[k + 1]) >= 0) tri(vi[0], vi[k], vi[k + 1], faceGroup, roofTone);
+            else tri(vi[0], vi[k + 1], vi[k], faceGroup, roofTone);
           }
         }
       }
@@ -365,7 +372,7 @@ export function meshBuilding(prep, bottom, opts = {}) {
       sf += Math.hypot(b[0] - a[0], b[1] - a[1]);
     }
   }
-  return { pos, uv, idx, groups, wallBottom, inset: !!wallRing || !(overhang > 0), walls };
+  return { pos, uv, idx, groups, tones, wallBottom, inset: !!wallRing || !(overhang > 0), walls };
 }
 
 /* Where two parts meet, the step face between them has a vertex wherever either roof has a

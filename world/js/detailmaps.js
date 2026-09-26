@@ -10,9 +10,10 @@
  *   tiles     roof tiles, 1.2 m across by 1.4 m down the slope: 0.30 m tiles in 0.35 m
  *             courses, staggered by half a tile, each course lighter at its top with a
  *             shadow line at its lower edge, a tone per tile (u along the contour,
- *             v down the slope, per face). A flat roof reads the same map with the tile
- *             stretched to 4 m square (u = x, v = z), which gives the seams of a sheet
- *             roof every 1 m (roofmesh.js TILE.flat).
+ *             v down the slope, per face). Measured flat roofs are drawn plain
+ *             (objects.js FLAT_ROOF_MAP); set to 'tiles', they read this map with the tile
+ *             stretched to 4 m square (u = x, v = z), the seams of a sheet roof every 1 m
+ *             (roofmesh.js TILE.flat).
  *
  * Nothing here is measured: the help text says the cladding and the tiles are drawn.
  */
