@@ -10,7 +10,7 @@
 // Only the synthetic world (world/out/synthetic, id zz-synthetic) and the fixtures in
 // this folder are used: nothing here describes a real place.
 
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -93,44 +93,13 @@ test('the JavaScript CWH1 decoder matches commons_world.codec exactly', { timeou
   assert.deepEqual([...levels].sort(), ['h1', 'h20', 'h5']);
 });
 
-test('block faces are wound outward: a raised block and a pit', { timeout: 60000 }, async () => {
+// The retired block-winding test (TT1 in terrain.test.mjs replaces it) used to put the mesh
+// helpers on the shared page; the smooth-grid test below still reads them. (A before() hook
+// would run ahead of the harness's, before there is a browser.)
+beforeEach(async (t) => {
+  if (!t.name.startsWith('smooth grid faces up')) return;
   const { page } = await mainPage();
   await page.addScriptTag({ content: MESH_HELPERS });
-  const r = await page.evaluate(async () => {
-    const W = 242, v = new Uint16Array(W * W).fill(100), classes = new Uint8Array(W * W);
-    for (let r = 100; r <= 102; r++) for (let q = 100; q <= 102; q++) v[r * W + q] = 150;   // 15 m block
-    for (let r = 150; r <= 152; r++) for (let q = 60; q <= 62; q++) v[r * W + q] = 50;     // 5 m pit
-    const header = { width: W, height: W, cell: 1, cellCm: 100, base: 0, apron: true, hasClasses: true };
-    const res = await window.__cw.meshRaw({ header, v, classes }, 'blocks',
-      { lod: 1, x0: 0, z0: 0, tint: false, edgeAbsent: [false, false, false, false] });
-    const m = res.mesh;
-    const tris = window.__triNormals(m);
-    const bad = tris.filter((t) => t.g[0] * t.n[0] + t.g[1] * t.n[1] + t.g[2] * t.n[2] <= 0).length;
-    const quads = window.__quads(m, 0, 0);
-    const walls = quads.filter((q) => q.n[1] === 0);
-    const centre = (q) => [0, 1, 2].map((k) => (q.p[0][k] + q.p[1][k] + q.p[2][k] + q.p[3][k]) / 4);
-    // the raised cells span x, z in [99, 102]; the pit spans x in [59, 62], z in [149, 152]
-    const near = (c, x0, x1, z0, z1) => c[0] >= x0 - 1e-6 && c[0] <= x1 + 1e-6 && c[2] >= z0 - 1e-6 && c[2] <= z1 + 1e-6;
-    const blockWalls = walls.filter((q) => near(centre(q), 99, 102, 99, 102));
-    const pitWalls = walls.filter((q) => near(centre(q), 59, 62, 149, 152));
-    const out = (q, cx, cz) => { const c = centre(q); return q.n[0] * (c[0] - cx) + q.n[2] * (c[2] - cz); };
-    return {
-      triangles: tris.length, badTriangles: bad,
-      tops: quads.filter((q) => q.n[1] > 0).length, topsUp: quads.filter((q) => q.n[1] > 0 && q.p.every((p) => p[1] === q.p[0][1])).length,
-      blockWalls: blockWalls.length, blockOutward: blockWalls.filter((q) => out(q, 100.5, 100.5) > 0).length,
-      blockSpan: blockWalls.map((q) => [Math.min(...q.p.map((p) => p[1])), Math.max(...q.p.map((p) => p[1]))]),
-      pitWalls: pitWalls.length, pitInward: pitWalls.filter((q) => out(q, 60.5, 150.5) < 0).length,
-      pitSpan: pitWalls.map((q) => [Math.min(...q.p.map((p) => p[1])), Math.max(...q.p.map((p) => p[1]))])
-    };
-  });
-  assert.equal(r.badTriangles, 0, 'every triangle winds the way its normal points');
-  assert.equal(r.tops, r.topsUp);
-  assert.equal(r.blockWalls, 4, 'one merged wall per side of the raised block');
-  assert.equal(r.blockOutward, 4, 'the raised block\'s walls face out of it');
-  for (const s of r.blockSpan) assert.deepEqual(s, [10, 15]);
-  assert.equal(r.pitWalls, 4, 'one merged wall per side of the pit');
-  assert.equal(r.pitInward, 4, 'the pit\'s walls face into the pit, out of the higher ground');
-  for (const s of r.pitSpan) assert.deepEqual(s, [5, 10]);
 });
 
 test('smooth grid faces up and its skirts face out of the chunk', { timeout: 60000 }, async () => {
@@ -164,7 +133,7 @@ test('smooth grid faces up and its skirts face out of the chunk', { timeout: 600
   assert.equal(r.skirtsOut, r.skirts, 'every skirt faces out of the drawn surface (chunk edge or hole edge)');
 });
 
-test('chunk seams are watertight at every mix of block sizes', { timeout: 180000 }, async () => {
+test('h1 chunk seams are covered at every mix of tolerances', { timeout: 240000 }, async () => {
   const { page, manifest } = await mainPage();
   const { origin_e: oe, origin_n: on } = manifest.crs;
   const i = Math.floor(oe / 240), j = Math.floor(on / 240);
@@ -180,54 +149,84 @@ test('chunk seams are watertight at every mix of block sizes', { timeout: 180000
     if (h1.chunks[ka] && h1.chunks[kb]) pairs.push([ka, kb, axis]);
   }
   assert.ok(pairs.length >= 4, 'enough neighbouring land chunks to test');
-  const combos = [[1, 1], [2, 2], [4, 4], [1, 2], [2, 1], [1, 4], [4, 1], [2, 4], [4, 2]];
-  const results = await page.evaluate(async ({ pairs, combos }) => {
-    const out = [];
-    for (const [ka, kb, axis] of pairs) {
-      for (const [la, lb] of combos) {
-        const A = await window.__cw.meshChunk('h1', ka, la), B = await window.__cw.meshChunk('h1', kb, lb);
-        const qa = window.__quads(A.mesh, A.x0, A.z0), qb = window.__quads(B.mesh, B.x0, B.z0);
-        // u runs across the seam, w along it
-        const U = axis === 'x' ? 0 : 2, Wd = axis === 'x' ? 2 : 0;
-        const seam = axis === 'x' ? A.x0 + 240 : A.z0 + 240;
-        const w0 = axis === 'x' ? A.z0 : A.x0;
-        const tops = (qs, onSeamSide) => qs.filter((q) => q.n[1] > 0 && q.p.some((p) => Math.abs(p[U] - seam) < 1e-6) &&
-          (onSeamSide ? Math.max(...q.p.map((p) => p[U])) <= seam + 1e-6 : Math.min(...q.p.map((p) => p[U])) >= seam - 1e-6));
-        const ta = tops(qa, true), tb = tops(qb, false);
-        const walls = qa.concat(qb).filter((q) => q.n[1] === 0 && q.p.every((p) => Math.abs(p[U] - seam) < 1e-6));
-        const topAt = (list, w) => {
-          for (const q of list) {
-            const lo = Math.min(...q.p.map((p) => p[Wd])), hi = Math.max(...q.p.map((p) => p[Wd]));
-            if (w > lo && w < hi) return q.p[0][1];
-          }
-          return null;   // sea: the water plane at 0 shows there
-        };
-        let checked = 0, gaps = [];
-        for (let k = 0; k < 240; k++) {
-          const w = w0 + k + 0.5;
-          const ya = topAt(ta, w), yb = topAt(tb, w);
-          if (ya === null && yb === null) continue;
-          const a = ya === null ? 0 : ya, b = yb === null ? 0 : yb;
-          if (a === b) { checked++; continue; }
-          const lo = Math.min(a, b), hi = Math.max(a, b);
-          const facing = a < b ? -1 : 1;   // the wall must face the lower side
-          const ivs = walls.filter((q) => Math.sign(q.n[U]) === facing &&
-              Math.min(...q.p.map((p) => p[Wd])) < w && Math.max(...q.p.map((p) => p[Wd])) > w)
-            .map((q) => [Math.min(...q.p.map((p) => p[1])), Math.max(...q.p.map((p) => p[1]))])
-            .sort((x, y) => x[0] - y[0]);
-          let reach = lo;
-          for (const [y0, y1] of ivs) { if (y0 <= reach + 1e-6) reach = Math.max(reach, y1); }
-          checked++;
-          if (reach < hi - 1e-6) gaps.push({ w, a, b, reach });
+  const results = await page.evaluate(async ({ pairs }) => {
+    const M = window.__cw.internals.manager, px = M.px(), out = [];
+    // The seam line's drawn surface (surface edges on it) and the skirts that face the other
+    // chunk, per mesh; at each metre along the seam the higher side's skirts must reach from
+    // its surface down to the lower side's (or to the water at 0).
+    const profile = (R, U, Wd, seam, facing) => {
+      const P = R.mesh.pos, I = R.mesh.idx, segs = [], skirts = [];
+      const V = (k) => [P[k * 3] + R.x0, P[k * 3 + 1], P[k * 3 + 2] + R.z0];
+      for (let t = 0; t < I.length; t += 3) {
+        const a = V(I[t]), b = V(I[t + 1]), c = V(I[t + 2]);
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const g = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+        const onSeam = [a, b, c].filter((p) => Math.abs(p[U] - seam) < 1e-4);
+        if (Math.abs(g[1]) > 1e-9) { if (onSeam.length === 2) segs.push(onSeam); }
+        else if (onSeam.length === 3 && Math.sign(g[U]) === facing) skirts.push([a, b, c]);
+      }
+      const top = (wv) => {
+        for (const [p, q] of segs) {
+          const lo = Math.min(p[Wd], q[Wd]), hi = Math.max(p[Wd], q[Wd]);
+          if (wv >= lo && wv <= hi) return p[1] + (q[1] - p[1]) * (wv - p[Wd]) / (q[Wd] - p[Wd]);
         }
-        out.push({ ka, kb, axis, la, lb, checked, gaps: gaps.length, first: gaps.slice(0, 3) });
+        return null;
+      };
+      const spans = (wv) => {
+        const res = [];
+        for (const tri of skirts) {
+          const ys = [];
+          for (let e = 0; e < 3; e++) {
+            const p = tri[e], q = tri[(e + 1) % 3];
+            if (p[Wd] === q[Wd]) { if (Math.abs(p[Wd] - wv) < 1e-9) ys.push(p[1], q[1]); continue; }
+            const f = (wv - p[Wd]) / (q[Wd] - p[Wd]);
+            if (f >= -1e-9 && f <= 1 + 1e-9) ys.push(p[1] + (q[1] - p[1]) * f);
+          }
+          if (ys.length) res.push([Math.min(...ys), Math.max(...ys)]);
+        }
+        return res;
+      };
+      return { top, spans };
+    };
+    for (const [ka, kb, axis] of pairs) {
+      const ca = M.byKey['h1:' + ka];
+      const U = axis === 'x' ? 0 : 2, Wd = axis === 'x' ? 2 : 0;
+      const seam = axis === 'x' ? ca.x0 + 240 : ca.z0 + 240, w0 = axis === 'x' ? ca.z0 : ca.x0;
+      const mid = axis === 'x' ? [seam, ca.z0 + 120] : [ca.x0 + 120, seam];
+      const gy = M.surfaceAt(mid[0], mid[1]);
+      // on the seam at eye height; 400 m across it and 60 m up; 1.5 km along it and 300 m up
+      const cams = [[mid[0], gy + 1.7, mid[1]],
+                    axis === 'x' ? [mid[0] + 400, gy + 60, mid[1]] : [mid[0], gy + 60, mid[1] + 400],
+                    axis === 'x' ? [mid[0], gy + 300, mid[1] - 1500] : [mid[0] - 1500, gy + 300, mid[1]]];
+      for (let ia = 0; ia < 3; ia++) for (let ib = 0; ib < 3; ib++) {
+        const A = await M.meshChunk('h1', ka, { cam: cams[ia], px }), B = await M.meshChunk('h1', kb, { cam: cams[ib], px });
+        const pa = profile(A, U, Wd, seam, 1), pb = profile(B, U, Wd, seam, -1);
+        let checked = 0;
+        const gaps = [];
+        for (let k = 0; k < 240; k++) {
+          const wv = w0 + k + 0.5;
+          const ya = pa.top(wv), yb = pb.top(wv);
+          if (ya === null && yb === null) continue;
+          checked++;
+          const a = ya === null ? 0 : ya, b = yb === null ? 0 : yb;   // no surface: the water at 0
+          const hi = Math.max(a, b), lo = Math.max(0, Math.min(a, b));
+          if (hi <= lo + 1e-6) continue;
+          let reach = hi;
+          const ivs = (a > b ? pa : pb).spans(wv);
+          for (let moved = true; moved;) {
+            moved = false;
+            for (const [y0, y1] of ivs) if (y1 >= reach - 1e-5 && y0 < reach - 1e-9) { reach = y0; moved = true; }
+          }
+          if (reach > lo + 1e-5) gaps.push({ w: wv, a, b, reach });
+        }
+        out.push({ ka, kb, axis, cams: [ia, ib], checked, gaps: gaps.length, first: gaps.slice(0, 3) });
       }
     }
     return out;
-  }, { pairs, combos });
+  }, { pairs });
   const failing = results.filter((r) => r.gaps > 0);
   assert.deepEqual(failing, [], 'no seam leaves a gap');
-  assert.ok(results.every((r) => r.checked > 200), 'each seam was sampled along its length');
+  assert.ok(results.every((r) => r.checked >= 200), 'each seam was sampled along its length');
 });
 
 test('clicking the house opens the specs panel', { timeout: 60000 }, async () => {
@@ -350,36 +349,84 @@ test('the Specs button opens the same panel', async () => {
   assert.equal(await page.locator('#specs').isVisible(), false);
 });
 
-test('plot tint covers the parcel area to within 1% at each block size', { timeout: 120000 }, async () => {
-  const { page, plot, manifest } = await mainPage();
+test('the plot is marked on the ground: area within 1% and a boundary line', { timeout: 180000 }, async (t) => {
+  const { page, plot } = await mainPage();
   const area = plot.parcels.reduce((s, p) => s + p.area_polygon_m2, 0);
-  // the live view: everything near the start is drawn in 1 m blocks
-  await page.evaluate(() => window.__cw.camera.start());
-  await page.evaluate(() => window.__cw.settle());
-  const live = await page.evaluate(() => window.__cw.plotTintCells());
-  assert.ok(live.byCell['1'], 'the plot is tinted in 1 m blocks near the house');
-  assert.ok(Math.abs(live.byCell['1'].area - area) / area < 0.01, 'live 1 m: ' + live.byCell['1'].area + ' vs ' + area);
-  // each block size, meshing every chunk the parcel touches
-  const { origin_e: oe, origin_n: on } = manifest.crs;
+  const mark = await page.evaluate(() => window.__cw.internals.manager.plotMark());
+  assert.ok(Math.abs(mark.area - area) / area < 0.01, 'marked ' + mark.area + ' m2 against ' + area + ' m2');
+  assert.ok(mark.lineArea > 0 && mark.lineArea < 0.15 * mark.area, 'a boundary line: ' + JSON.stringify(mark));
+  // top-down over the parcel's centroid, with buildings, trees and the fence out of the way
   const xs = plot.parcels.flatMap((p) => p.ring.map((q) => q[0])), zs = plot.parcels.flatMap((p) => p.ring.map((q) => q[1]));
-  const keys = new Set();
-  for (const x of [Math.min(...xs), Math.max(...xs)]) for (const z of [Math.min(...zs), Math.max(...zs)]) {
-    keys.add(Math.floor((x + oe) / 240) + '_' + Math.floor((on - z) / 240));
+  let cx = 0, cz = 0, a2 = 0;
+  for (const p of plot.parcels) {
+    const r = p.ring;
+    for (let k = 0, m = r.length - 1; k < r.length; m = k++) {
+      const f = r[m][0] * r[k][1] - r[k][0] * r[m][1];
+      a2 += f; cx += (r[m][0] + r[k][0]) * f; cz += (r[m][1] + r[k][1]) * f;
+    }
   }
-  for (const lod of [1, 2, 4]) {
-    const got = await page.evaluate(async ({ keys, lod }) => {
-      let cells = 0, strong = 0;
-      for (const k of keys) {
-        const m = await window.__cw.meshChunk('h1', k, lod);
-        cells += m.mesh.tint.cells; strong += m.mesh.tint.strong;
-      }
-      return { cells, strong };
-    }, { keys: [...keys], lod });
-    const tinted = got.cells * lod * lod;
-    const err = Math.abs(tinted - area) / area;
-    assert.ok(err < 0.01, lod + ' m blocks: ' + tinted + ' m2 tinted against ' + area + ' m2 (' + (100 * err).toFixed(2) + '%)');
-    assert.ok(got.strong > 0 && got.strong < got.cells, 'boundary cells are marked strongly, the rest lightly');
+  cx /= 3 * a2; cz /= 3 * a2;
+  const out = [Math.max(...xs) + 30, cz];
+  // a point on the boundary: the middle of the parcels' longest edge
+  let edge = null;
+  for (const p of plot.parcels) {
+    const q = p.ring;
+    for (let k = 0, m = q.length - 1; k < q.length; m = k++) {
+      const len = Math.hypot(q[k][0] - q[m][0], q[k][1] - q[m][1]);
+      if (!edge || len > edge.len) edge = { len, x: (q[k][0] + q[m][0]) / 2, z: (q[k][1] + q[m][1]) / 2 };
+    }
   }
+  // Each point is read with the plot mark drawn and again with it switched off (its box
+  // emptied), so the difference is the mark itself and not the land cover under it.
+  const r = await page.evaluate(async ({ cx, cz, out, edge }) => {
+    const I = window.__cw.internals, cw = window.__cw, { SHARED } = await import('/world/js/terrainmat.js');
+    const hide = [I.buildings && I.buildings.group, I.trees && I.trees.group, I.fence && I.fence.mesh].filter(Boolean);
+    const was = hide.map((o) => o.visible);
+    const g = I.manager.surfaceAt(cx, cz);
+    cw.camera.set({ mode: 'fly', x: cx, z: cz, y: g + 160, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
+    if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);   // SPEC 3.9
+    await cw.settle();
+    if (cw.sunIdle) await cw.sunIdle();
+    hide.forEach((o) => { o.visible = false; });
+    await cw.frame();
+    const gl = I.renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    // the warmest (largest R - B) pixel within n pixels of the point
+    const at = (x, z, n) => {
+      const v = I.camera.position.clone().set(x, I.manager.surfaceAt(x, z), z).project(I.camera);
+      const px = Math.round((v.x + 1) / 2 * (w - 1)), py = Math.round((v.y + 1) / 2 * (h - 1)), s = 2 * n + 1;
+      const b = new Uint8Array(s * s * 4);
+      gl.readPixels(px - n, py - n, s, s, gl.RGBA, gl.UNSIGNED_BYTE, b);
+      let best = null;
+      for (let k = 0; k < s * s; k++) if (!best || b[k * 4] - b[k * 4 + 2] > best[0] - best[2]) best = [b[k * 4], b[k * 4 + 1], b[k * 4 + 2]];
+      return best;
+    };
+    const read = () => {
+      I.renderer.render(I.scene, I.camera);
+      return { inside: at(cx, cz, 0), outside: at(out[0], out[1], 0), line: at(edge.x, edge.z, 1) };
+    };
+    const box = SHARED.cwTPlotBox.value.clone();
+    const withMark = read();
+    SHARED.cwTPlotBox.value.set(1, 1, 0, 0);
+    let without;
+    try { without = read(); } finally { SHARED.cwTPlotBox.value.copy(box); }
+    hide.forEach((o, k) => { o.visible = was[k]; });
+    cw.camera.start();
+    await cw.settle();
+    return { withMark, without };
+  }, { cx, cz, out, edge });
+  // Warmth (R - B) is compared as a share of the brightness under it, so the checks hold
+  // whatever the light: a brighter or dimmer sun scales both alike. The line mixes 80 %
+  // toward a strong red and the wash 35 % toward a pale tan, so at the boundary the mark
+  // must warm the ground well beyond what the wash alone does inside.
+  const warm = (p) => p[0] - p[2], bright = (p) => (p[0] + p[1] + p[2]) / 3, at = JSON.stringify(r);
+  const gain = (k) => (warm(r.withMark[k]) - warm(r.without[k])) / bright(r.without[k]);
+  const wash = gain('inside'), line = gain('line'), shares = ' (shares: wash ' + wash.toFixed(3) + ', line ' + line.toFixed(3) + ') ';
+  t.diagnostic('warmth gained, as a share of the brightness:' + shares);
+  assert.ok(warm(r.withMark.inside) > warm(r.withMark.outside), 'the parcel is warmer than the ground 30 m outside: ' + at);
+  assert.ok(wash > 0.05, 'the wash warms the parcel' + shares + at);
+  assert.deepEqual(r.withMark.outside, r.without.outside, 'and nothing 30 m outside it: ' + at);
+  assert.ok(line > 0.15 && line > 1.5 * wash, 'the boundary line is drawn' + shares + at);
+  assert.ok((warm(r.withMark.line) - warm(r.withMark.inside)) / bright(r.withMark.inside) > 0.2, 'stronger than the wash: ' + at);
 });
 
 test('credits are visible, include three.js, and the (i) button collapses them', async () => {
@@ -440,15 +487,15 @@ test('the sun is placed by grid bearing = true azimuth + grid north offset', asy
   assert.ok(Math.abs(s.dir[1] - Math.sin(e)) < 1e-9);
 });
 
-test('walking: gravity lands on the block top, and W moves forward', { timeout: 60000 }, async () => {
+test('walking: gravity lands on the drawn ground, W moves forward, and downhill stays grounded', { timeout: 120000 }, async () => {
   const { page } = await mainPage();
   await page.evaluate(() => window.__cw.camera.start());
   const start = await page.evaluate(() => window.__cw.camera.get());
   const g = await page.evaluate(({ x, z }) => window.__cw.groundAt(x, z), start);
   assert.equal(g.level, 'h1');
-  assert.equal(start.feet, g.y, 'standing on the block top');
+  assert.equal(start.feet, g.y, 'standing on the drawn ground');
   await page.evaluate(({ x, y, z }) => window.__cw.camera.set({ x, y: y + 6, z, mode: 'walk' }), start);
-  await page.waitForFunction((gy) => Math.abs(window.__cw.camera.get().feet - gy) < 1e-6, g.y, { timeout: 20000 });
+  await page.waitForFunction(({ x, z }) => Math.abs(window.__cw.camera.get().feet - window.__cw.groundAt(x, z).y) < 1e-6, start, { timeout: 20000 });
   await page.focus('#view');
   await page.keyboard.down('KeyW');
   await page.waitForFunction((s) => { const c = window.__cw.camera.get(); return Math.hypot(c.x - s.x, c.z - s.z) > 0.5; }, start, { timeout: 20000 });
@@ -458,6 +505,43 @@ test('walking: gravity lands on the block top, and W moves forward', { timeout: 
   assert.equal(await page.getAttribute('#btn-mode', 'aria-pressed'), 'true');
   await page.keyboard.press('KeyF');
   assert.equal(await page.evaluate(() => window.__cw.camera.get().mode), 'walk');
+  // Downhill: a stretch of drawn ground in h1 that falls steadily (8 to 30 degrees) for 6 m,
+  // clear of buildings and above the water. Hold W for 1 s down it.
+  const spot = await page.evaluate(() => {
+    const cw = window.__cw, h = cw.house;
+    for (let d = 20; d <= 700; d += 10) for (let a = 0; a < 360; a += 15) {
+      const r = a * Math.PI / 180, x = h.centroid[0] + Math.sin(r) * d, z = h.centroid[1] - Math.cos(r) * d;
+      for (let yaw = 0; yaw < 360; yaw += 45) {
+        const y = yaw * Math.PI / 180, dx = -Math.sin(y), dz = -Math.cos(y);
+        let ok = true, prev = null, drop = 0;
+        for (let s = 0; s <= 6 && ok; s += 0.5) {
+          const q = cw.groundAt(x + dx * s, z + dz * s);
+          if (!q || q.level !== 'h1' || q.sea || q.y < 1) { ok = false; break; }
+          if (prev !== null) { const f = prev - q.y; if (f < 0.5 * Math.tan(8 * Math.PI / 180) || f > 0.5 * Math.tan(30 * Math.PI / 180)) ok = false; drop += f; }
+          prev = q.y;
+        }
+        if (ok) return { x, z, yaw: y, drop };
+      }
+    }
+    return null;
+  });
+  assert.ok(spot, 'the synthetic world has a steady downhill stretch');
+  await page.evaluate(({ x, z, yaw }) => window.__cw.camera.set({ mode: 'walk', x, z, y: window.__cw.groundAt(x, z).y + 1.7, yaw, pitch: -0.2 }), spot);
+  await page.waitForFunction(({ x, z }) => Math.abs(window.__cw.camera.get().feet - window.__cw.groundAt(x, z).y) < 1e-6 &&
+                             window.__cw.internals.controls.onGround, spot, { timeout: 20000 });
+  await page.evaluate(() => {
+    const c = window.__cw.internals.controls, rec = window.__cwOnGround = { on: 0, n: 0, run: true };
+    const tick = () => { if (!rec.run) return; rec.n++; if (c.onGround) rec.on++; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  });
+  await page.focus('#view');
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(1000);
+  // a software renderer can draw only a few frames a second: keep going until 2 m are walked
+  await page.waitForFunction((s) => { const c = window.__cw.camera.get(); return Math.hypot(c.x - s.x, c.z - s.z) > 2; }, spot, { timeout: 30000 });
+  await page.keyboard.up('KeyW');
+  const rec = await page.evaluate(() => { const r = window.__cwOnGround; r.run = false; return { on: r.on, n: r.n, cam: window.__cw.camera.get() }; });
+  assert.ok(rec.n >= 3 && rec.on / rec.n >= 0.9, 'on the ground in ' + rec.on + ' of ' + rec.n + ' frames');
   await page.evaluate(() => window.__cw.camera.start());
 });
 
@@ -666,124 +750,6 @@ test('trees stand on the drawn block top at every block size', { timeout: 180000
   assert.equal(back.off, 0, 'back at the start: ' + JSON.stringify(back));
 });
 
-test('the chunk worker takes border walls down to a neighbour floor, and reports how far', { timeout: 60000 }, async () => {
-  const { page } = await mainPage();
-  const r = await page.evaluate(async () => {
-    const W = 242, v = new Uint16Array(W * W).fill(200), classes = new Uint8Array(W * W);   // flat, 20 m
-    const header = { width: W, height: W, cell: 1, cellCm: 100, base: 0, apron: true, hasClasses: true };
-    const opts = { lod: 4, x0: 0, z0: 0, tint: false, edgeAbsent: [false, false, false, false] };
-    const plain = await window.__cw.meshRaw({ header, v: v.slice(), classes }, 'blocks', opts);
-    const east = new Int16Array(240).fill(20); east.fill(5, 100, 104);
-    const withFloor = await window.__cw.meshRaw({ header, v: v.slice(), classes }, 'blocks',
-      Object.assign({}, opts, { floors: [null, east, null, null] }));
-    const eastWalls = (m) => {
-      const out = [];
-      for (let q = 0; q + 3 < m.vertices; q += 4) {
-        const xs = [0, 1, 2, 3].map((k) => m.pos[(q + k) * 3]);
-        if (m.nor[q * 3] > 0 && xs.every((x) => x === 240)) {
-          const zs = [0, 1, 2, 3].map((k) => m.pos[(q + k) * 3 + 2]), ys = [0, 1, 2, 3].map((k) => m.pos[(q + k) * 3 + 1]);
-          out.push({ z0: Math.min(...zs), z1: Math.max(...zs), bottom: Math.min(...ys), top: Math.max(...ys) });
-        }
-      }
-      return out;
-    };
-    const covering = (walls, z) => walls.filter((w) => w.z0 <= z && w.z1 >= z + 1).map((w) => w.bottom);
-    return {
-      plainBottom: Array.from(plain.mesh.edgeBottom[1].slice(100, 104)), floorBottom: Array.from(withFloor.mesh.edgeBottom[1].slice(100, 104)),
-      otherBottom: withFloor.mesh.edgeBottom[1][0], west: withFloor.mesh.edgeBottom[3][100],
-      plainWall: covering(eastWalls(plain.mesh), 100), floorWall: covering(eastWalls(withFloor.mesh), 100)
-    };
-  });
-  assert.deepEqual(r.plainBottom, [18, 18, 18, 18], 'without a floor: 2 m below the flat top');
-  assert.ok(r.floorBottom.every((b) => b <= 5), 'with a floor of 5 m the wall reaches it: ' + r.floorBottom);
-  assert.equal(r.otherBottom, 18, 'only where the floor is low');
-  assert.equal(r.west, 18);
-  assert.ok(r.plainWall.length && Math.min(...r.plainWall) === 18);
-  assert.ok(r.floorWall.length && Math.min(...r.floorWall) <= 5, 'the drawn wall reaches it too');
-});
-
-/* A copy of one synthetic h1 chunk with a 15 m pit just inside its west edge: the seam
- * column itself (and so the western neighbour's apron) is untouched, so only the
- * neighbour's 4 m block sees the drop. Re-encoded by the harness's reencodeChunk. */
-function pittedChunk(manifest) {
-  const h1 = manifest.levels.find((l) => l.name === 'h1');
-  const { origin_e: oe, origin_n: on } = manifest.crs;
-  const i0 = Math.floor(oe / 240), j0 = Math.floor(on / 240);
-  let pick = null;
-  for (const [key, entry] of Object.entries(h1.chunks)) {
-    const [i, j] = key.split('_').map(Number);
-    const west = (i - 1) + '_' + j;
-    // A (west) nearer the start than B, and both far enough out for 4 m blocks from the start
-    if (!h1.chunks[west] || i - 1 !== i0 + 5 || j !== j0) continue;
-    if (entry.min < 25 || h1.chunks[west].min < 5) continue;
-    pick = { key, west, entry };
-    break;
-  }
-  if (!pick) return null;
-  const res = reencodeChunk(manifest, 'h1', pick.key, (dm, W) => {
-    for (let r = 101; r <= 104; r++) for (let q = 2; q <= 4; q++) dm[r * W + q] -= 150;   // one 4 m block, not its seam column
-  });
-  return { key: res.key, west: pick.west, file: res.file, gz: res.gz, min: res.min, max: res.max };
-}
-
-test('a drop inside a neighbour\'s 4 m block leaves no gap in the seam, whichever loads first', { timeout: READY_MS + 60000 }, async () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
-  const pit = pittedChunk(manifest);
-  assert.ok(pit, 'the synthetic world has a land chunk pair to use');
-  const ctx = await newContext();
-  await ctx.route('**/out/synthetic/manifest.json', async (route) => {
-    const res = await route.fetch();
-    const m = await res.json();
-    const h1 = m.levels.find((l) => l.name === 'h1');
-    h1.chunks[pit.key] = Object.assign({}, h1.chunks[pit.key], { file: pit.file, bytes: pit.gz.length, min: pit.min, max: pit.max });
-    await route.fulfill({ response: res, body: JSON.stringify(m), headers: { 'content-type': 'application/json' } });
-  });
-  await ctx.route('**/out/synthetic/' + pit.file, (route) => route.fulfill({ status: 200, body: pit.gz, contentType: 'application/gzip' }));
-  const { page, log } = await openWorld(ctx);
-  await page.addScriptTag({ content: MESH_HELPERS });
-  await page.evaluate(() => window.__cw.settle());
-  const r = await page.evaluate(({ a, b }) => {
-    const M = window.__cw.internals.manager;
-    const A = M.byKey['h1:' + a], B = M.byKey['h1:' + b];
-    const live = (c) => {
-      const g = c.mesh.geometry;
-      return window.__quads({ pos: g.attributes.position.array, nor: g.attributes.normal.array, vertices: g.attributes.position.count }, c.x0, c.z0);
-    };
-    const qa = live(A), qb = live(B), seam = A.x0 + 240;
-    const gaps = [];
-    for (let k = 96; k < 112; k++) {
-      const z = A.z0 + k + 0.5;
-      const topOf = (qs, west) => {
-        for (const q of qs) {
-          if (q.n[1] <= 0) continue;
-          const xs = q.p.map((p) => p[0]), zs = q.p.map((p) => p[2]);
-          const touches = west ? Math.max(...xs) === seam : Math.min(...xs) === seam;
-          if (touches && Math.min(...zs) < z && Math.max(...zs) > z) return q.p[0][1];
-        }
-        return 0;
-      };
-      const ya = topOf(qa, true), yb = topOf(qb, false);
-      if (ya === yb) continue;
-      const hiQuads = ya > yb ? qa : qb, facing = ya > yb ? 1 : -1;   // the higher side's walls face the lower
-      const ivs = hiQuads.filter((q) => q.n[1] === 0 && Math.sign(q.n[0]) === facing && q.p.every((p) => p[0] === seam) &&
-        Math.min(...q.p.map((p) => p[2])) < z && Math.max(...q.p.map((p) => p[2])) > z).map((q) => [Math.min(...q.p.map((p) => p[1])), Math.max(...q.p.map((p) => p[1]))]);
-      const lo = Math.min(ya, yb);
-      const reach = ivs.length ? Math.min(...ivs.map((iv) => iv[0])) : Math.max(ya, yb);
-      if (reach > lo) gaps.push({ z: k, west: ya, east: yb, wallReaches: reach });
-    }
-    return { lods: [A.lod, B.lod], gaps, remeshes: M.dispatchLog.filter((j) => j.kind === 'remesh').map((j) => j.key),
-             debts: M.seamDebts(), order: [M.dispatchLog.findIndex((j) => j.key === a && j.kind === 'load'), M.dispatchLog.findIndex((j) => j.key === b && j.kind === 'load')] };
-  }, { a: pit.west, b: pit.key });
-  assert.deepEqual(r.lods, [4, 4], 'both chunks in 4 m blocks');
-  assert.ok(r.order[0] >= 0 && r.order[0] < r.order[1], 'the western chunk was meshed before its neighbour loaded');
-  assert.ok(r.remeshes.includes(pit.west), 'so it was re-meshed once the neighbour arrived');
-  assert.deepEqual(r.gaps, [], 'no gap where the 4 m block drops');
-  assert.deepEqual(r.debts, [], 'no border wall anywhere stops above what its neighbour can draw');
-  assert.deepEqual(log.errors, []);
-  assert.deepEqual(log.console, []);
-  await page.close();
-});
-
 test('building walls reach the drawn ground all round, even where the recorded ground is high', { timeout: READY_MS + 60000 }, async () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
   const doc = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest.files.buildings.file))).toString('utf8'));
@@ -832,20 +798,18 @@ test('building walls reach the drawn ground all round, even where the recorded g
   await page.close();
 });
 
-test('beyond the blocks, the ground under the camera is the smooth surface as drawn', { timeout: 120000 }, async () => {
+test('the ground under the camera is the surface as drawn, h1 included', { timeout: 240000 }, async () => {
   const { page } = await mainPage();
-  await page.evaluate(() => window.__cw.camera.start());
-  await page.evaluate(() => window.__cw.settle());
-  const r = await page.evaluate(() => {
+  const check = () => page.evaluate(() => {
     const { manager: M } = window.__cw.internals;
-    // the drawn height, read from the chunk's own triangles (nw, sw, se) and (nw, se, ne)
+    // h5 and h20: the drawn height, read from the chunk's own triangles (nw, sw, se) and (nw, se, ne)
     const meshY = (c, x, z) => {
       const s = c.lod, step = s * c.level.cell, nv = c.level.samples / s + 1, P = c.mesh.geometry.attributes.position.array;
       const lx = x - c.x0, lz = z - c.z0, b = Math.floor(lx / step), a = Math.floor(lz / step), u = lx / step - b, w = lz / step - a;
       const Y = (i) => P[i * 3 + 1], nw = a * nv + b, ne = nw + 1, sw = nw + nv, se = sw + 1;
       return w >= u ? Y(nw) + w * (Y(sw) - Y(nw)) + u * (Y(se) - Y(sw)) : Y(nw) + u * (Y(ne) - Y(nw)) + w * (Y(se) - Y(ne));
     };
-    const out = { h5: { n: 0, worst: 0 }, h20: { n: 0, worst: 0 } };
+    const out = { h5: { n: 0, worst: 0 }, h20: { n: 0, worst: 0 }, h1: { n: 0, water: 0, worst: 0, missing: 0 } };
     for (let k = 0; k < 4000; k++) {
       const ang = k * 2.39996, rad = 1600 + (k % 97) * 95;          // spread over 1.6 to 10.8 km
       const x = rad * Math.cos(ang), z = rad * Math.sin(ang);
@@ -854,18 +818,59 @@ test('beyond the blocks, the ground under the camera is the smooth surface as dr
       if (!c && M.isSeaSquare('h5', x, z)) continue;
       if (!c) c = M.chunkAt('h20', x, z);
       if (!c || !c.mesh) continue;
-      const g = window.__cw.groundAt(x, z);
+      const g = M.groundAt(x, z);
       if (!g || g.level !== c.level.name) continue;
       const d = Math.abs(g.y - Math.max(0, meshY(c, x, z)));
       const o = out[c.level.name];
       o.n++;
       o.worst = Math.max(o.worst, d);
     }
+    // h1: 4,000 points in land chunks; brute force the non-vertical triangle of the installed
+    // geometry that holds each one (float32 positions, barycentric)
+    const h1 = M.chunks.filter((c) => c.level.name === 'h1' && c.mesh && c.data);
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    for (let k = 0; k < 4000; k++) {
+      const c = h1[k % h1.length], lx = rnd() * 240, lz = rnd() * 240;
+      const g = M.groundAt(c.x0 + lx, c.z0 + lz);
+      if (!g || g.level !== 'h1') { out.h1.missing++; continue; }
+      const P = c.mesh.geometry.attributes.position.array, I = c.mesh.geometry.index.array;
+      let s = null;
+      for (let t = 0; t < I.length && s === null; t += 3) {
+        const a = I[t] * 3, b = I[t + 1] * 3, e = I[t + 2] * 3;
+        const ax = P[a], az = P[a + 2], bx = P[b], bz = P[b + 2], ex = P[e], ez = P[e + 2];
+        const d = (bz - ez) * (ax - ex) + (ex - bx) * (az - ez);
+        if (Math.abs(d) < 1e-9) continue;                               // vertical: a skirt
+        const wa = ((bz - ez) * (lx - ex) + (ex - bx) * (lz - ez)) / d, wb = ((ez - az) * (lx - ex) + (ax - ex) * (lz - ez)) / d;
+        if (wa < -1e-9 || wb < -1e-9 || wa + wb > 1 + 1e-9) continue;
+        s = wa * P[a + 1] + wb * P[b + 1] + (1 - wa - wb) * P[e + 1];
+      }
+      out.h1.n++;
+      if (s === null) { out.h1.water++; if (!(g.sea && g.y === 0)) out.h1.worst = Infinity; continue; }  // a dropped sea triangle
+      out.h1.worst = Math.max(out.h1.worst, Math.abs(g.y - Math.max(0, s)));
+    }
     return out;
   });
-  assert.ok(r.h5.n > 100 && r.h20.n > 100, JSON.stringify(r));
-  assert.ok(r.h5.worst < 1e-3, 'h5: ground differs from the drawn surface by ' + r.h5.worst);
-  assert.ok(r.h20.worst < 1e-3, 'h20: ground differs from the drawn surface by ' + r.h20.worst);
+  const settleHere = () => page.evaluate(async () => {
+    // SPEC 3.9: every h1 chunk re-meshed for this camera, by settle() itself once it does so
+    if (!String(window.__cw.settle).includes('forceSnapshots')) window.__cw.internals.manager.forceSnapshots(window.__cw.internals.camera.position);
+    await window.__cw.settle();
+  });
+  await page.evaluate(() => window.__cw.camera.start());
+  await settleHere();
+  const near = await check();
+  const cam = await page.evaluate(() => window.__cw.camera.get());
+  await page.evaluate(({ x, z }) => window.__cw.camera.set({ x, z, y: 1500, mode: 'fly' }), cam);
+  await settleHere();
+  const far = await check();
+  await page.evaluate(() => window.__cw.camera.start());
+  await settleHere();
+  for (const [name, r] of [['start', near], ['1.5 km up', far]]) {
+    assert.ok(r.h5.n > 100 && r.h20.n > 100 && r.h1.n >= 3900, name + ': ' + JSON.stringify(r));
+    assert.ok(r.h5.worst < 1e-3, name + ', h5: ground differs from the drawn surface by ' + r.h5.worst);
+    assert.ok(r.h20.worst < 1e-3, name + ', h20: ground differs from the drawn surface by ' + r.h20.worst);
+    assert.ok(r.h1.worst < 1e-3, name + ', h1: ground differs from the drawn surface by ' + r.h1.worst);
+  }
 });
 
 test('flying never goes under the water, even beyond the edge of the world', { timeout: 60000 }, async () => {
