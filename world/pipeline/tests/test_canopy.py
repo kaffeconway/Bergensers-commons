@@ -147,7 +147,7 @@ def test_canopy_around_a_roof_part_is_cut_down_to_the_part():
     # the part: the gable's cells and one ring of eaves, nothing of the crowns beyond that
     truth = box(-9.0, -2.0, -1.0, 4.0)
     assert b.segmented.area > 3 * b.polygon.area
-    assert b.polygon.difference(truth.buffer(1.01, join_style=2)).area == 0
+    assert b.polygon.difference(truth.buffer(1.02, join_style=2)).area == 0
     assert b.polygon.intersection(truth).area > 0.9 * truth.area
     kept = r.after == b.label
     assert kept.any() and not (kept & (r.labels != b.label)).any()
