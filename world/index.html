@@ -160,7 +160,7 @@ a{color:var(--glacier)}
 .sun-sliders output{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right;white-space:nowrap}
 .sun-buttons{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
 .sun-buttons .close{flex:1 1 auto;min-width:60px}
-.touch .sun-buttons .close{min-height:44px}
+.touch .sun-buttons .close,.touch #sun .panel-top .close{min-height:44px}
 #sun ul.lines{list-style:none;padding:0;margin:8px 0 4px;font-size:12.5px}
 #sun ul.lines li{margin:3px 0}
 #sun .fixed{font-size:12px}
@@ -211,7 +211,7 @@ input[type=range].sun-range:focus-visible{outline:2px solid var(--glacier);outli
  #help{left:var(--gap);right:var(--gap);width:auto}
  #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:196px;border-radius:10px 10px 0 0;
   padding:0 16px calc(10px + var(--safe-b));background:var(--paper)}
- #sun .panel-top{padding:6px 16px 4px;align-items:center;margin-bottom:2px}
+ #sun .panel-top{padding:2px 16px 2px;align-items:center;margin-bottom:2px}
  #sun h2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
  #sun .when{margin:0;font-size:10.5px;line-height:1.35}
  .sun-buttons{margin:4px 0 2px}
@@ -220,7 +220,7 @@ input[type=range].sun-range:focus-visible{outline:2px solid var(--glacier);outli
  #specs{top:calc(60px + var(--safe-t));max-height:calc(100dvh - 72px)}
  #sun{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:min(200px,52dvh);border-radius:10px 10px 0 0;
   padding:0 16px calc(8px + var(--safe-b));background:var(--paper)}
- #sun .panel-top{padding:6px 16px 4px;align-items:center;margin-bottom:2px}
+ #sun .panel-top{padding:2px 16px 2px;align-items:center;margin-bottom:2px}
  #sun h2{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
  #sun .when{margin:0;font-size:10.5px;line-height:1.35}
  .sun-sliders{grid-template-columns:40px minmax(0,1fr) 74px 40px minmax(0,1fr) 84px}

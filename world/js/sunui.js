@@ -28,6 +28,48 @@ export const FIXED_LINE = (km) => 'Shade here is drawn from this world\'s own he
   ' km. The measured hours in Specs also count mountains further away, use finer survey data, and are taken at ' +
   'eye height. Where they differ, trust the measured figure.';
 
+const finite = (...v) => v.every(Number.isFinite);
+export const DIFFER_NEAR = '(drawn shade and measurement differ by under a quarter of a degree here)';
+export const DIFFER_FAR = '(drawn shade and measurement differ here; trust the measured figure)';
+
+/* The readout's lines, from plain values (a pure function, so Node can test it). The first
+ * line is always the date and time, with the sun's place added when it is known; any other
+ * line whose data is missing or not finite is left out, never printed half-built.
+ *   head      the date and time, e.g. "21 Jun 2026, 16:30 CEST"
+ *   el, az    the sun's apparent elevation and true azimuth (deg)
+ *   behindFar the sun is up but behind the measured horizon beyond the world
+ *   profile   facts.json's garden-point horizon (720 values), or null
+ *   hours     the measured hours of direct sun at the garden point on this date
+ *   drawn     {lit} at the garden point from shade swept for this very sun, or null
+ *   drawnLine the line about where the viewer stands, or null */
+export function readoutLines({ head, el, az, behindFar, profile, hours, drawn, drawnLine }) {
+  const out = [];
+  const known = finite(el, az);
+  if (!known) out.push(head);
+  else if (el > 0) out.push(head + ': sun ' + fix1(el) + ' deg up, ' + compass(az) + ' (' + Math.round(az) + ' deg true)');
+  else out.push(head + ': sun ' + fix1(-el) + ' deg below the horizon');
+  if (!profile) {
+    out.push('No measured sun figures for this world.');
+  } else if (known) {
+    const hz = horizonAt(profile, az);
+    if (finite(hz)) {
+      let now;
+      if (behindFar) now = 'no direct sun now; the sun is behind mountains beyond the edge of this world';
+      else if (el <= 0) now = 'the sun is down';
+      else if (el > hz) now = 'direct sun now';
+      else now = 'no direct sun now: the ground to the ' + compass(az) + ' stands ' + fix1(hz) + ' deg high';
+      out.push('At the garden point (measured, clear sky, terrain only): ' + now +
+               (finite(hours) ? '; ' + fix1(hours) + ' h of direct sun on this date.' : '.'));
+      if (behindFar) out.push('The sun is behind mountains beyond the edge of this world (measured).');
+      // the design expects drawn and measured to disagree only within a quarter of a degree of
+      // the horizon; the line says so only when that is true
+      if (drawn && el > 0 && !behindFar && drawn.lit !== (el > hz)) out.push(Math.abs(el - hz) < 0.25 ? DIFFER_NEAR : DIFFER_FAR);
+    }
+  }
+  if (typeof drawnLine === 'string' && drawnLine) out.push(drawnLine);
+  return out;
+}
+
 export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, closeOthers, onOpenChange, placeDock, isTouch }) {
   const $ = (id) => document.getElementById(id);
   const chip = $('btn-sun'), chipText = $('sun-chip-text'), panel = $('sun'), title = $('sun-title');
@@ -124,31 +166,15 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
     return hoursCache.get(key);
   }
   function lines() {
-    const s = sun.cw, out = [];
-    const head = formatLocal(utc, tz, true);
-    if (s.elevation > 0) out.push(head + ': sun ' + fix1(s.elevation) + ' deg up, ' + compass(s.trueAzimuth) + ' (' + Math.round(s.trueAzimuth) + ' deg true)');
-    else out.push(head + ': sun ' + fix1(-s.elevation) + ' deg below the horizon');
-    if (sun.profile) {
-      const hz = horizonAt(sun.profile, s.trueAzimuth);
-      let now;
-      if (s.behindFar) now = 'no direct sun now; the sun is behind mountains beyond the edge of this world';
-      else if (s.elevation <= 0) now = 'the sun is down';
-      else if (s.elevation > hz) now = 'direct sun now';
-      else now = 'no direct sun now: the ground to the ' + compass(s.trueAzimuth) + ' stands ' + fix1(hz) + ' deg high';
-      out.push('At the garden point (measured, clear sky, terrain only): ' + now + '; ' + fix1(hoursOn(utc)) + ' h of direct sun on this date.');
-      if (s.behindFar) out.push('The sun is behind mountains beyond the edge of this world (measured).');
-      const g = sun.garden;
-      if (g && s.elevation > 0 && !s.behindFar) {
-        const drawn = sun.shadeAt(g.x, g.z, 1.5);
-        if (drawn.level !== 'none' && drawn.lit !== (s.elevation > hz)) {
-          out.push('(drawn shade and measurement differ by under a quarter of a degree here)');
-        }
-      }
-    } else {
-      out.push('No measured sun figures for this world.');
+    const s = sun.cw, g = sun.garden;
+    // drawn shade at the garden point, only from a sweep for this very sun (not the last one)
+    let drawn = null;
+    if (g && sun.profile && sun.shadeFresh()) {
+      const d = sun.shadeAt(g.x, g.z, 1.5);
+      if (d.level !== 'none' && d.level !== 'gate') drawn = d;
     }
-    if (drawnLine) out.push(drawnLine);
-    return out.filter((l) => typeof l === 'string' && !/undefined|NaN|null/.test(l));
+    return readoutLines({ head: formatLocal(utc, tz, true), el: s.elevation, az: s.trueAzimuth, behindFar: s.behindFar,
+                          profile: sun.profile, hours: sun.profile ? hoursOn(utc) : null, drawn, drawnLine });
   }
   function renderLines() {
     const ls = lines();
@@ -192,9 +218,12 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
   function writeUrl() {
     try {
       const lp = localParts(utc, tz);
-      const u = new URL(location.href);
-      u.searchParams.set('t', lp.y + '-' + pad(lp.mo) + '-' + pad(lp.d) + 'T' + pad(lp.h) + ':' + pad(lp.mi));
-      history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+      const t = lp.y + '-' + pad(lp.mo) + '-' + pad(lp.d) + 'T' + pad(lp.h) + ':' + pad(lp.mi);
+      // built by hand: the colon stays literal (a query may hold one), as in ?t=2026-12-21T12:00,
+      // and the other parameters keep their own spelling
+      const rest = location.search.replace(/^\?/, '').split('&').filter((p) => p && !/^t(=|$)/.test(p));
+      rest.push('t=' + t);
+      history.replaceState(history.state, '', location.pathname + '?' + rest.join('&') + location.hash);
     } catch (e) { /* a sandboxed page may refuse; the time still applies */ }
   }
   function stepBy(minutes) {
@@ -290,6 +319,9 @@ export function createSunUi({ sun, manifest, camera, groundAt, requestFrame, clo
       stepBy(ev.code === 'Period' ? STEP : -STEP);
     }
   });
+
+  // a sweep landing re-draws the open panel's lines, so they never speak of the previous one
+  sun.onShade = () => { if (!panel.hidden) renderLines(); };
 
   // ---------------------------------------------------------------- start
   const q = new URLSearchParams(location.search).get('t');

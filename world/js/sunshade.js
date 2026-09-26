@@ -387,9 +387,15 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     if (inflight) { pending = job; return; }
     send(job);
   }
+  // The sun the textures were last swept for, and the one the newest sent job sweeps for: the
+  // readout compares drawn shade with the measurement only when the two agree.
+  let sentSun = null, shownSun = null;
+  const sunKey = () => [state.elevation, state.gridBearing, state.gate ? state.gate.tanG : '', state.gate ? state.gate.dG : ''].join('|');
   function send(job) {
     inflight = job;
     posted++;
+    if (job.kind === 'sun') sentSun = sunKey();
+    job.sunKey = sentSun;
     if (job.kind === 'sun') {
       worker.postMessage({ type: 'sun', id: job.id, gridBearing: state.gridBearing, el: state.elevation,
                            quality: job.q, window: win.on ? { x: win.x, z: win.z } : null, gate: state.gate });
@@ -400,14 +406,24 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
   worker.onmessage = (ev) => {
     const r = ev.data;
     if (r.bytes !== undefined) workerBytes = r.bytes;
-    if (other.has(r.id)) { const f = other.get(r.id); other.delete(r.id); f(r); return; }
+    if (other.has(r.id)) {
+      const f = other.get(r.id);
+      other.delete(r.id);
+      f(r);
+      // once whatever this reply sets off has posted its jobs (promise continuations run
+      // first), anyone waiting for the sun to go idle hears about it
+      setTimeout(wake, 0);
+      return;
+    }
     if (!inflight || r.id !== inflight.id) return;
+    const job = inflight;
     inflight = null;
     if (!r.ok) report(new Error('sun worker: ' + r.error));
-    else install(r);
+    else { install(r); shownSun = job.sunKey; }
     if (pending) { const p = pending; pending = null; send(p); }
     requestFrame();
     wake();
+    if (r.ok && sun.onShade) { try { sun.onShade(); } catch (err) { report(err); } }
   };
   function install(r) {
     const back = [];
@@ -659,16 +675,23 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     const texX = 2 * Rn / base.map, texY = 2 * half / base.map;
     const px = Math.round(focus.dot(X) / texX) * texX, py = Math.round(focus.dot(Y) / texY) * texY, pl = focus.dot(L);
     const f = new THREE.Vector3().addScaledVector(X, px).addScaledVector(Y, py).addScaledVector(L, pl);
+    // The near plane stands `back` metres toward the sun from the receiver disc's sunward edge
+    // and its highest ground, not from the focus: a receiver r metres sunward of the focus is
+    // r cos e nearer the light, and a caster h metres above it h / sin e nearer still. Measured
+    // from the focus, casters in the sunward part of the disc fell in front of the near plane
+    // and cast nothing (at a 44 deg sun on a laptop, everything beyond about 86 m). The far
+    // plane reaches past the disc's other edge and its lowest ground.
+    const edge = Rn * cosE + dh * sinE + 5;
     const cam = sunLight.shadow.camera;
     cam.left = -Rn; cam.right = Rn; cam.top = half; cam.bottom = -half;
-    cam.near = 0.5; cam.far = back + Rn + dh + 10;
+    cam.near = 0.5; cam.far = back + edge + Rn * cosE + dh + 10;
     cam.updateProjectionMatrix();
     sunLight.target.position.copy(f);
-    sunLight.position.copy(f).addScaledVector(L, back);
+    sunLight.position.copy(f).addScaledVector(L, back + edge);
     sunLight.updateMatrixWorld();
     sunLight.target.updateMatrixWorld();
     sunLight.shadow.bias = -0.05 / (cam.far - cam.near);
-    box = { Rn, half, back, texX, texY, focus: [f.x, f.y, f.z], dh };
+    box = { Rn, half, back, edge, near: cam.near, far: cam.far, texX, texY, focus: [f.x, f.y, f.z], dh };
     // the caster rects: the receiver disc swept toward the sun
     const ux = state.dir[0], uz = state.dir[2], ul = Math.hypot(ux, uz) || 1;
     const sweepL = Math.min(back, 35 / tanE);
@@ -888,6 +911,9 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
       if (disposed || state.night) return;
       if (moveWindow(false)) post('window', quality);
     },
+    // true when the shade last uploaded was swept for the sun as it is now
+    shadeFresh() { return shownSun !== null && shownSun === sunKey(); },
+    onShade: null,                 // called after each sweep result is uploaded
     casterRects() { return state.night ? { buildings: null, trees: null } : { buildings: rects.buildings, trees: rects.trees }; },
     markShadowsDirty,
     addChunk,
@@ -952,8 +978,10 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
       waiters.splice(0).forEach((f) => f());
     }
   };
-  if (!site) state.utc = null;
   moveWindow(true);
+  // No latitude and longitude, or no daytime tick to open at: there is no slider, and the
+  // fixed sun from before the slider stays (the facts' sun-path sample nearest 235 deg).
+  if (!site || defaultUtc === null) applySunTime(null, quality);
   return sun;
 }
 
