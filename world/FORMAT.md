@@ -144,6 +144,18 @@ with its byte size and sha256.
 Buildings within `h1` radius.
 - **Footprints** are segmented from the 1 m surface model minus the terrain model, and
   anchored to building points from the Matrikkel building register.
+- **Tree crowns taken for a roof are not drawn.** A footprint is left out when no roof
+  shape fits it (`roof_shape` would be `none`, for `"no model fits"` or `"implausible"`)
+  and fewer than a quarter of its cells lie on a plane (some 3 x 3 m window holding the
+  cell fits a plane to within 0.10 m): its surface is rough like tree crowns. Where such a
+  footprint holds a planar part of at least 12 m2 at its register point (inside it, or
+  within 6 m), only that part is kept, grown by one cell for its eaves and fitted again;
+  if no roof fits the part either, the footprint is left out. A kept part's `ring`,
+  `ground`, `roof` and `roof_shape` are the part's own. The listing house is never left
+  out or cut down; if it looks like tree crowns, the manifest says so.
+- `id` numbers every footprint as segmented, north to south and then west to east, before
+  any is left out or cut down. So a footprint that is left out leaves its id unused, and
+  no other building's id depends on it. Features are in id order.
 
 ```json
 {"version": 1,
@@ -230,7 +242,8 @@ Gzip of:
   | u8 | crown radius in units of 0.1 m |
 
 Records are sorted by (z, x). Trees come from local maxima of canopy height (surface
-minus terrain) above 3 m, outside building footprints, within `h1` radius.
+minus terrain) above 3 m, outside building footprints, within `h1` radius. A footprint
+left out as tree crowns (`buildings.json.gz`) does not hide the trees under it.
 The file says nothing about species: the viewer's conifer or broadleaf look follows each
 tree's measured proportions (crown radius against height), and is not its species.
 
@@ -364,8 +377,12 @@ Notes:
 - Chunk keys are `"<i>_<j>"`.
 - `crs.lat_deg`, `crs.lon_deg` and `crs.time_zone` are described in section 1. Each is
   optional, and checked only when present.
-- `stats.map.buildings.roofs` summarises the roof fitting: `by_model`, `by_quality`,
-  `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
+- `stats.map.buildings.canopy` lists the footprints left out as tree crowns
+  (`dropped`) and those cut down to their roof part (`trimmed`), each as `{"id", "reason"}`
+  and never with a position, and `house_canopy_like`, true when the listing house looked
+  like tree crowns and was drawn anyway.
+- `stats.map.buildings.roofs` summarises the roof fitting over the buildings drawn:
+  `by_model`, `by_quality`, `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
   synthetic world and in a build under `SOURCE_DATE_EPOCH`, where a build promises the
   same bytes every time; the build log records the time in every build.
 - The viewer ignores unknown keys, and refuses a `version` it does not know.

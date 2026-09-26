@@ -28,6 +28,10 @@ segmented from the 1 m surface model (NHM DOM) minus the 1 m terrain model
 8. house = true on exactly one building, or none: among buildings with a
    dwelling point whose footprint lies at least half inside the registered
    parcel, the one nearest the address point. The stats say why when none is.
+9. After the roofs are fitted (commons_world.roofs), a footprint whose surface
+   is rough like tree crowns and fits no roof is not drawn, or is cut down to
+   the roof part at its register point (roofs.drop_canopy). The ids are
+   numbered over every footprint as segmented, so the others keep theirs.
 
 Register points come from the Matrikkelen bygningspunkt WFS. Only the type
 code, building number, status and point are read; the number and status are
@@ -210,6 +214,10 @@ class Building:
     type: int = 0
     residential: bool = False
     house: bool = False
+    id: int = 0               # set by buildings_record
+    dropped: str = None       # why it is not drawn (roofs.drop_canopy), or None
+    trimmed: str = None       # why it was cut down to a roof part, or None
+    segmented: object = None  # the footprint as segmented, when trimmed; it sets the id
 
 
 def _primary_point(building):
@@ -343,12 +351,18 @@ def buildings_record(buildings, origin, shapes=None):
     """The buildings.json object of FORMAT.md section 4, sorted north to south, west to east.
 
     `shapes`, when given, is {label: roof_shape} from commons_world.roofs; a building
-    with an entry gets it as its `roof_shape`. Nothing else in a feature depends on it."""
+    with an entry gets it as its `roof_shape`. Nothing else in a feature depends on it.
+    Every building is numbered, in the order of its footprint as segmented, and its id
+    set on it (`b.id`); a dropped one (`b.dropped`) is then left out, so no other
+    building's id depends on whether it was dropped."""
     def key(b):
-        c = b.polygon.centroid
+        c = (b.segmented if b.segmented is not None else b.polygon).centroid
         return (round(-c.y, 3), round(c.x, 3))
     features = []
     for number, b in enumerate(sorted(buildings, key=key), start=1):
+        b.id = number
+        if b.dropped:
+            continue
         feature = {
             "id": number, "type": int(b.type), "source": "dom",
             "ground": round(b.ground, 1), "roof": round(b.roof, 1), "house": bool(b.house),
