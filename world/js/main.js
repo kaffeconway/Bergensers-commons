@@ -11,11 +11,13 @@ import { fetchJSON, fetchBytes, parseTrees, TreeSet, buildBuildings, FootprintIn
          plotRingsFlat, pointInRing, safeWorldPath } from './objects.js';
 import { Controls, EYE } from './controls.js';
 import { renderSpecs, renderCredits } from './panel.js';
+import { createSun } from './sunshade.js';
+import { createSunUi } from './sunui.js';
+import { mapIntoYear, parseSiteTime } from './sun.js';
 
 const FORMAT = 'commons-world';
 const VERSION = 1;
 const WORLD_ROOT = new URL('../', import.meta.url);
-const DEFAULT_SUN = { trueAzimuth: 235, elevation: 38 };   // a summer mid-afternoon, roughly, at 60 N
 
 const $ = (id) => document.getElementById(id);
 const cw = window.__cw = { ready: false, errors: [], version: VERSION };
@@ -41,6 +43,7 @@ function showFatal(title, text) {
 // ------------------------------------------------------------------ status line
 let loadedFiles = 0;
 let manager = null;
+let placeDock = () => {};         // set once the page is built: keeps #dock clear of the corners
 // The status line counts chunks as they load; a screen reader hears only #announce, which
 // says when loading is done or something went wrong, not every chunk.
 function announce(text) {
@@ -53,9 +56,10 @@ function setStatus(extra) {
   if (cw.errors.length) {
     el.textContent = cw.errors.length === 1 ? 'Problem: ' + cw.errors[0] : cw.errors.length + ' problems; the first: ' + cw.errors[0];
     announce(el.textContent);
+    placeDock();
     return;
   }
-  if (extra !== undefined) { el.textContent = extra; return; }
+  if (extra !== undefined) { el.textContent = extra; placeDock(); return; }
   if (manager && !manager.done) {
     el.textContent = 'Loading terrain ' + manager.loadedCount + ' / ' + manager.total;
   } else {
@@ -66,6 +70,7 @@ function setStatus(extra) {
   const f = manager ? manager.loadedCount / Math.max(1, manager.total) : 0;
   bar.firstElementChild.style.width = (100 * f).toFixed(1) + '%';
   bar.classList.toggle('done', !!manager && manager.done);
+  placeDock();
 }
 
 // ------------------------------------------------------------------ world folder
@@ -91,26 +96,6 @@ function checkManifest(m, rel) {
   }
   if (!m.crs || !isFinite(m.crs.origin_e) || !isFinite(m.crs.origin_n)) throw new UserError('manifest.json has no usable crs.');
   if (!Array.isArray(m.levels)) throw new UserError('manifest.json lists no height levels.');
-}
-
-// ------------------------------------------------------------------ sun
-function sunFrom(facts, offset) {
-  let az = DEFAULT_SUN.trueAzimuth, el = DEFAULT_SUN.elevation, source = 'default (no facts.json sun path)';
-  const path = facts && facts.sun && facts.sun.sun_path && facts.sun.sun_path.jun21;
-  if (Array.isArray(path)) {
-    let best = null;
-    for (const p of path) {
-      if (!Array.isArray(p) || !isFinite(p[0]) || !isFinite(p[1]) || p[1] < 12) continue;
-      const d = Math.abs(((p[0] - DEFAULT_SUN.trueAzimuth + 540) % 360) - 180);
-      if (!best || d < best.d) best = { d, az: p[0], el: p[1] };
-    }
-    if (best) { az = best.az; el = best.el; source = 'facts.json sun path, 21 June, mid-afternoon'; }
-  }
-  // FORMAT.md section 1: true bearing = grid bearing - offset, so grid = true + offset.
-  const grid = az + offset;
-  const b = THREE.MathUtils.degToRad(grid), e = THREE.MathUtils.degToRad(el);
-  const dir = new THREE.Vector3(Math.sin(b) * Math.cos(e), Math.sin(e), -Math.cos(b) * Math.cos(e));
-  return { trueAzimuth: az, elevation: el, gridBearing: grid, offset, source, dir: [dir.x, dir.y, dir.z], vec: dir };
 }
 
 // ------------------------------------------------------------------ start pose
@@ -223,7 +208,6 @@ async function main() {
   const camera = new THREE.PerspectiveCamera(baseFov, 1, 0.5, 14000);
   camera.rotation.order = 'YXZ';
 
-  const offset = Number(manifest.crs.grid_north_offset_deg) || 0;
   const sky = new Sky();
   sky.scale.setScalar(10000);
   const su = sky.material.uniforms;
@@ -234,8 +218,8 @@ async function main() {
   if (su.cloudCoverage) { su.cloudCoverage.value = 0.28; su.cloudDensity.value = 0.35; }
   scene.add(sky);
 
-  // Lit tops come out close to their palette colours; the ambient share keeps shaded
-  // walls readable rather than black.
+  // The sun, sky and ambient fill follow the sun's elevation (sunshade.js lightAt); the
+  // ambient share keeps shaded walls readable rather than black.
   const hemi = new THREE.HemisphereLight(0xe4edf1, 0x8a7f6a, 2.0);
   const fill = new THREE.AmbientLight(0xffffff, 0.5);
   const sunLight = new THREE.DirectionalLight(0xfff3df, 2.1);
@@ -247,40 +231,8 @@ async function main() {
   waterMat.toneMapped = false;
   const water = new THREE.Mesh(new THREE.CircleGeometry(12000, 96).rotateX(-Math.PI / 2), waterMat);
   water.name = 'water';
+  water.receiveShadow = true;       // the fjord darkens in hill shade, and the glint goes with it
   scene.add(water);
-
-  function applySun(sun) {
-    su.sunPosition.value.copy(sun.vec);
-    sunLight.position.copy(sun.vec).multiplyScalar(1000);
-    cw.sun = { trueAzimuth: sun.trueAzimuth, elevation: sun.elevation, gridBearing: sun.gridBearing,
-               offset: sun.offset, source: sun.source, dir: sun.dir };
-  }
-
-  // The fog takes the colour the sky shows just above the horizon, read back from the canvas.
-  function matchFogToSky() {
-    const gl = renderer.getContext();
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const hc = new THREE.PerspectiveCamera(30, size.x / Math.max(1, size.y), 1, 20000);
-    hc.rotation.order = 'YXZ';
-    hc.position.set(0, 100, 0);
-    sky.position.copy(hc.position);
-    const hidden = [];
-    for (const o of scene.children) if (o !== sky && o.visible) { o.visible = false; hidden.push(o); }
-    const px = new Uint8Array(4 * 8), acc = [0, 0, 0];
-    let n = 0;
-    for (let k = 0; k < 8; k++) {
-      hc.rotation.set(THREE.MathUtils.degToRad(1.5), k * Math.PI / 4, 0);
-      hc.updateMatrixWorld();
-      renderer.render(scene, hc);
-      gl.readPixels(Math.floor(size.x / 2) - 4, Math.floor(size.y / 2), 8, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      for (let i = 0; i < 8; i++) { acc[0] += px[i * 4]; acc[1] += px[i * 4 + 1]; acc[2] += px[i * 4 + 2]; n++; }
-    }
-    for (const o of hidden) o.visible = true;
-    if (n && acc[0] + acc[1] + acc[2] > 0) {
-      scene.fog.color.setRGB(acc[0] / n / 255, acc[1] / n / 255, acc[2] / n / 255, THREE.SRGBColorSpace);
-      cw.fogColour = '#' + scene.fog.color.getHexString(THREE.SRGBColorSpace);
-    }
-  }
 
   // ---------------------------------------------------------------- side files
   loadedFiles = 0;
@@ -296,9 +248,6 @@ async function main() {
   const T = (listing && listing.approved_text) || {};
   // Only approved text names the place on screen; the world's id is a property number.
   $('title').textContent = T.nickname || T.address || 'Commons World';
-
-  const sun = sunFrom(facts, offset);
-  applySun(sun);
 
   const features = (buildingsDoc && Array.isArray(buildingsDoc.features)) ? buildingsDoc.features : [];
   const buildings = buildBuildings(features);
@@ -321,18 +270,29 @@ async function main() {
   const h1Level = manifest.levels.find((l) => l.name === 'h1');
   const chunkSide = h1Level ? h1Level.cell * h1Level.chunk_samples : 240;
   let frameRequested = false;
+  let raf = 0, last = 0, frames = 0, lastLod = 0, lodMoved = true, wasMoving = false;
+  const waiters = [];
+  let sun = null;
+  // a chunk's square against a caster rect; no rect (no near map drawn) never meets
+  const meets = (c, r) => !!r && c.x0 <= r.x1 && c.x0 + c.level.side >= r.x0 && c.z0 <= r.z1 && c.z0 + c.level.side >= r.z0;
   manager = new ChunkManager({
     scene, manifest, worldBase: base, profile, plotRings: plotRingsFlat(parcels),
     onChange: (c, kind) => {
-      if (c.level.name === 'h1' && plotBox && c.x0 <= plotBox[2] && c.x0 + c.level.side >= plotBox[0] &&
-          c.z0 <= plotBox[3] && c.z0 + c.level.side >= plotBox[1]) fenceDirty = true;
-      if (c.level.name === 'h1' && trees) trees.reground(c.key, (x, z) => manager.drawnTopAt(x, z));
-      if (c.level.name === 'h1' && kind === 'load') {
-        // walls down to the lowest ground drawable around each footprint this chunk touches
-        const x0 = c.x0 - 4, z0 = c.z0 - 4, x1 = c.x0 + c.level.side + 4, z1 = c.z0 + c.level.side + 4;
-        buildings.reground((a, b, e, f) => manager.lowestTop(a, b, e, f),
-                           (bx) => bx[0] <= x1 && bx[2] >= x0 && bx[1] <= z1 && bx[3] >= z0);
+      if (c.level.name === 'h1') {
+        if (c.mesh) c.mesh.receiveShadow = true;   // GLUE(G9): today's chunks.js sets no shadow flags
+        if (plotBox && c.x0 <= plotBox[2] && c.x0 + c.level.side >= plotBox[0] &&
+            c.z0 <= plotBox[3] && c.z0 + c.level.side >= plotBox[1]) fenceDirty = true;
+        if (trees && trees.reground(c.key, (x, z) => manager.surfaceAt(x, z)) > 0 &&
+            sun && meets(c, sun.casterRects().trees)) sun.markShadowsDirty();
+        if (kind === 'load') {
+          // walls down to the lowest ground drawable around each footprint this chunk touches
+          const x0 = c.x0 - 4, z0 = c.z0 - 4, x1 = c.x0 + c.level.side + 4, z1 = c.z0 + c.level.side + 4;
+          const lowered = buildings.reground((a, b, e, f) => manager.lowestTop(a, b, e, f) /* G1: lowestGround */,
+                                             (bx) => bx[0] <= x1 && bx[2] >= x0 && bx[1] <= z1 && bx[3] >= z0);
+          if (lowered > 0 && sun && meets(c, sun.casterRects().buildings)) sun.markShadowsDirty();
+        }
       }
+      if (kind === 'load' && sun) sun.addChunk(c);
       setStatus();
       requestFrame();
     },
@@ -347,6 +307,15 @@ async function main() {
       trees = new TreeSet(scene, parseTrees(treesBytes), [manifest.crs.origin_e, manifest.crs.origin_n], chunkSide, profile);
     } catch (err) { recordError(err); }
   }
+  // GLUE(G9): today's objects.js sets no shadow flags, so the near map would have nothing to
+  // draw. Buildings and trees cast and receive (SPEC 3.5); objects.js sets its own later.
+  for (const m of [buildings.othersMesh, buildings.houseMesh]) { m.castShadow = true; m.receiveShadow = true; }
+  if (trees) for (const g of trees.groups) for (const m of g.meshes) { m.castShadow = true; m.receiveShadow = true; }
+
+  // ---------------------------------------------------------------- sun, shade and sky
+  sun = createSun({ renderer, scene, camera, sky, lights: { hemi, fill, sunLight }, water, manifest, facts, listing,
+                    manager, profile, requestFrame: () => requestFrame(), onError: (err) => recordError(err) });
+  cw.sun = sun.cw;
 
   const groundAt = (x, z) => {
     const g = manager.groundAt(x, z);
@@ -370,7 +339,7 @@ async function main() {
     onLockChange: (locked) => {
       document.documentElement.classList.toggle('locked', locked);
       $('crosshair').hidden = !locked;
-      if (locked) $('hint').hidden = true;
+      if (locked) { $('hint').hidden = true; placeDock(); }
     }
   });
   if (touchUi) {
@@ -384,7 +353,8 @@ async function main() {
     $('hint').hidden = false;
   }
 
-  const pose = startPose(buildings.house, parcels, footprints, sun.vec);
+  // the start never moves with the slider: it is chosen for the default sun, whatever ?t= says
+  const pose = startPose(buildings.house, parcels, footprints, sun.defaultVector());
   function goToStart() {
     controls.setMode('walk');
     const g = groundAt(pose.x, pose.z);
@@ -401,12 +371,14 @@ async function main() {
   function openPanel(panel, button, focusEl) {
     panel.hidden = false;
     button.setAttribute('aria-expanded', 'true');
+    placeDock();
     if (focusEl) focusEl.focus({ preventScroll: true });
   }
   function closePanel(panel, button) {
     const hadFocus = panel.contains(document.activeElement);
     panel.hidden = true;
     button.setAttribute('aria-expanded', 'false');
+    placeDock();
     if (hadFocus) button.focus({ preventScroll: true });
   }
   // The specs panel never covers the credits: on a wide screen it stops above them; as a
@@ -422,17 +394,20 @@ async function main() {
   }
   window.addEventListener('resize', fitSpecs);
   creditsToggle.addEventListener('click', () => requestAnimationFrame(fitSpecs));
+  let sunUi = null;
   const openSpecs = () => {
     closePanel(help, btnHelp);
+    if (sunUi) sunUi.close();
     openPanel(specs, btnSpecs, $('specs-title'));
     fitSpecs();
+    placeDock();
     cw.specsOpenedBy = cw.specsOpenedBy || 'button';
   };
   const refocusCanvas = (ev) => { if (ev && ev.detail > 0) canvas.focus({ preventScroll: true }); };
   btnSpecs.addEventListener('click', () => (specs.hidden ? openSpecs() : closePanel(specs, btnSpecs)));
   $('specs-close').addEventListener('click', () => closePanel(specs, btnSpecs));
   btnHelp.addEventListener('click', () => {
-    if (help.hidden) { closePanel(specs, btnSpecs); openPanel(help, btnHelp, $('help-title')); }
+    if (help.hidden) { closePanel(specs, btnSpecs); if (sunUi) sunUi.close(); openPanel(help, btnHelp, $('help-title')); }
     else closePanel(help, btnHelp);
   });
   $('help-title').tabIndex = -1;
@@ -445,6 +420,82 @@ async function main() {
       if (!help.hidden) closePanel(help, btnHelp);
     }
   });
+
+  // ---------------------------------------------------------------- the sun chip and panel
+  // #dock (bottom centre) holds the chip and the status line. It rises clear of whatever it
+  // would meet in the lower corners (the hint, the credits, the stick) and of an open bottom
+  // sheet (sun or specs), so the chip can always be reached, but never above the header; on a
+  // wide screen the sun card sits above it, and above the hint and credits where they share
+  // its width.
+  const dock = $('dock'), sunPanel = $('sun');
+  const sheetMedia = matchMedia('(max-width:600px), (max-height:460px)');
+  placeDock = () => {
+    const H = innerHeight, boxes = [];
+    const add = (el) => {
+      if (!el || el.hidden) return;
+      const b = el.getBoundingClientRect();
+      if (b.width > 0 && b.height > 0) boxes.push(b);
+    };
+    add($('hint')); add($('credits'));
+    if (touchUi) { add($('stick')); add($('vert')); }
+    const sunOpen = !sunPanel.hidden, sheet = sheetMedia.matches;
+    if (sunOpen && sheet) add(sunPanel);
+    const specsOpen = !specs.hidden, specsSheet = specsOpen && getComputedStyle(specs).bottom === '0px';
+    if (specsSheet) add(specs);
+    const meets = (a, b) => b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top;
+    const lift = () => {
+      dock.style.bottom = '';
+      let r = dock.getBoundingClientRect();
+      for (let k = 0; k < 4 && r.height > 0; k++) {
+        let raise = -1;
+        for (const b of boxes) if (meets(r, b)) raise = Math.max(raise, H - b.top + 8);
+        if (raise < 0) break;
+        raise = Math.min(raise, H - 70 - r.height);   // below the header, whatever it meets
+        dock.style.bottom = raise + 'px';
+        r = dock.getBoundingClientRect();
+      }
+      return r;
+    };
+    dock.style.left = dock.style.maxWidth = '';
+    let r = lift();
+    // An open Specs side panel (on the right) that meets the dock: the dock moves into the
+    // space left of the panel when the chip fits there (a long status line wraps), and stays
+    // clear of the rest as before. Where it does not fit, the dock stays above the panel
+    // (z-index), so the chip can still be reached.
+    const side = specsOpen && !specsSheet ? specs.getBoundingClientRect() : null;
+    const free = side ? side.left - 8 : 0, chipW = $('btn-sun').getBoundingClientRect().width;
+    if (side && side.width > 0 && r.height > 0 && meets(r, side) && free - 16 >= chipW) {
+      dock.style.maxWidth = free - 16 + 'px';
+      dock.style.left = free / 2 + 'px';
+      r = lift();
+      if (meets(r, side)) { dock.style.left = dock.style.maxWidth = ''; r = lift(); }
+    }
+    if (sunOpen && !sheet) {
+      const pr = sunPanel.getBoundingClientRect();
+      let bottom = r.height > 0 ? H - r.top + 8 : 66;
+      for (const el of [$('hint'), $('credits')]) {
+        if (!el || el.hidden) continue;
+        const b = el.getBoundingClientRect();
+        if (b.width > 0 && b.left < pr.right && b.right > pr.left) bottom = Math.max(bottom, H - b.top + 8);
+      }
+      sunPanel.style.bottom = bottom + 'px';
+      sunPanel.style.maxHeight = Math.max(160, H - bottom - 70) + 'px';
+    } else {
+      sunPanel.style.bottom = '';
+      sunPanel.style.maxHeight = '';
+    }
+  };
+  sunUi = createSunUi({
+    sun, manifest, camera, groundAt, requestFrame: () => requestFrame(), placeDock: () => placeDock(), isTouch: touchUi,
+    closeOthers: () => { closePanel(specs, btnSpecs); closePanel(help, btnHelp); },
+    onOpenChange: (open) => {
+      if (touchUi) $('touch').hidden = open;
+      // as for the specs sheet: a sheet folds the credits to their (i) button, unless chosen
+      if (open && sheetMedia.matches && !creditsChosen) foldCredits();
+    }
+  });
+  window.addEventListener('resize', () => placeDock());
+  creditsToggle.addEventListener('click', () => requestAnimationFrame(() => placeDock()));
 
   const raycaster = new THREE.Raycaster();
   const pickables = [buildings.othersMesh, buildings.houseMesh];
@@ -498,8 +549,6 @@ async function main() {
   }
 
   // ---------------------------------------------------------------- render loop
-  let raf = 0, last = 0, frames = 0, lastLod = 0, lodMoved = true, wasMoving = false;
-  const waiters = [];
   function requestFrame() {
     if (raf || document.hidden) return;
     frameRequested = true;
@@ -513,10 +562,31 @@ async function main() {
     const across = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(27.5)) / camera.aspect);
     camera.fov = Math.min(90, Math.max(baseFov, THREE.MathUtils.radToDeg(across)));
     camera.updateProjectionMatrix();
+    manager.setView?.(camera.fov, h);   // GLUE(G5)
+    placeDock();
     requestFrame();
   }
+  // Before three's shadow pass: the sun moves the near box and says which casters it needs;
+  // the objects then limit what goes into the map, and the fence dims at night.
+  let rectsSeen = -1, nightSeen = null;
+  scene.onBeforeRender = (r, sc, cam) => {
+    if (cam !== camera) return;
+    sun.beforeRender();
+    if (sun.rectsVersion !== rectsSeen) {
+      rectsSeen = sun.rectsVersion;
+      const rects = sun.casterRects();
+      const a = buildings.setShadowFocus?.(rects.buildings);   // GLUE(G5)
+      const b = trees ? trees.setShadowFocus?.(rects.trees) : false;   // GLUE(G5)
+      if (a || b) sun.markShadowsDirty({ inFrame: true });
+    }
+    if (sun.night !== nightSeen) {
+      nightSeen = sun.night;
+      fence.setDim?.(sun.night ? 0.55 : 1);   // GLUE(G5)
+    }
+  };
   function frame(now) {
     raf = 0;
+    sunUi.flush();                    // the newest slider value, once per frame
     const dt = last ? (now - last) / 1000 : 0;
     last = now;
     const moving = controls.update(dt);
@@ -527,13 +597,15 @@ async function main() {
       lastLod = now;
       lodMoved = false;
       manager.update(camera.position);
-      if (trees) trees.update(camera.position);
+      if (trees && trees.update(camera.position)) sun.markShadowsDirty({ inFrame: true });
+      sunUi.tick();
     }
     wasMoving = moving;
     if (fenceDirty) {
       fenceDirty = false;
-      fence.rebuild((x, z) => manager.drawnTopAt(x, z));
+      fence.rebuild((x, z) => manager.surfaceAt(x, z));
     }
+    sun.prepareFrame();
     renderer.render(scene, camera);
     frames++;
     placeLabel();
@@ -542,11 +614,16 @@ async function main() {
     if (moving) requestFrame();
     else last = 0;
   }
+  // cw.ready also means every building is drawn (their meshing can run in slices)
+  let buildingsReady = !buildings.ready;
+  buildings.ready?.then(() => { buildingsReady = true; sun.markShadowsDirty(); requestFrame(); });   // GLUE(G5)
   function checkReady() {
-    if (cw.ready || !manager.done) return;
+    if (cw.ready || !manager.done || !buildingsReady) return;
     cw.ready = true;
     cw.readyAt = performance.now();
     setStatus();
+    sunUi.showChip(true);
+    sun.onWorldLoaded().catch((err) => recordError(err));
   }
 
   new ResizeObserver(resize).observe(canvas);
@@ -554,9 +631,18 @@ async function main() {
     if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = 0; last = 0; }
     else requestFrame();
   });
+  // Everything that holds GPU memory is disposed before the renderer: once renderer.dispose()
+  // has cleared its properties, a later dispose no longer lowers renderer.info.memory.
   window.addEventListener('pagehide', () => {
-    manager.dispose();
+    sun.dispose();
+    buildings.dispose?.();   // GLUE(G5)
+    fence.dispose?.();   // GLUE(G5)
     if (trees) trees.dispose();
+    manager.dispose();
+    water.geometry.dispose();
+    water.material.dispose();
+    sky.geometry.dispose();
+    sky.material.dispose();
     renderer.dispose();
   });
 
@@ -569,7 +655,10 @@ async function main() {
         terrainTriangles: manager.triangles(), lods: manager.lodSummary(),
         trees: trees ? trees.count : 0, buildings: buildings.count,
         geometries: renderer.info.memory.geometries, pixelRatio: renderer.getPixelRatio(),
-        profile: profile.name, frames, workers: manager.workers.length
+        profile: profile.name, frames, workers: manager.workers.length,
+        shadowRedrawn: sun.lastRedraw, sun: sun.bytes(),
+        terrain: manager.terrainInfo?.(),   // GLUE(G5)
+        objects: buildings.info?.()   // GLUE(G5)
       };
     },
     visible() {
@@ -626,16 +715,24 @@ async function main() {
     },
     frame() { return new Promise((resolve) => { waiters.push(resolve); requestFrame(); }); },
     async settle(maxMs = 60000) {
-      // re-mesh to the current camera and wait until no job is left
-      const t0 = performance.now();
+      // re-mesh to the current camera, wait until no chunk job is left, mesh every loaded h1
+      // chunk for this camera (so meshes do not depend on the path it took), wait again, then
+      // wait for the sun's sweep and its upload, and draw
+      const t0 = performance.now(), left = () => maxMs - (performance.now() - t0);
+      const busy = () => manager.queue.length + manager.inflight > 0;
+      const drain = async () => { while (busy() && left() > 0) await new Promise((r) => setTimeout(r, 50)); };
       manager.update(camera.position);
-      if (trees) trees.update(camera.position);
-      while (manager.queue.length + manager.inflight > 0 && performance.now() - t0 < maxMs) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      if (trees && trees.update(camera.position)) sun.markShadowsDirty();
+      await drain();
+      manager.forceSnapshots?.(camera.position);   // GLUE(G5)
+      await drain();
+      sun.update();
+      let sunDone = false;
+      await Promise.race([sun.idle().then(() => { sunDone = true; }), new Promise((r) => setTimeout(r, Math.max(0, left())))]);
       fenceDirty = true;
       await cw.frame();
-      return manager.queue.length + manager.inflight === 0;
+      const ids = sun.jobIds();
+      return !busy() && sunDone && ids.landed === ids.requested;
     },
     groundAt: (x, z) => groundAt(x, z),
     decode: (url) => manager.decode(new URL(url, base).href),
@@ -644,13 +741,37 @@ async function main() {
     blockTrianglesWith: (extra) => manager.blockTrianglesWith(extra),
     loadOrder: () => manager.dispatchLog.slice(),
     openSpecs, house: buildings.house ? { centroid: buildings.house.centroid, ground: buildings.house.ground, roof: buildings.house.roof } : null,
+    // the sun: time, shade and light (SPEC 3.4)
+    setSunTime(t) {
+      if (!sunUi.enabled) return;
+      const tz = sun.zone.tz, y = sun.year;
+      const utc = typeof t === 'number' ? mapIntoYear(t, y, tz) : parseSiteTime(t, y, tz);
+      if (utc === null || !Number.isFinite(utc)) throw new Error('setSunTime: cannot read ' + JSON.stringify(t));
+      sunUi.setTime(utc);
+    },
+    sunTime: () => sunUi.sunTime(),
+    sunIdle: () => sun.idle(),
+    sunShadeAt: (x, z, hAG = 1.5) => sun.shadeAt(x, z, hAG),
+    sunReadout: () => sunUi.readout(),
+    setSunQuality(q) { sun.setQuality(q); },
+    sunCoverage: () => sun.coverage(),
+    sunDebug(mode) { sun.setDebug(mode); },
+    async frameCost() {
+      // one frame with the near map redrawn and one without; the shadow pass is the difference
+      renderer.shadowMap.needsUpdate = true;
+      renderer.render(scene, camera);
+      const a = { triangles: renderer.info.render.triangles, calls: renderer.info.render.calls };
+      renderer.render(scene, camera);
+      const b = { triangles: renderer.info.render.triangles, calls: renderer.info.render.calls };
+      return { main: b, shadow: { triangles: a.triangles - b.triangles, calls: a.calls - b.calls } };
+    },
     // the live objects, for integration checks that need drawn heights and meshes
-    internals: { scene, renderer, camera, manager, trees, fence, buildings, footprints, controls, water, sky, parcels }
+    internals: { scene, renderer, camera, manager, trees, fence, buildings, footprints, controls, water, sky, parcels, sun }
   });
 
   resize();
   requestAnimationFrame(() => {
-    matchFogToSky();
+    cw.fogColour = sun.matchFog();
     manager.start(camera.position);
     setStatus();
     requestFrame();

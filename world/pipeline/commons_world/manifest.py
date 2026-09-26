@@ -221,6 +221,38 @@ def _check_credits(folder, manifest, problems):
         problems.append("credits: place names need the SSR credit")
 
 
+def _check_site(manifest, problems):
+    """crs.lat_deg, crs.lon_deg and crs.time_zone, each checked only when present.
+
+    The latitude and longitude, if either is there, must both be, and must be the origin's
+    own (geo.to_latlon) within 1e-4 deg; the zone must be one the build can write.
+    """
+    import math
+
+    from . import geo
+    from .build import ALLOWED_TIME_ZONES
+
+    crs = manifest["crs"]
+    if "lat_deg" in crs or "lon_deg" in crs:
+        lat, lon = crs.get("lat_deg"), crs.get("lon_deg")
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                   for v in (lat, lon)):
+            problems.append("crs.lat_deg and crs.lon_deg must both be present and finite")
+        else:
+            try:
+                want = geo.to_latlon(float(crs["origin_e"]), float(crs["origin_n"]),
+                                     int(crs["epsg"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                problems.append("crs: cannot check lat_deg and lon_deg: {}".format(exc))
+            else:
+                if abs(lat - want[0]) > 1e-4 or abs(lon - want[1]) > 1e-4:
+                    problems.append("crs.lat_deg, crs.lon_deg ({}, {}) are not the origin's "
+                                    "({:.6f}, {:.6f})".format(lat, lon, want[0], want[1]))
+    if "time_zone" in crs and crs["time_zone"] not in ALLOWED_TIME_ZONES:
+        problems.append("crs.time_zone {!r} is not one of {}".format(
+            crs["time_zone"], ", ".join(ALLOWED_TIME_ZONES)))
+
+
 FACTS_BLOCKS = ("plot", "sun", "access")
 
 
@@ -247,6 +279,15 @@ def _check_facts(folder, manifest, problems):
                 or not isinstance(block.get("caveats"), list):
             problems.append("files.facts: block {!r} needs a method string and a caveats "
                             "list".format(name))
+    sun = facts.get("sun")
+    horizon = sun.get("horizon") if isinstance(sun, dict) else None
+    beyond = horizon.get("beyond_world") if isinstance(horizon, dict) else None
+    if beyond is not None:
+        for key in ("from_m", "profile_deg", "distance_m"):
+            value = beyond.get(key) if isinstance(beyond, dict) else None
+            if not isinstance(value, list) or len(value) != 720:
+                problems.append("files.facts: sun.horizon.beyond_world.{} must hold 720 "
+                                "values".format(key))
 
 
 def _check_listing(folder, manifest, problems):
@@ -333,6 +374,7 @@ def check_world(folder):
     for key in ("epsg", "origin_e", "origin_n", "grid_north_offset_deg", "scale_factor", "vertical"):
         if key not in manifest["crs"]:
             problems.append("crs.{} missing".format(key))
+    _check_site(manifest, problems)
     listed = set()
 
     def check_entry(where, entry):

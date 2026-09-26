@@ -152,8 +152,28 @@ def _layer(provider, bounds, cell, name, fill=0.0):
 
 # -- the computation ----------------------------------------------------------------------
 
-def compute(view, provider, *, generated_at, log=lambda m: None, pvgis=None, sun_year=None):
-    """(facts dict, report dict) for a WorldView and a provider."""
+def h20_squares(levels, origin):
+    """(side, set of (i, j)): the world's h20 squares, land and sea, from its level records.
+
+    Without an h20 record, grid.py's own inclusion rule for the h20 disk around the origin.
+    """
+    from .. import grid
+    for record in levels or []:
+        if isinstance(record, dict) and record.get("name") == "h20":
+            side = int(record["cell"]) * int(record["chunk_samples"])
+            keys = list(record.get("chunks") or {}) + list(record.get("sea") or [])
+            return side, {tuple(int(v) for v in key.split("_")) for key in keys}
+    level = grid.LEVELS_BY_NAME["h20"]
+    return level.side, set(grid.chunks_for_disk(level, float(origin[0]), float(origin[1])))
+
+
+def compute(view, provider, *, generated_at, log=lambda m: None, pvgis=None, sun_year=None,
+            levels=None):
+    """(facts dict, report dict) for a WorldView and a provider.
+
+    `levels` are the world's manifest level records; they say where the drawn world ends
+    for sun.horizon.beyond_world (grid.py's h20 disk when they are not given).
+    """
     from . import access, horizon, slope, sun
     from .horizon import Band
     from .slope import raster_mask
@@ -270,6 +290,11 @@ def compute(view, provider, *, generated_at, log=lambda m: None, pvgis=None, sun
     gc, _ = horizon.cast([ge], [gn], [g_eye], [near_c] + rest, offset)
     garden_t = horizon.to_degrees(gt[0])
     garden_c = horizon.to_degrees(gc[0])
+    # the same rays from the terrain beyond the drawn world only (the viewer's far gate)
+    side20, squares20 = h20_squares(levels, view.origin)
+    beyond_from = horizon.ray_exit_m(ge, gn, squares20, side20, offset)
+    beyond_tan, beyond_d = horizon.beyond_profile(ge, gn, g_eye, rest, beyond_from, offset)
+    report["garden_horizon_distance_m"] = gd[0]
     timings["horizon_garden"] = time.monotonic() - t
 
     # -- sun -----------------------------------------------------------------------------
@@ -299,6 +324,7 @@ def compute(view, provider, *, generated_at, log=lambda m: None, pvgis=None, sun
         "method": SUN_METHOD.format(year=year, reach=round(reach / 1000.0)),
         "caveats": list(SUN_CAVEATS),
         "year": year,
+        "altitude_m": round(max(altitude, 0.0), 2),
         "days": "every day of each month, UTC calendar days",
         "astronomical": sy.summary(minutes[0]),
         "plot_median": {
@@ -322,6 +348,13 @@ def compute(view, provider, *, generated_at, log=lambda m: None, pvgis=None, sun
             "profile_canopy_deg": _round_list(garden_c),
             "regional_max_m": round(hmax, 1),
             "coarse_raster_radius_m": fetched_half,
+            "beyond_world": {
+                "observer": "garden point, eye 1.5 m above the terrain",
+                "from": "where each ray leaves the world's h20 squares (land and sea)",
+                "from_m": [int(v) for v in beyond_from],
+                "profile_deg": _round_list(horizon.to_degrees(beyond_tan)),
+                "distance_m": [int(round(float(v))) for v in beyond_d],
+            },
         },
         "plot_map": {
             "cell_m": SUN_CELL_M, "x0": round(west2 - oe, 1) + 0.0,
@@ -483,7 +516,8 @@ def step_facts(ctx):
         return
     surface = getattr(getattr(ctx, "map", None), "surface", None)
     provider = _provider_for(view, ctx.client, surface=surface, log=ctx.log)
-    facts, report = compute(view, provider, generated_at=ctx.generated_at, log=ctx.log)
+    facts, report = compute(view, provider, generated_at=ctx.generated_at, log=ctx.log,
+                            levels=ctx.level_records)
     ctx.write_json("facts", FACTS_NAME, facts)
     for source in provider.sources:
         ctx.add_source(source)
@@ -590,9 +624,13 @@ def run(world_dir, client=None, *, log=lambda m: None, compare_pvgis=None, gener
     if not view.synthetic and client is None:
         raise FactsError("a real world needs the HTTP client for its facts")
     provider = _provider_for(view, client, log=log)
-    facts, report = compute(view, provider, generated_at=generated_at or default_generated_at(),
-                            log=log, pvgis=compare_pvgis)
     manifest_path = folder / manifestlib.MANIFEST_NAME
+    try:
+        levels = json.loads(manifest_path.read_text(encoding="ascii")).get("levels")
+    except (OSError, ValueError, AttributeError):
+        levels = None
+    facts, report = compute(view, provider, generated_at=generated_at or default_generated_at(),
+                            log=log, pvgis=compare_pvgis, levels=levels)
     notice_path = folder / manifestlib.NOTICE_NAME
     facts_path = folder / FACTS_NAME
     old = {p: (p.read_bytes() if p.exists() else None)

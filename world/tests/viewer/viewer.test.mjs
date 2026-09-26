@@ -27,6 +27,9 @@ test('the synthetic world loads with no console errors and becomes ready', { tim
   const errors = await page.evaluate(() => window.__cw.errors);
   assert.deepEqual(log.errors, [], 'page errors');
   assert.deepEqual(log.console, [], 'console errors');
+  // SPEC 6.3 names PCFSoftShadowMap and GL_INVALID; Chromium words a refused call
+  // "WebGL: INVALID_OPERATION: ...", so any INVALID and any "WebGL:" message counts too
+  assert.deepEqual(log.warnings.filter((w) => /PCFSoftShadowMap|INVALID|WebGL:/i.test(w)), [], 'GL warnings');
   assert.deepEqual(errors, [], '__cw.errors');
   assert.equal(await page.locator('#error').isVisible(), false);
 });
@@ -375,6 +378,10 @@ test('the canvas shows a focus ring for the keyboard only, inside its edge', { t
   assert.equal(k.width, '2px');
   assert.ok(k.offset < 0, 'drawn inside the edge, where the viewport cannot clip it');
   // (a mouse click shows no ring: checked on its own page in the hidden-house test above)
+  // then the header pills, then the sun chip
+  const next = [];
+  for (let i = 0; i < 4; i++) { await page.keyboard.press('Tab'); next.push(await page.evaluate(() => document.activeElement.id)); }
+  assert.deepEqual(next, ['btn-specs', 'btn-mode', 'btn-help', 'btn-sun']);
   await page.close();
 });
 
@@ -484,13 +491,19 @@ test('credits are visible, include three.js, and the (i) button collapses them',
   assert.equal(await body.isVisible(), true);
 });
 
-test('the view is not just sky', { timeout: 60000 }, async () => {
+test('the view is not just sky', { timeout: 120000 }, async () => {
   const { page } = await mainPage();
-  await page.evaluate(() => window.__cw.camera.start());
-  await page.evaluate(() => window.__cw.frame());
-  await page.evaluate(() => { for (const id of ['bar', 'credits', 'hint', 'status', 'house-label']) document.getElementById(id).style.visibility = 'hidden'; });
+  const hide = ['bar', 'credits', 'hint', 'status', 'house-label', 'btn-sun', 'dock', 'sun'];
+  const daylight = await page.evaluate(async () => {
+    window.__cw.camera.start();
+    await window.__cw.sunIdle();
+    await window.__cw.frame();
+    return window.__cw.sun.elevation;
+  });
+  assert.ok(daylight > 20, 'the default time is daylight (' + daylight + ' deg)');
+  await page.evaluate((ids) => { for (const id of ids) document.getElementById(id).style.visibility = 'hidden'; }, hide);
   const png = await page.screenshot();
-  await page.evaluate(() => { for (const id of ['bar', 'credits', 'hint', 'status', 'house-label']) document.getElementById(id).style.visibility = ''; });
+  await page.evaluate((ids) => { for (const id of ids) document.getElementById(id).style.visibility = ''; }, hide);
   const r = await page.evaluate(async (b64) => {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
@@ -515,14 +528,27 @@ test('the view is not just sky', { timeout: 60000 }, async () => {
 
 test('the sun is placed by grid bearing = true azimuth + grid north offset', async () => {
   const { page, manifest } = await mainPage();
-  const s = await page.evaluate(() => window.__cw.sun);
   const off = manifest.crs.grid_north_offset_deg;
-  assert.ok(Math.abs(s.offset - off) < 1e-9);
-  assert.ok(Math.abs(s.gridBearing - (s.trueAzimuth + off)) < 1e-9);
-  const b = s.gridBearing * Math.PI / 180, e = s.elevation * Math.PI / 180;
-  assert.ok(Math.abs(s.dir[0] - Math.sin(b) * Math.cos(e)) < 1e-9, 'east component');
-  assert.ok(Math.abs(s.dir[2] + Math.cos(b) * Math.cos(e)) < 1e-9, 'z is south, so north is -z');
-  assert.ok(Math.abs(s.dir[1] - Math.sin(e)) < 1e-9);
+  const check = (s, tag) => {
+    assert.ok(Math.abs(s.offset - off) < 1e-9, tag);
+    assert.ok(Math.abs(s.gridBearing - (s.trueAzimuth + off)) < 1e-9, tag);
+    const b = s.gridBearing * Math.PI / 180, e = s.elevation * Math.PI / 180;
+    assert.ok(Math.abs(s.dir[0] - Math.sin(b) * Math.cos(e)) < 1e-9, tag + ': east component');
+    assert.ok(Math.abs(s.dir[2] + Math.cos(b) * Math.cos(e)) < 1e-9, tag + ': z is south, so north is -z');
+    assert.ok(Math.abs(s.dir[1] - Math.sin(e)) < 1e-9, tag);
+  };
+  check(await page.evaluate(() => window.__cw.sun), 'at load');
+  // and at three slider times, with the Sky's sun where the light is
+  for (const t of ['2026-12-21T11:40Z', '2026-03-21T07:00Z', '2026-06-21T20:00Z']) {
+    const r = await page.evaluate((t) => {
+      window.__cw.setSunTime(t);
+      const s = window.__cw.sun, p = window.__cw.internals.sky.material.uniforms.sunPosition.value;
+      return { s: JSON.parse(JSON.stringify(s)), sky: [p.x, p.y, p.z] };
+    }, t);
+    check(r.s, t);
+    r.sky.forEach((v, i) => assert.ok(Math.abs(v - r.s.dir[i]) < 1e-6, t + ': the Sky\'s sunPosition is dir'));
+  }
+  await page.evaluate(() => window.__cw.setSunTime(window.__cw.internals.sun.defaultUtc));
 });
 
 test('walking: gravity lands on the drawn ground, W moves forward, and downhill stays grounded', { timeout: 120000 }, async () => {
@@ -621,6 +647,11 @@ test('measured facts render from facts.json, with methods as tooltips and detail
   assert.equal(await page.locator('#specs ol.bars li').count(), 12);
   const sun = await page.evaluate(() => window.__cw.sun);
   assert.match(sun.source, /facts\.json/);
+  // the fixture has no sun.year: the default is 21 Jun of 2026, the pipeline's year
+  assert.match(sun.source, /21 Jun 2026 \d\d:\d0 UTC/);
+  const lines = await page.evaluate(() => window.__cw.sunReadout().lines);
+  assert.ok(lines.length >= 2, lines.join(' | '));
+  for (const l of lines) assert.doesNotMatch(l, /undefined|NaN|null/);
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();
@@ -657,14 +688,14 @@ test('phone viewport, 390 x 844: no sideways scroll, touch controls, pixel ratio
     return {
       scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
       bodyScrollW: document.body.scrollWidth, stick: vis('stick'), specs: vis('btn-specs'), mode: vis('btn-mode'),
-      credits: vis('credits-toggle'), creditsFont: parseFloat(getComputedStyle(document.getElementById('credits-body')).fontSize),
+      credits: vis('credits-toggle'), sun: vis('btn-sun'), creditsFont: parseFloat(getComputedStyle(document.getElementById('credits-body')).fontSize),
       stats: window.__cw.stats(), touch: window.__cw.touch
     };
   });
   assert.ok(r.scrollW <= r.clientW, 'document scrollWidth ' + r.scrollW + ' > ' + r.clientW);
   assert.ok(r.bodyScrollW <= r.clientW);
   assert.equal(r.touch, true);
-  assert.ok(r.stick && r.specs && r.mode && r.credits, 'controls inside the viewport');
+  assert.ok(r.stick && r.specs && r.mode && r.credits && r.sun, 'controls inside the viewport');
   assert.ok(r.creditsFont >= 11);
   assert.equal(r.stats.profile, 'phone');
   assert.ok(r.stats.pixelRatio <= 1.5, 'pixel ratio ' + r.stats.pixelRatio);
@@ -690,6 +721,10 @@ test('phone viewport, 390 x 844: no sideways scroll, touch controls, pixel ratio
   await page.setViewportSize({ width: 844, height: 390 });
   await page.evaluate(() => window.__cw.frame());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+  assert.ok(await page.evaluate(() => {
+    const e = document.getElementById('btn-sun'), b = e.getBoundingClientRect();
+    return !e.hidden && b.width > 0 && b.left >= 0 && b.right <= innerWidth + 0.5 && b.top >= 0 && b.bottom <= innerHeight + 0.5;
+  }), 'the sun chip is inside the viewport in landscape');
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();
@@ -739,6 +774,13 @@ test('the title never falls back to the world id; screen readers hear the end of
   assert.equal(r.statusRole, null);
   assert.equal(r.live, 'polite');
   assert.equal(r.announce, 'The world has loaded.');
+  // the sun chip and panel are there, and the slider does not talk through #announce
+  await page.click('#btn-sun');
+  await page.focus('#sun-time');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('PageUp');
+  await page.evaluate(() => window.__cw.frame());
+  assert.equal(await page.evaluate(() => document.getElementById('announce').textContent), 'The world has loaded.');
   assert.deepEqual(log.errors, []);
   await page.close();
 });
@@ -967,10 +1009,12 @@ test('no request ever left localhost', () => {
 });
 
 test('the chunk worker imports nothing', () => {
-  const src = fs.readFileSync(path.join(WORLD, 'js', 'worker.js'), 'ascii');
-  assert.doesNotMatch(src, /^\s*import[\s{*'"]/m);
-  assert.doesNotMatch(src, /\bimport\s*\(/);
-  assert.doesNotMatch(src, /importScripts/);
+  for (const name of ['worker.js', 'sunworker.js']) {
+    const src = fs.readFileSync(path.join(WORLD, 'js', name), 'ascii');
+    assert.doesNotMatch(src, /^\s*import[\s{*'"]/m, name);
+    assert.doesNotMatch(src, /\bimport\s*\(/, name);
+    assert.doesNotMatch(src, /importScripts/, name);
+  }
 });
 
 test('the viewer\'s own files are pure ASCII', () => {

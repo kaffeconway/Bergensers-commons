@@ -28,6 +28,15 @@ written as the six characters `\u00f8`). All binary is little-endian.
   - grid bearing = true bearing + offset.
 
   The sun's true azimuth `A` is drawn at grid bearing `A + offset`.
+- **`crs.lat_deg`, `crs.lon_deg`**: the origin `O` in ETRS89 latitude and longitude,
+  degrees to 6 dp (the same conversion the facts use). The viewer's sun is computed there.
+- **`crs.time_zone`**: the site's IANA time zone, from the listing's country: `NO`
+  `Europe/Oslo`, `FR` `Europe/Paris`, `IT` `Europe/Rome`, `ES` `Europe/Madrid`, or
+  `Atlantic/Canary` for `ES` south of 30 N. No other zone is allowed. The key is absent
+  when the listing names no country; without it the viewer takes the zone from the
+  listing's country if it can, and otherwise shows UTC, labelled as such.
+- All three are additive and optional (older worlds lack them); `check` compares the
+  latitude and longitude with the origin (within 1e-4 deg) and the zone with the list.
 
 ## 2. Height levels and the chunk grid
 
@@ -278,13 +287,16 @@ Written by step 4 (`commons_world/facts/`). The viewer shows whatever is present
                      "circle_under5_m": 0.0, "circle_under10_m": 0.0}},
  "sun": {
    "method": "...", "caveats": ["Clear sky: weather is not included."],
+   "altitude_m": 0.0,
    "astronomical": {"dec21_h": 0.0, "decjan_mean_h": 0.0, "jun21_h": 0.0, "monthly_h": [0.0]},
    "plot_median": {"terrain": {"dec21_h": 0.0, "decjan_mean_h": 0.0, "jun21_h": 0.0, "monthly_h": [0.0]},
                    "terrain_canopy": {"dec21_h": 0.0, "decjan_mean_h": 0.0, "jun21_h": 0.0, "monthly_h": [0.0]}},
    "garden_point": {"x": 0.0, "z": 0.0,
                     "terrain": {"dec21_h": 0.0}, "terrain_canopy": {"dec21_h": 0.0}},
    "horizon": {"step_deg": 0.5, "max_distance_m": 0.0, "south_sector_mean_deg": 0.0,
-               "profile_deg": [0.0]},
+               "profile_deg": [0.0],
+               "beyond_world": {"observer": "...", "from": "...",
+                                "from_m": [0], "profile_deg": [0.0], "distance_m": [0]}},
    "plot_map": {"cell_m": 2, "x0": 0.0, "z0": 0.0, "cols": 0, "rows": 0,
                 "dec21_min_terrain": [0], "dec21_min_canopy": [0]},
    "sun_path": {"dec21": [[0.0, 0.0]], "jun21": [[0.0, 0.0]]}},
@@ -301,6 +313,23 @@ Written by step 4 (`commons_world/facts/`). The viewer shows whatever is present
 ```
 
 Notes:
+- **A subset.** The example shows a subset of what the pipeline writes; a built
+  `facts.json` has more keys in every block.
+- **The sun's altitude.** `sun.altitude_m` is the altitude the sun's refraction was
+  computed for: the mean ground height of the plot's cells, or 0 if that is below sea
+  level, to 2 dp. The viewer uses it for the same refraction.
+- **Beyond the drawn world.** `sun.horizon.beyond_world` is the garden point's horizon
+  (eye 1.5 m, the same rays, samples, curvature and refraction drop as `profile_deg`)
+  from terrain beyond the drawn world only. Each of its three arrays has **720** entries,
+  one per 0.5 deg of true bearing, like `profile_deg`:
+  - `from_m`: whole metres from the garden point to where the ray leaves the union of the
+    world's `h20` chunk squares, land and sea;
+  - `profile_deg`: the highest angle over samples at `from_m` or further, 2 dp; 0.0 where
+    no sample is found there, as for `profile_deg`;
+  - `distance_m`: the distance of that sample, or 0 where none is found.
+  It is never above `profile_deg`, and equals it where the horizon is set beyond the
+  world's edge. The viewer uses it to stop the sun where mountains it does not draw would
+  hide it (the far gate).
 - **Monthly values.** `monthly_h` has 12 values (Jan..Dec), each the mean over that month
   of daily potential direct-sun hours.
 - **The plot sun map.** `plot_map` arrays are row-major, north to south, one integer per
@@ -316,7 +345,8 @@ Notes:
  "generated_at": "2026-09-25T12:00:00Z",
  "pipeline": {"version": "0.1.0", "commit": "abc1234"},
  "crs": {"epsg": 25832, "origin_e": 0, "origin_n": 0,
-         "grid_north_offset_deg": 0.0, "scale_factor": 1.0, "vertical": "NN2000"},
+         "grid_north_offset_deg": 0.0, "scale_factor": 1.0, "vertical": "NN2000",
+         "lat_deg": 0.0, "lon_deg": 0.0, "time_zone": "Europe/Oslo"},
  "levels": [{"name": "h1", "cell": 1, "radius": 1500, "chunk_samples": 240,
              "apron": 1, "class_band": true, "nodata_fraction": 0.0,
              "chunks": {"1234_5678": {"file": "h1/1234_5678.0a1b2c3d.cwh.gz",
@@ -332,4 +362,6 @@ Notes:
 ```
 
 - Chunk keys are `"<i>_<j>"`.
+- `crs.lat_deg`, `crs.lon_deg` and `crs.time_zone` are described in section 1. Each is
+  optional, and checked only when present.
 - The viewer ignores unknown keys, and refuses a `version` it does not know.

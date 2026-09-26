@@ -231,6 +231,65 @@ def ray_samples(e0, n0, bands, offset_deg, n_az=N_AZ, step_deg=STEP_DEG):
     return np.concatenate(rows, axis=1), np.concatenate(ds)
 
 
+def ray_exit_m(e0, n0, squares, side, offset_deg, n_az=N_AZ, step_deg=STEP_DEG, limit_m=CAP_M):
+    """Per ray: where a ray from (e0, n0) first leaves a union of chunk squares, in metres.
+
+    `squares` holds the (i, j) of squares [i*side, (i+1)*side) x [j*side, (j+1)*side) in the
+    grid (world/FORMAT.md section 2). Each ray walks from square to square along its line,
+    so the distance is exact; it is rounded up to whole metres, so every sample at or
+    beyond it lies outside the union. 0 on every ray when (e0, n0) is outside the union;
+    `limit_m` if a ray has not left it by then.
+    """
+    squares = set(squares)
+    _, unit_e, unit_n = directions(offset_deg, n_az, step_deg)
+    out = np.zeros(n_az, dtype=np.int64)
+    i0, j0 = math.floor(e0 / side), math.floor(n0 / side)
+    if (i0, j0) not in squares:
+        return out
+
+    def first_step(p, u, cell):
+        if u > 0:
+            return ((cell + 1) * side - p) / u, side / u, 1
+        if u < 0:
+            return (cell * side - p) / u, -side / u, -1
+        return math.inf, math.inf, 0
+
+    for k in range(n_az):
+        tx, dtx, si = first_step(e0, float(unit_e[k]), i0)
+        ty, dty, sj = first_step(n0, float(unit_n[k]), j0)
+        i, j, t = i0, j0, 0.0
+        while t < limit_m:
+            if tx < ty:
+                t, i, tx = tx, i + si, tx + dtx
+            else:
+                t, j, ty = ty, j + sj, ty + dty
+            if (i, j) not in squares:
+                break
+        out[k] = int(math.ceil(min(t, limit_m) - 1e-9))
+    return out
+
+
+def beyond_profile(e0, n0, eye, bands, from_m, offset_deg, n_az=N_AZ, step_deg=STEP_DEG):
+    """(tan, distance) per ray from the samples at or beyond from_m[k] only.
+
+    The samples, their curvature-and-refraction drop and the eye are exactly those of
+    `ray_samples` and `cast`, so on a ray whose horizon is set at or beyond from_m[k] this
+    gives the same angle. tan is -inf and the distance 0 where no such sample is found.
+    """
+    lowered, dist = ray_samples(e0, n0, bands, offset_deg, n_az, step_deg)
+    tan = np.full(n_az, -np.inf)
+    where = np.zeros(n_az)
+    if not len(dist):
+        return tan, where
+    from_m = np.asarray(from_m, dtype=np.float64)
+    t = (lowered - float(eye)) / dist[None, :]
+    t = np.where((dist[None, :] >= from_m[:, None]) & np.isfinite(t), t, -np.inf)
+    j = np.argmax(t, axis=1)
+    tan = t[np.arange(n_az), j]
+    where = np.where(np.isfinite(tan), dist[j], 0.0)
+    return tan, where
+
+
 def shared_far_tan(lowered, dist, eyes, probes=ENVELOPE_PROBES, chunk=48):
     """Best tan per observer eye height and ray, from one point's far samples.
 
