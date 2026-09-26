@@ -219,6 +219,13 @@ Buildings within `h1` radius.
     plus 0.5 m, or rose more than 1 m above the highest surface-model cell).
 - `type` is the register's building-type code, or 0 if none was matched.
 - `house: true` marks exactly one building: the listing's house, if identified.
+- `roof_colour` and `roof_colour_source` (optional, on the listing house only, always
+  together): the house's roof colour as `#rrggbb` in lower case, and free text saying how
+  it was read. They come from an observed input given privately to that world's build
+  (`build --observed`, `commons_world/observed.py`), such as a colour read from an aerial
+  photo; that input's credit line is then one of the manifest's `credits`. The viewer
+  draws the house roof plain in that colour and keeps the walls in the highlight colour.
+  Without them the house roof is in the highlight colour.
 - **Optional:** buildings beyond `h1` come from register points only. They have
   `source: "register"` and a default square `ring`.
 - Readers ignore keys they do not know. The viewer refuses a file whose `version` is not
@@ -377,6 +384,10 @@ Notes:
 - Chunk keys are `"<i>_<j>"`.
 - `crs.lat_deg`, `crs.lon_deg` and `crs.time_zone` are described in section 1. Each is
   optional, and checked only when present.
+- `credits` also holds the credit line of an observed input, when a build was given one
+  and used it (`buildings.json.gz`, `roof_colour`); `stats.map.buildings.observed_roof_colour`
+  is then true, and false if the input was given but no house was identified to take it.
+  Without an observed input, neither is there.
 - `stats.map.buildings.canopy` lists the footprints left out as tree crowns
   (`dropped`) and those cut down to their roof part (`trimmed`), each as `{"id", "reason"}`
   and never with a position, and `house_canopy_like`, true when the listing house looked

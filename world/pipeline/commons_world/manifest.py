@@ -316,8 +316,9 @@ def _check_listing(folder, manifest, problems):
 
 
 def _check_buildings(folder, manifest, problems):
-    """buildings.json, when listed: every roof_shape is absent or sound (FORMAT.md)."""
-    from . import roofs
+    """buildings.json, when listed: ids increase, every roof_shape is absent or sound, and
+    an observed roof colour is on the house only and well formed (FORMAT.md)."""
+    from . import observed, roofs
 
     entry = manifest["files"].get("buildings")
     if not isinstance(entry, dict) or not (folder / str(entry.get("file", ""))).is_file():
@@ -334,8 +335,15 @@ def _check_buildings(folder, manifest, problems):
     if not isinstance(features, list):
         problems.append("files.buildings: no features list")
         return
+    ids = [f.get("id") for f in features if isinstance(f, dict)]
+    if not all(type(i) is int and i > 0 for i in ids) or ids != sorted(set(ids)):
+        problems.append("files.buildings: ids must be whole numbers above 0, each once, in order")
     for feature in features:
-        if not isinstance(feature, dict) or "roof_shape" not in feature:
+        if not isinstance(feature, dict):
+            continue
+        for problem in observed.check_feature(feature):
+            problems.append("files.buildings: building {}: {}".format(feature.get("id"), problem))
+        if "roof_shape" not in feature:
             continue
         for problem in roofs.check_shape(feature["roof_shape"]):
             problems.append("files.buildings: building {}: {}".format(feature.get("id"), problem))

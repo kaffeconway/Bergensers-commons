@@ -357,9 +357,14 @@ export const HOUSE_OVERHANG = { pitched: 0, flat: 0, fallback: 0 };   // walls a
 export const HOUSE_FASCIA = 0;
 export const HOUSE_ROOF_MAP = null;                                    // plain roof: no tile courses ('tiles' to add them)
 export const HOUSE_WALL_LIFT = 1;                                      // 1.08: lifted for the cladding, as the neighbours
+// Joseph's answer P3: where the world's buildings.json carries the house's observed roof colour
+// (roof_colour, from a private per-world input, credited on screen), its roof is drawn plain in
+// that colour; its walls keep the highlight colour, since they cannot be seen from above.
+export const HOUSE_OBSERVED_ROOF = true;                               // false: the highlight roof even then
 // Colours: neighbours neutral with a +-5 % lightness jitter and no hue change; the house keeps
-// its highlight, which is not its real colour. The neighbours' walls are lifted 8 % for the
-// cladding's average. Every factor scales the sRGB values, as they show on screen.
+// its highlight, which is not its real colour (its roof excepted, as above). The neighbours'
+// walls are lifted 8 % for the cladding's average. Every factor scales the sRGB values, as they
+// show on screen.
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
 const FOCUS_MERGE = 64;                   // triangles: changed runs this close are uploaded as one
@@ -409,10 +414,17 @@ function planOf(f) {
       box = [Math.min(box[0], p[0]), Math.min(box[1], p[1]), Math.max(box[2], p[0]), Math.max(box[3], p[1])];
     }
     plan = { f, id: f.id, ground, top, ridge, prep, fallback, malformed, model: fallback ? null : s.model,
-             pitched: !fallback && isPitched(prep), box, ring: prep.outline };
+             pitched: !fallback && isPitched(prep), box, ring: prep.outline, roofColour: observedRoof(f) };
   }
   plans.set(f, plan);
   return plan;
+}
+
+/* The house's observed roof colour as a number (0xrrggbb), or null: only on the listing house,
+ * only written #rrggbb, and only while HOUSE_OBSERVED_ROOF is on. */
+function observedRoof(f) {
+  if (!HOUSE_OBSERVED_ROOF || f.house !== true || typeof f.roof_colour !== 'string') return null;
+  return /^#[0-9a-fA-F]{6}$/.test(f.roof_colour) ? parseInt(f.roof_colour.slice(1), 16) : null;
 }
 
 function meshOptions(plan, isHouse, opts = {}) {
@@ -437,7 +449,8 @@ function coloursFor(plan, isHouse) {
   const c = COLOURS[isHouse ? 'house' : 'others'];
   const j = isHouse ? 1 : buildingJitter(plan.id);
   const walls = srgbTimes(c.walls, (isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
-  return [walls, srgbTimes(c.roof, j), srgbTimes(c.roof, j * TRIM_SHADE)];
+  const roof = isHouse && plan.roofColour !== null ? plan.roofColour : c.roof;
+  return [walls, srgbTimes(roof, j), srgbTimes(roof, j * TRIM_SHADE)];
 }
 
 const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
@@ -686,7 +699,7 @@ export function buildBuildings(features) {
     const entry = { item, order: order++, colours: coloursFor(plan, isHouse), packed: null };
     if (isHouse) {
       houseInfo = { ring: plan.ring, ground: plan.ground, roof: plan.ridge, centroid: ringCentroid(plan.ring),
-                    id: f.id, shape: plan.fallback ? null : f.roof_shape };
+                    id: f.id, shape: plan.fallback ? null : f.roof_shape, roofColour: plan.roofColour };
       houseEntry = entry;
     } else {
       pending.push(entry);

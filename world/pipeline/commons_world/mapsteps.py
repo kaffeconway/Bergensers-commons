@@ -30,6 +30,7 @@ from scipy import ndimage
 
 from . import buildings as buildingslib
 from . import classes as classeslib
+from . import observed as observedlib
 from . import places as placeslib
 from . import roofs as roofslib
 from . import trees as treeslib
@@ -114,6 +115,7 @@ def step_buildings(ctx):
     record = buildingslib.buildings_record(found, ctx.origin, shapes)
     ids = [f["id"] for f in record["features"] if f["house"]]
     stats["house"]["id"] = ids[0] if ids else None
+    observedlib.apply(ctx, record, stats)
     if canopy is not None:
         stats["canopy"] = roofslib.canopy_stats(found, canopy)
         if canopy["house_canopy_like"]:

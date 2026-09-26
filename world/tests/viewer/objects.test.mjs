@@ -14,6 +14,12 @@ import zlib from 'node:zlib';
 import { SYN, WORLD, READY_MS, offenders, newContext, openWorld, mainPage } from './harness.mjs';
 
 const manifest = () => JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
+// Console warnings that mean GL refused what it was asked (as sun.test.mjs reads them, S2-2):
+// SPEC 6.3's PCFSoftShadowMap and GL_INVALID, and Chromium's "WebGL: INVALID_OPERATION: ...".
+const GL_WARNING = /PCFSoftShadowMap|INVALID|WebGL:/i;
+const glWarnings = (log) => log.warnings.filter((w) => GL_WARNING.test(w));
+// The made-up observed input the pipeline's tests build with (Joseph's answer P3).
+const OBSERVED = JSON.parse(fs.readFileSync(path.join(WORLD, 'pipeline', 'tests', 'fixtures', 'observed-synthetic.json'), 'utf8'));
 const buildingsDoc = () => JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest().files.buildings.file))).toString('utf8'));
 
 async function shared() {
@@ -346,7 +352,88 @@ test('the house roof can be drawn as the flat prism instead, in one line', { tim
   assert.ok(r.tops > 0, 'a plain top, as every unmeasured roof');
   assert.deepEqual(r.errors, []);
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
   await page.close();
+});
+
+test('the house roof is drawn in its observed colour, the walls keep the highlight', { timeout: READY_MS + 60000 }, async () => {
+  // P3: a world whose buildings.json carries the house's observed roof colour (the pipeline
+  // writes it from a private per-world input, with a credit line); the committed input is
+  // made up, and served here as the pipeline writes it
+  const doc = buildingsDoc(), man = manifest();
+  const house = doc.features.find((f) => f.house);
+  house.roof_colour = OBSERVED.house_roof_colour.toLowerCase();
+  house.roof_colour_source = OBSERVED.source;
+  man.credits = man.credits.concat([OBSERVED.credit]);
+  const ctx = await newContext();
+  await ctx.route('**/out/synthetic/' + man.files.buildings.file, (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(doc), contentType: 'application/json' }));
+  await ctx.route('**/out/synthetic/manifest.json', (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(man), contentType: 'application/json' }));
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const drawn = async (pg) => pg.evaluate(async () => {
+    const B = window.__cw.internals.buildings, geo = B.houseMesh.geometry, k = geo.attributes.color;
+    const at = (g) => { const v = geo.index.getX(geo.groups[g].start); return [k.getX(v), k.getY(v), k.getZ(v)]; };
+    const every = (g) => {
+      const c0 = at(g), grp = geo.groups[g];
+      for (let i = grp.start; i < grp.start + grp.count; i++) {
+        const v = geo.index.getX(i);
+        if ([k.getX(v), k.getY(v), k.getZ(v)].some((c, j) => Math.abs(c - c0[j]) > 1e-9)) return false;
+      }
+      return true;
+    };
+    return { walls: at(0), roof: at(1), roofEven: every(1), roofs: geo.groups[1].count, roofMap: B.houseMesh.material[1].map,
+             wallMap: !!B.houseMesh.material[0].map, observed: B.house.roofColour,
+             credits: document.getElementById('credits-body').textContent, errors: window.__cw.errors };
+  });
+  const colour = async (pg, hex) => pg.evaluate(async (h) => new (await import('three')).Color(h).toArray(), hex);
+  const r = await drawn(page);
+  const want = await colour(page, parseInt(OBSERVED.house_roof_colour.slice(1), 16));
+  assert.ok(r.roofs > 0, 'the house has a fitted roof');
+  assert.equal(r.observed, parseInt(OBSERVED.house_roof_colour.slice(1), 16));
+  r.roof.forEach((c, i) => assert.ok(Math.abs(c - want[i]) < 1e-6, 'the roof is the observed colour: ' + r.roof));
+  assert.ok(r.roofEven, 'every roof vertex is');
+  assert.equal(r.roofMap, null, 'and plain');
+  const walls = await colour(page, 0xc98e5c);
+  r.walls.forEach((c, i) => assert.ok(Math.abs(c - walls[i]) < 1e-6, 'the walls keep the highlight colour: ' + r.walls));
+  assert.ok(r.wallMap, 'and the cladding');
+  assert.ok(r.credits.includes(OBSERVED.credit), 'the credit is shown with the others');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
+  await page.close();
+  // without it (the synthetic world as built): the highlight roof, and no such credit
+  const plain = await drawn((await shared()).page);
+  const madder = await colour((await shared()).page, 0x7c2e3e);
+  plain.roof.forEach((c, i) => assert.ok(Math.abs(c - madder[i]) < 1e-6, 'the highlight roof: ' + plain.roof));
+  plain.walls.forEach((c, i) => assert.ok(Math.abs(c - walls[i]) < 1e-6));
+  assert.equal(plain.observed, null);
+  assert.ok(!plain.credits.includes(OBSERVED.credit));
+  // a colour the viewer cannot read, or one on another building, is not drawn
+  const odd = await (await shared()).page.evaluate(async (fs) => {
+    const m = await import('./js/objects.js');
+    const out = {};
+    for (const [name, edit] of [['unreadable', (f) => { if (f.house) f.roof_colour = 'grey'; }],
+                                ['neighbour', (f) => { if (!f.house) f.roof_colour = '#2e8b57'; }]]) {
+      const copy = JSON.parse(JSON.stringify(fs));
+      copy.forEach(edit);
+      const b = m.buildBuildings(copy);
+      await b.ready;
+      const geo = b.othersMesh.geometry, k = geo.attributes.color;
+      const roofs = new Set();
+      for (let i = geo.groups[1].start; i < geo.groups[1].start + geo.groups[1].count; i++) {
+        const v = geo.index.getX(i);
+        roofs.add([k.getX(v), k.getY(v), k.getZ(v)].map((c) => c.toFixed(6)).join());
+      }
+      out[name] = { house: b.house.roofColour, neighbourRoofs: [...roofs] };
+      b.dispose();
+    }
+    return out;
+  }, buildingsDoc().features);
+  assert.equal(odd.unreadable.house, null);
+  assert.equal(odd.neighbour.house, null);
+  assert.deepEqual(odd.neighbour.neighbourRoofs.sort(), odd.unreadable.neighbourRoofs.sort(), 'neighbours never take it');
 });
 
 test('wall tops meet the roof', { timeout: 60000 }, async () => {
@@ -451,6 +538,7 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   assert.deepEqual(prisms.errors, []);
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
+  assert.deepEqual(glWarnings(log), []);
   await page.close();
   // malformed shapes, one of each kind the viewer refuses: those buildings flat, the others
   // as measured
@@ -489,6 +577,7 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   assert.equal(r.othersFlat, 0, 'no other building is');
   assert.deepEqual(r.errors, []);
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
   // a version the viewer does not read
   const v2 = await page.evaluate(async () => {
     const m = await import('./js/objects.js');
@@ -865,6 +954,7 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
   assert.deepEqual([r.walked.unreported, r.walked.misplaced, r.walked.lost, r.walked.repeats], [0, 0, 0, 0], JSON.stringify(r.walked));
   assert.ok(r.walked.partial > 0, 'some changes upload part of the index, not all of it: ' + JSON.stringify(r.walked));
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL refused nothing in the shadow pass');
   await page.close();
 });
 
