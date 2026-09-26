@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { SYN, READY_MS, offenders, newContext, openWorld, mainPage, reencodeChunk } from './harness.mjs';
+import { SYN, READY_MS, offenders, newContext, openWorld, mainPage, reencodeChunk, watch, origin } from './harness.mjs';
 
 const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 };
 // TT14: the largest difference between the drawn horizon and the 1 m reference, measured on
@@ -727,15 +727,36 @@ test('lowestGround bounds the drawn surface', { timeout: 300000 }, async () => {
     const xs = f.ring.map((p) => p[0]), zs = f.ring.map((p) => p[1]);
     return [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
   });
-  const check = () => page.evaluate((boxes) => boxes.map((b) => {
-    const M = window.__cw.internals.manager, low = M.lowestGround(b[0], b[1], b[2], b[3]);
-    let min = Infinity;
-    for (let x = b[0]; x <= b[2] + 1e-9; x += 0.5) for (let z = b[1]; z <= b[3] + 1e-9; z += 0.5) {
-      const s = M.surfaceAt(x, z);
-      if (s !== null) min = Math.min(min, s);
-    }
-    return { low, min };
-  }), boxes);
+  // low: lowestGround; min: the drawn surface's minimum on a 0.5 m grid over the box; tight:
+  // the lowest 1 m corner of every 16 m tile the box touches, recomputed here from the
+  // chunk's own heights (cornerHeight), the tightest value that holds at every tolerance.
+  // low must be at or below min, and no lower than tight: a bound that is merely low (the
+  // whole chunk's minimum, say) would sink every wall far below the ground.
+  const check = () => page.evaluate(async (boxes) => {
+    const M = window.__cw.internals.manager, { cornerHeight } = await import('/world/js/chunks.js');
+    const lv = M.levels.h1, S = lv.side, T = 16;
+    const tight = (b) => {
+      let v = Infinity;
+      for (let te = Math.floor((b[0] + M.oe) / T); te <= Math.floor((b[2] + M.oe) / T); te++) {
+        for (let tn = Math.floor((M.on - b[3]) / T); tn <= Math.floor((M.on - b[1]) / T); tn++) {
+          const i = Math.floor(te * T / S), j = Math.floor(tn * T / S), c = M.byKey['h1:' + i + '_' + j];
+          if (!c) { if (lv.sea.has(i + '_' + j)) v = Math.min(v, 0); else return null; continue; }
+          const tx = te - i * (S / T), ty = (j + 1) * (S / T) - 1 - tn;
+          for (let a = ty * T; a <= ty * T + T; a++) for (let q = tx * T; q <= tx * T + T; q++) v = Math.min(v, cornerHeight(c.data, a, q).y);
+        }
+      }
+      return v;
+    };
+    return boxes.map((b) => {
+      const low = M.lowestGround(b[0], b[1], b[2], b[3]);
+      let min = Infinity;
+      for (let x = b[0]; x <= b[2] + 1e-9; x += 0.5) for (let z = b[1]; z <= b[3] + 1e-9; z += 0.5) {
+        const s = M.surfaceAt(x, z);
+        if (s !== null) min = Math.min(min, s);
+      }
+      return { low, min, tight: tight(b) };
+    });
+  }, boxes);
   await page.evaluate(() => window.__cw.camera.start());
   await settleHere(page);
   const start = await check();
@@ -751,8 +772,9 @@ test('lowestGround bounds the drawn surface', { timeout: 300000 }, async () => {
   for (const [name, r] of [['start', start], ['1.5 km up', up], ['tau 2 m', coarse]]) {
     assert.equal(r.length, boxes.length);
     r.forEach((b, k) => {
-      assert.ok(b.low !== null && b.min < Infinity, name + ', building ' + k + ': ' + JSON.stringify(b));
+      assert.ok(b.low !== null && b.min < Infinity && b.tight !== null, name + ', building ' + k + ': ' + JSON.stringify(b));
       assert.ok(b.low <= b.min + 1e-9, name + ', building ' + k + ': lowest ' + b.low + ' above the drawn ' + b.min);
+      assert.ok(b.low >= b.tight - 1e-9, name + ', building ' + k + ': lowest ' + b.low + ' below every corner of its tiles, ' + b.tight);
     });
   }
 });
@@ -873,7 +895,7 @@ test('h1 sides facing h5 hang below the h5 edge', { timeout: 120000 }, async (t)
   await settleHere(page);
   const r = await page.evaluate(() => {
     const M = window.__cw.internals.manager, lv = M.levels.h1;
-    let sides = 0, metres = 0;
+    let sides = 0, metres = 0, notKept = 0, differs = 0;
     const above = [];
     for (const c of M.chunks) {
       if (c.level.name !== 'h1' || !c.bottoms) continue;
@@ -883,6 +905,12 @@ test('h1 sides facing h5 hang below the h5 edge', { timeout: 120000 }, async (t)
         const floor = M.outerFloor(c, s);
         if (!floor) continue;
         sides++;
+        // the floor is kept per side (every h1 job asks for it), and the kept one is what a
+        // fresh computation gives
+        if (M.outerFloor(c, s) !== floor) notKept++;
+        c.floors[s] = null;
+        const fresh = M.outerFloor(c, s);
+        for (let m = 0; m <= 240; m++) if (fresh[m] !== floor[m]) { differs++; break; }
         for (let m = 0; m <= 240; m++) {
           const b = c.bottoms[s][m];
           if (!Number.isFinite(b)) continue;
@@ -891,11 +919,13 @@ test('h1 sides facing h5 hang below the h5 edge', { timeout: 120000 }, async (t)
         }
       }
     }
-    return { sides, metres, above: above.slice(0, 5), n: above.length, remeshes: M.tinStats().levelSeamRemeshes };
+    return { sides, metres, notKept, differs, above: above.slice(0, 5), n: above.length, remeshes: M.tinStats().levelSeamRemeshes };
   });
   t.diagnostic('levelSeamRemeshes ' + r.remeshes + ', outer sides ' + r.sides + ', metres checked ' + r.metres);
   assert.ok(r.sides > 10 && r.metres > 2000, JSON.stringify(r));
   assert.equal(r.n, 0, 'skirt bottoms above the h5 floor: ' + JSON.stringify(r.above));
+  assert.equal(r.notKept, 0, 'each side\'s floor is worked out once and kept: ' + JSON.stringify(r));
+  assert.equal(r.differs, 0, 'and the kept floor is what a fresh computation gives: ' + JSON.stringify(r));
 });
 
 // The derived floor when h5 arrives after the h1 chunks facing it: those were meshed with the
@@ -1262,6 +1292,73 @@ test('installs go on while the tab is hidden', { timeout: 240000 }, async () => 
   await settleHere(page);
   assert.equal(r.left, 0, 'every job was installed with no animation frame: ' + JSON.stringify(r));
   assert.equal(r.installed, r.chunks, 'every h1 chunk has its new mesh: ' + JSON.stringify(r));
+});
+
+// A load job keeps the tolerance settings it was sent with. When they change while it is
+// out (here a resize through setView; the heldCap net and tinForce take the same path), the
+// chunk is not yet 'ready' for _markStale to reach, and a camera that stays put never makes
+// it stale: it must be re-meshed for the new settings when it arrives. Checked without
+// settle(), whose forceSnapshots would hide the difference.
+test('a chunk still loading when the view changes is meshed again for the new view', { timeout: READY_MS + 120000 }, async () => {
+  const manifest = manifestOf();
+  const h1 = manifest.levels.find((l) => l.name === 'h1');
+  const { origin_e: oe, origin_n: on } = manifest.crs;
+  // the three h1 chunks farthest from the origin, which load last anyway
+  const held = Object.keys(h1.chunks).map((key) => {
+    const [i, j] = key.split('_').map(Number);
+    return { key, d: Math.hypot(i * 240 + 120 - oe, j * 240 + 120 - on) };
+  }).sort((a, b) => b.d - a.d).slice(0, 3).map((x) => x.key);
+  const ctx = await newContext();
+  let release = null;
+  const gate = new Promise((res) => { release = res; });
+  for (const key of held) {
+    const file = h1.chunks[key].file;
+    await ctx.route('**/out/synthetic/' + file, async (route) => {
+      await gate;
+      await route.fulfill({ status: 200, body: fs.readFileSync(path.join(SYN, file)), contentType: 'application/gzip' });
+    });
+  }
+  const page = await ctx.newPage();
+  const log = watch(page);
+  try {
+    await page.goto(origin() + '/world/?w=out/synthetic/');
+    // everything else in, the three held chunks' load jobs out
+    await page.waitForFunction((held) => {
+      const M = window.__cw && window.__cw.internals && window.__cw.internals.manager;
+      if (!M || M.queue.length || M.pendingInstalls.length) return false;
+      return M.chunks.every((c) => (c.level.name === 'h1' && held.includes(c.key) ? c.status === 'loading' && c.busy : c.status === 'ready'));
+    }, held, { timeout: READY_MS, polling: 250 });
+    const before = await page.evaluate((held) => {
+      const I = window.__cw.internals, M = I.manager, K0 = M.K;
+      M.setView(62, 360);                    // K roughly doubles: every chunk goes stale
+      M.update(I.camera.position);           // as the next frame would
+      return { K0, K1: M.K, sent: held.map((k) => M.byKey['h1:' + k].busyTol.K) };
+    }, held);
+    release();
+    const r = await page.evaluate(async (held) => {
+      const cw = window.__cw, I = cw.internals, M = I.manager, t0 = performance.now();
+      const idle = () => M.queue.length + M.inflight === 0 && !M.pendingInstalls.length;
+      while (!(cw.ready && idle()) && performance.now() - t0 < 120000) {
+        M.update(I.camera.position);
+        await new Promise((res) => setTimeout(res, 100));
+      }
+      await cw.frame();
+      while (!idle() && performance.now() - t0 < 120000) await new Promise((res) => setTimeout(res, 100));
+      const wrong = M.chunks.filter((c) => c.level.name === 'h1' && c.tolInfo && (c.tolInfo.K !== M.K || c.tolInfo.px !== M.px()))
+        .map((c) => ({ key: c.key, K: c.tolInfo.K, px: c.tolInfo.px, held: held.includes(c.key) }));
+      return { ready: cw.ready, idle: idle(), K: M.K, px: M.px(), wrong };
+    }, held);
+    const at = JSON.stringify({ held, before, r });
+    assert.ok(before.K1 > 1.5 * before.K0, 'the view changed: ' + at);
+    assert.deepEqual(before.sent, [before.K0, before.K0, before.K0], 'the held chunks were sent for the old view: ' + at);
+    assert.ok(r.ready && r.idle, 'the world finished loading: ' + at);
+    assert.deepEqual(r.wrong, [], 'every h1 chunk is meshed for the new view: ' + at);
+    assert.deepEqual(log.errors, []);
+    assert.deepEqual(log.console, []);
+  } finally {
+    release();
+    await page.close();
+  }
 });
 
 test('the ground\'s noise is read at its own footprint across class borders, on both tiers', { timeout: READY_MS + 240000 }, async () => {

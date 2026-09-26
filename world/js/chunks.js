@@ -330,9 +330,15 @@ export class ChunkManager {
     return [c.x0, c.z0 + k];
   }
 
+  /* The lowest the h5 chunk across side s of c draws along it, per metre, at any of its
+   * strides; null until that chunk has loaded. It depends only on that chunk's heights,
+   * which never change once loaded, so it is worked out once per side and kept (bordersFor
+   * runs on every h1 job): the array is shared, and callers only read it. */
   outerFloor(c, s) {
     const h5 = this.h5Across(c, s);
     if (!h5) return null;
+    const kept = c.floors || (c.floors = [null, null, null, null]);
+    if (kept[s] && kept[s].data === h5.data) return kept[s].floor;
     const out = new Float32Array(NV);
     for (let k = 0; k < NV; k++) {
       const [x, z] = this.sidePoint(c, s, k);
@@ -340,6 +346,7 @@ export class ChunkManager {
       for (const st of H5_STRIDES) low = Math.min(low, this._smoothAtStride(h5, x, z, st).y);
       out[k] = low;
     }
+    kept[s] = { data: h5.data, floor: out };
     return out;
   }
 
@@ -486,7 +493,7 @@ export class ChunkManager {
     const t = c.tolInfo;
     if (!t || !c.floorMesh || !c.E || t.tau !== undefined) return false;
     const now = this.tolFor(c);
-    if (now.tau !== undefined || now.px !== t.px || now.K !== t.K || now.tmin !== t.tmin) return false;
+    if (now.tau !== undefined || !this._sameSettings(t, now)) return false;
     const k = now.px * now.K, tmin = now.tmin;
     let yVis = 0;
     for (let q = 0; q < c.tileMax.length; q++) if (c.tileMax[q] > yVis) yVis = c.tileMax[q];
@@ -724,8 +731,19 @@ export class ChunkManager {
       this.onError(err);
     }
     if (c.level.name === 'h5' && e.kind === 'load') { this.levelVersion++; this.checkLevelSeams(c); }
-    if (isH1 && e.tolInfo.levelVersion !== this.levelVersion) this._checkSkirtFloors(c);
+    // A job keeps the settings it was sent with. If they changed while it was out (a resize
+    // through setView, the heldCap net, tinForce), _markStale could not reach a chunk that
+    // was still loading, and the camera may never move far enough to re-mesh it: do it now.
+    if (isH1 && !this._sameSettings(e.tolInfo, this.tolFor(c))) this._queueMesh(c, true);
+    else if (isH1 && e.tolInfo.levelVersion !== this.levelVersion) this._checkSkirtFloors(c);
     return true;
+  }
+
+  // Were a job's tolerance settings (px, K, tmin, or a pinned tau; not its camera) these?
+  _sameSettings(t, now) {
+    if (!t) return false;
+    if (now.tau !== undefined) return t.tau === now.tau;
+    return t.tau === undefined && t.px === now.px && t.K === now.K && t.tmin === now.tmin;
   }
 
   // The heldCap safety net: above the cap, px rises x1.25 (up to 4x); after 5 s under half
@@ -1117,10 +1135,9 @@ export class ChunkManager {
   // Was chunk c's newest mesh made for exactly the current camera and settings?
   _meshedHere(c) {
     const t = c.busy ? c.busyTol : c.tolInfo, now = this.tolFor(c);
-    if (!t || t.levelVersion !== this.levelVersion) return false;
-    if (now.tau !== undefined) return t.tau === now.tau;
-    return t.tau === undefined && t.px === now.px && t.K === now.K && t.tmin === now.tmin && !!t.cam &&
-      t.cam[0] === this.cam.x && t.cam[1] === this.cam.y && t.cam[2] === this.cam.z;
+    if (!t || t.levelVersion !== this.levelVersion || !this._sameSettings(t, now)) return false;
+    if (now.tau !== undefined) return true;
+    return !!t.cam && t.cam[0] === this.cam.x && t.cam[1] === this.cam.y && t.cam[2] === this.cam.z;
   }
 
   // A test hook: hold chunk `key`'s next mesh reply back until the one after it has arrived.

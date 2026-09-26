@@ -349,7 +349,7 @@ test('the Specs button opens the same panel', async () => {
   assert.equal(await page.locator('#specs').isVisible(), false);
 });
 
-test('the plot is marked on the ground: area within 1% and a boundary line', { timeout: 180000 }, async () => {
+test('the plot is marked on the ground: area within 1% and a boundary line', { timeout: 180000 }, async (t) => {
   const { page, plot } = await mainPage();
   const area = plot.parcels.reduce((s, p) => s + p.area_polygon_m2, 0);
   const mark = await page.evaluate(() => window.__cw.internals.manager.plotMark());
@@ -414,12 +414,19 @@ test('the plot is marked on the ground: area within 1% and a boundary line', { t
     await cw.settle();
     return { withMark, without };
   }, { cx, cz, out, edge });
-  const warm = (p) => p[0] - p[2], at = JSON.stringify(r);
+  // Warmth (R - B) is compared as a share of the brightness under it, so the checks hold
+  // whatever the light: a brighter or dimmer sun scales both alike. The line mixes 80 %
+  // toward a strong red and the wash 35 % toward a pale tan, so at the boundary the mark
+  // must warm the ground well beyond what the wash alone does inside.
+  const warm = (p) => p[0] - p[2], bright = (p) => (p[0] + p[1] + p[2]) / 3, at = JSON.stringify(r);
+  const gain = (k) => (warm(r.withMark[k]) - warm(r.without[k])) / bright(r.without[k]);
+  const wash = gain('inside'), line = gain('line'), shares = ' (shares: wash ' + wash.toFixed(3) + ', line ' + line.toFixed(3) + ') ';
+  t.diagnostic('warmth gained, as a share of the brightness:' + shares);
   assert.ok(warm(r.withMark.inside) > warm(r.withMark.outside), 'the parcel is warmer than the ground 30 m outside: ' + at);
-  assert.ok(warm(r.withMark.inside) - warm(r.without.inside) > 10, 'the wash warms the parcel: ' + at);
+  assert.ok(wash > 0.05, 'the wash warms the parcel' + shares + at);
   assert.deepEqual(r.withMark.outside, r.without.outside, 'and nothing 30 m outside it: ' + at);
-  assert.ok(warm(r.withMark.line) - warm(r.without.line) > 40, 'the boundary line is drawn: ' + at);
-  assert.ok(warm(r.withMark.line) > warm(r.withMark.inside) + 20, 'stronger than the wash: ' + at);
+  assert.ok(line > 0.15 && line > 1.5 * wash, 'the boundary line is drawn' + shares + at);
+  assert.ok((warm(r.withMark.line) - warm(r.withMark.inside)) / bright(r.withMark.inside) > 0.2, 'stronger than the wash: ' + at);
 });
 
 test('credits are visible, include three.js, and the (i) button collapses them', async () => {
