@@ -452,23 +452,40 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();
-  // one malformed shape: that building flat, the others as measured
+  // malformed shapes, one of each kind the viewer refuses: those buildings flat, the others
+  // as measured
   const bad = JSON.parse(JSON.stringify(doc));
-  const victim = bad.features.find((f) => !f.house && f.roof_shape.model === 'gable');
-  victim.roof_shape.parts[0].planes[0][0] = null;
+  const gables = bad.features.filter((f) => !f.house && f.roof_shape.model === 'gable');
+  const quads = gables.filter((f) => f.roof_shape.parts.length === 1 && f.roof_shape.parts[0].ring.length === 4);
+  const [notFinite, unchained] = [gables[0], quads.find((f) => f !== gables[0])];
+  const sunk = gables.find((f) => f !== notFinite && f !== unchained);
+  // a number that is not finite
+  notFinite.roof_shape.parts[0].planes[0][0] = null;
+  // two parts that would tile the outline, one moved 0.3 m: their edges no longer chain
+  const part = unchained.roof_shape.parts[0], [p0, p1, p2, p3] = part.ring;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const m01 = mid(p0, p1), m23 = mid(p2, p3);
+  unchained.roof_shape.parts = [
+    { model: part.model, planes: part.planes, ring: [p0, m01, m23, p3] },
+    { model: part.model, planes: part.planes, ring: [m01, p1, p2, m23].map((q) => [q[0] + 0.3, q[1]]) }];
+  // a roof below the wall bottom plus 0.5 m: every plane lowered until the ridge is at ground - 3
+  const drop = sunk.roof_shape.ridge - (sunk.ground - 3);
+  for (const pl of sunk.roof_shape.parts[0].planes) pl[2] -= drop;
+  const victims = [notFinite.id, unchained.id, sunk.id];
+  assert.equal(new Set(victims).size, 3);
   ctx = await newContext();
   await ctx.route('**/out/synthetic/' + file, (route) =>
     route.fulfill({ status: 200, body: JSON.stringify(bad), contentType: 'application/json' }));
   ({ page, log } = await openWorld(ctx));
   await page.evaluate(() => window.__cw.internals.buildings.ready);
-  const r = await page.evaluate((id) => {
+  const r = await page.evaluate((ids) => {
     const B = window.__cw.internals.buildings;
     const flatTop = (i) => { const m = B.meshFor(i); return m.groups.filter((g) => g === 1).length === 0 && m.groups.filter((g) => g === 2).length > 0; };
-    return { info: B.info(), victimFlat: flatTop(id), othersFlat: B.items.filter((it) => it.id !== id && flatTop(it.id)).length,
+    return { info: B.info(), victimsFlat: ids.map(flatTop), othersFlat: B.items.filter((it) => !ids.includes(it.id) && flatTop(it.id)).length,
              errors: window.__cw.errors };
-  }, victim.id);
-  assert.equal(r.info.malformed, 1);
-  assert.ok(r.victimFlat, 'the malformed building is drawn as the flat prism');
+  }, victims);
+  assert.equal(r.info.malformed, 3);
+  assert.deepEqual(r.victimsFlat, [true, true, true], 'each malformed building is drawn as the flat prism');
   assert.equal(r.othersFlat, 0, 'no other building is');
   assert.deepEqual(r.errors, []);
   assert.deepEqual(log.errors, []);
@@ -572,6 +589,44 @@ test('every building carries its ground for the sun', { timeout: 60000 }, async 
   assert.equal(r.wrong, 0);
 });
 
+test('the neighbours\' colours change in lightness only, as seen on screen', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const THREE = await import('three');
+    const { buildingJitter } = await import('./js/objects.js');
+    const B = window.__cw.internals.buildings;
+    const srgb = (hex) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map((c) => c / 255);
+    const out = [];
+    for (const it of B.items) {
+      const geo = (it.house ? B.houseMesh : B.othersMesh).geometry, col = geo.attributes.color, index = geo.index;
+      // the colour of the building's first triangle in each group, as sRGB on screen
+      const seen = geo.groups.map((gr) => {
+        for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+          const v = index.getX(t);
+          if (v < it.span[0] || v >= it.span[0] + it.span[1]) continue;
+          const c = new THREE.Color(col.getX(v), col.getY(v), col.getZ(v)).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+          return [c.r, c.g, c.b];
+        }
+        return null;
+      });
+      out.push({ id: it.id, house: it.house, j: it.house ? 1 : buildingJitter(it.id), seen,
+                 walls: srgb(it.house ? 0xc98e5c : 0xcfc9bd), roof: srgb(it.house ? 0x7c2e3e : 0x5f6664) });
+    }
+    return out;
+  });
+  const ratio = (a, b) => a.map((x, i) => x / b[i]);
+  const near = (xs, want) => xs.every((x) => Math.abs(x - want) < 2e-3);
+  for (const b of r) {
+    const [walls, roof, trim] = b.seen;
+    assert.ok(b.j >= 0.95 && b.j <= 1.05, JSON.stringify(b));
+    // every channel scaled by the same factor: lightness, no hue change
+    assert.ok(near(ratio(walls, b.walls), (b.house ? 1 : 1.08) * b.j), 'walls: ' + JSON.stringify(b));
+    assert.ok(near(ratio(roof, b.roof), b.j), 'roof: ' + JSON.stringify(b));
+    if (trim) assert.ok(near(ratio(trim, b.roof), 0.8 * b.j), 'trim: ' + JSON.stringify(b));
+  }
+  assert.ok(new Set(r.filter((b) => !b.house).map((b) => b.j.toFixed(4))).size > 1, 'the jitter varies');
+});
+
 test('near set conserves trees', { timeout: 60000 }, async () => {
   const { page } = await shared();
   const r = await page.evaluate(async () => {
@@ -587,13 +642,17 @@ test('near set conserves trees', { timeout: 60000 }, async () => {
     };
     const chunkMesh = T.groups.flatMap((g) => g.meshes).find((m) => Array.from(m.userData.ids).includes(k));
     const slot = Array.from(chunkMesh.userData.ids).indexOf(k);
-    T.update({ x: tree.x + 3, y: tree.y + 1.7, z: tree.z + 2 });
+    const said = { filled: T.update({ x: tree.x + 3, y: tree.y + 1.7, z: tree.z + 2 }) };
     const near = { inSet: T.nearSet().ids.includes(k), scale: scaleOf(chunkMesh, slot), visible: visibleCount() };
-    T.update({ x: tree.x + 3000, y: tree.y + 500, z: tree.z });
+    said.same = T.update({ x: tree.x + 3, y: tree.y + 1.7, z: tree.z + 2 });
+    said.metre = T.update({ x: tree.x + 4, y: tree.y + 1.7, z: tree.z + 2 });
+    said.away = T.update({ x: tree.x + 3000, y: tree.y + 500, z: tree.z });
     const away = { inSet: T.nearSet().ids.includes(k), scale: scaleOf(chunkMesh, slot), visible: visibleCount(), count: T.nearSet().count };
     T.update(camera.position);
-    return { near, away, total: window.__cw.stats().trees };
+    return { near, away, said, total: window.__cw.stats().trees };
   });
+  assert.deepEqual(r.said, { filled: true, same: false, metre: false, away: true },
+    'update() reports a refill of the near set, and nothing for a repeat or a move under 5 m');
   assert.ok(r.near.inSet, 'the tree is in the near set');
   assert.equal(r.near.scale, 0, 'and hidden in its chunk mesh');
   assert.equal(r.near.visible, r.total, 'every tree is drawn exactly once');
@@ -621,12 +680,23 @@ test('the tree look rule is deterministic', { timeout: 60000 }, async () => {
     h ^= h >>> 16;
     return (h >>> 0) / 4294967296;
   };
+  const [below, above] = await page.evaluate(async () => {
+    const m = await import('./js/treegeo.js');
+    return [m.CONIFER_BELOW, m.BROAD_ABOVE];
+  });
+  assert.ok(below[0] / below[1] < above[0] / above[1]);
   const count = raw.readUInt32LE(8), want = { conifer: 0, broad: 0 };
   for (let k = 0, o = 12; k < count; k++, o += 8) {
-    // crown / height in the file's own units (0.1 m, 0.25 m): < 0.15 is 8 c < 3 h, > 0.30 is 4 c > 3 h
+    // crown / height = (0.1 c) / (0.25 h) in the file's own units, against each fraction
     const x = raw.readInt16LE(o), z = raw.readInt16LE(o + 2), hq = raw[o + 6], cq = raw[o + 7];
     const tall = Math.max(0, Math.min(1, (hq * 0.25 - 12) / 10));
-    const conifer = 8 * cq < 3 * hq ? true : 4 * cq > 3 * hq ? false : hash2(x, z) < 0.55 + 0.3 * tall;
+    const conifer = 2 * cq * below[1] < 5 * hq * below[0] ? true : 2 * cq * above[1] > 5 * hq * above[0] ? false
+      : hash2(x, z) < 0.55 + 0.3 * tall;
+    // the integer comparisons are the ratio's, wherever it is not exactly on a threshold
+    const ratio = (cq * 0.1) / (hq * 0.25);
+    for (const [num, den] of [below, above]) {
+      if (Math.abs(ratio - num / den) > 1e-9) assert.equal(2 * cq * den < 5 * hq * num, ratio < num / den);
+    }
     want[conifer ? 'conifer' : 'broad']++;
   }
   const got = await page.evaluate(() => window.__cw.internals.trees.lookCounts());
@@ -641,18 +711,30 @@ test('trees do not flicker at the LOD boundary', { timeout: 60000 }, async () =>
     const g = T.groups[0], edge = T.profile.treesNear;
     const at = (d) => ({ x: g.x0 + g.side + d, y: 200, z: g.z0 + g.side / 2 });
     const geo = () => g.meshes.map((m) => m.geometry.uuid).join(',');
-    T.update(at(edge - 15));                   // clearly inside: the mid level
-    T.update(at(edge - 5));
+    // everything update() may change: each chunk mesh's geometry and flags, the near set
+    const snap = () => JSON.stringify([T.groups.map((h) => h.meshes.map((m) => [m.geometry.uuid, m.receiveShadow, m.castShadow])),
+      T.nearMeshes.map((m) => [m.count, Array.from(m.instanceMatrix.array.subarray(0, 16 * m.count))])]);
+    const said = [];
+    const step = (cam) => { const before = snap(), r = T.update(cam); said.push([r, snap() !== before]); return r; };
+    step(at(edge - 15));                       // clearly inside: the mid level
+    const again = step(at(edge - 15));         // the same call again changes nothing
+    step(at(edge - 5));
     const start = geo();
     const seen = [];
-    for (let i = 0; i < 4; i++) { T.update(at(edge + 5)); seen.push(geo()); T.update(at(edge - 5)); seen.push(geo()); }
-    T.update(at(edge + 15));
+    for (let i = 0; i < 4; i++) { step(at(edge + 5)); seen.push(geo()); step(at(edge - 5)); seen.push(geo()); }
+    const swapped = step(at(edge + 15));
     const beyond = geo();
+    const repeat = step(at(edge + 15));
     T.update(camera.position);
-    return { start, seen, beyond };
+    return { start, seen, beyond, again, said, swapped, repeat };
   });
   assert.ok(r.seen.every((u) => u === r.start), 'moving 10 m back and forth across the edge swaps nothing');
   assert.notEqual(r.beyond, r.start, 'well past the edge the far level is drawn');
+  // update() says whether anything changed, which is what asks for a new frame and shadows
+  assert.deepEqual(r.said.filter(([said, changed]) => said !== changed), [], 'true exactly when something changed');
+  assert.equal(r.again, false, 'an identical call reports no change');
+  assert.equal(r.swapped, true, 'a level swap is reported');
+  assert.equal(r.repeat, false);
 });
 
 test('tree budget', { timeout: READY_MS + 60000 }, async () => {
@@ -687,7 +769,7 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     light.shadow.camera.updateProjectionMatrix();
     scene.add(light, light.target);
     const rect = { x0: h.centroid[0] - 30, z0: h.centroid[1] - 30, x1: h.centroid[0] + 30, z1: h.centroid[1] + 30 };
-    B.setShadowFocus(rect);
+    const said = { first: B.setShadowFocus(rect), again: B.setShadowFocus(rect) };
     // Another casting light (the sun's, once it is merged) draws its own pass, and may set
     // its own focus before the shadow pass: only this light's pass is counted, and this
     // rect is set again after anything else before three renders the shadows.
@@ -712,24 +794,73 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
     const expected = B.items.filter((it) => meets(it.box)).reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0);
     const within = ['house', 'others'].every((k) => focus[k].inFocus.every((n, g) => n <= focus[k].counts[g]));
     const inFocusTotal = ['house', 'others'].reduce((s, k) => s + focus[k].inFocus.reduce((a, b) => a + b, 0) / 3, 0);
-    const treeChanged = T.setShadowFocus(rect);
+    said.trees = T.setShadowFocus(rect);
+    said.treesAgain = T.setShadowFocus(rect);
     const trees = T.groups.map((g) => ({ meets: g.x0 <= rect.x1 && g.x0 + g.side >= rect.x0 && g.z0 <= rect.z1 && g.z0 + g.side >= rect.z0,
                                         cast: g.meshes.every((m) => m.castShadow) }));
     for (const mesh of [B.houseMesh, B.othersMesh]) mesh.onBeforeShadow = mesh.userData.spy;
-    B.setShadowFocus(null);
-    T.setShadowFocus(null);
+    // A walk of foci, one building at a time, then pairs, then everything: each change moves
+    // triangles in place, and queues for upload every index entry it changed and no other
+    const tris = (a, from, to) => { const out = []; for (let t = from; t < to; t += 3) out.push(a[t] + ',' + a[t + 1] + ',' + a[t + 2]); return out.sort(); };
+    const meshes = { house: B.houseMesh, others: B.othersMesh };
+    const original = {};
+    for (const [k, mesh] of Object.entries(meshes)) {
+      original[k] = mesh.geometry.groups.map((gr) => tris(mesh.geometry.index.array, gr.start, gr.start + gr.count).join(' '));
+    }
+    const boxes = B.items.map((it) => ({ x0: it.box[0], z0: it.box[1], x1: it.box[2], z1: it.box[3] }));
+    const walk = boxes.concat(boxes.slice(1).map((b, i) => ({ x0: Math.min(b.x0, boxes[i].x0), z0: Math.min(b.z0, boxes[i].z0),
+                                                              x1: Math.max(b.x1, boxes[i].x1), z1: Math.max(b.z1, boxes[i].z1) })), [null]);
+    const walked = { steps: 0, unreported: 0, misplaced: 0, lost: 0, partial: 0, repeats: 0 };
+    for (const rc of walk) {
+      const seen = {};
+      for (const [k, mesh] of Object.entries(meshes)) seen[k] = { a: mesh.geometry.index.array.slice(), n: mesh.geometry.index.updateRanges.length };
+      if (!B.setShadowFocus(rc)) continue;
+      walked.steps++;
+      if (B.setShadowFocus(rc)) walked.repeats++;
+      const focus = B.shadowFocus();
+      for (const [k, mesh] of Object.entries(meshes)) {
+        const index = mesh.geometry.index, a = index.array, ranges = index.updateRanges.slice(seen[k].n);
+        const queued = new Uint8Array(a.length);
+        for (const r of ranges) queued.fill(1, r.start, r.start + r.count);
+        for (let i = 0; i < a.length; i++) if (a[i] !== seen[k].a[i] && !queued[i]) walked.unreported++;
+        const up = ranges.reduce((s, r) => s + r.count, 0);
+        if (up !== focus[k].uploaded) walked.unreported++;
+        if (up > 0 && up < a.length) walked.partial++;
+        const items = B.items.filter((it) => (it.house ? 'house' : 'others') === k);
+        const inFocus = (v) => {
+          const b = items.find((x) => v >= x.span[0] && v < x.span[0] + x.span[1]).box;
+          return !rc || (b[0] <= rc.x1 && b[2] >= rc.x0 && b[1] <= rc.z1 && b[3] >= rc.z0);
+        };
+        mesh.geometry.groups.forEach((gr, g) => {
+          if (tris(a, gr.start, gr.start + gr.count).join(' ') !== original[k][g]) walked.lost++;
+          for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+            if ((t < gr.start + focus[k].inFocus[g]) !== inFocus(a[t])) walked.misplaced++;
+          }
+        });
+      }
+    }
+    said.none = B.setShadowFocus(null);
+    said.noneAgain = B.setShadowFocus(null);
+    said.treesNone = T.setShadowFocus(null);
+    said.treesNoneAgain = T.setShadowFocus(null);
     scene.remove(light, light.target);
     light.dispose();
     renderer.shadowMap.enabled = was.enabled;
     renderer.shadowMap.autoUpdate = was.auto;
     await window.__cw.frame();
-    return { drawn, expected, within, inFocusTotal, treeChanged, trees, all: B.items.length, allTris: B.items.reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0) };
+    return { drawn, expected, within, inFocusTotal, said, walked, trees, all: B.items.length, allTris: B.items.reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0) };
   });
   assert.ok(r.within, 'the in-focus count of each group is at most its size');
   assert.equal(r.drawn.house + r.drawn.others, r.inFocusTotal, 'the shadow pass drew the buildings in focus');
   assert.equal(r.inFocusTotal, r.expected, 'which are the buildings meeting the rect');
   assert.ok(r.expected > 0 && r.expected < r.allTris, 'some, not all: ' + JSON.stringify([r.expected, r.allTris]));
   assert.ok(r.trees.every((t) => t.meets === t.cast), 'only tree chunks meeting the rect cast');
+  // both report a change, and only a change: that is what redraws the sun's shadow map
+  assert.deepEqual(r.said, { first: true, again: false, trees: true, treesAgain: false, none: false, noneAgain: false,
+                             treesNone: true, treesNoneAgain: false });
+  assert.ok(r.walked.steps >= r.all, 'the walk changed the focus: ' + JSON.stringify(r.walked));
+  assert.deepEqual([r.walked.unreported, r.walked.misplaced, r.walked.lost, r.walked.repeats], [0, 0, 0, 0], JSON.stringify(r.walked));
+  assert.ok(r.walked.partial > 0, 'some changes upload part of the index, not all of it: ' + JSON.stringify(r.walked));
   assert.deepEqual(log.errors, []);
   await page.close();
 });

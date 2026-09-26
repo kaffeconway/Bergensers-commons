@@ -9,6 +9,7 @@ import gzip
 import json
 import math
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -219,6 +220,62 @@ def test_a_truncated_face_is_grown_back():
     assert shape["pitch"] == pytest.approx(math.degrees(math.atan(2.5 / 4.5)), abs=2.0)
 
 
+def test_an_outline_is_not_straightened_or_grown_into_a_neighbours_footprint():
+    # The truncated face is grown back 2 m past the traced ring, and straightened. A
+    # neighbour whose traced ring lies in that band keeps the drawn outline out: the
+    # building keeps its own traced ring.
+    sc = scene("gable", 12, 9, 25, 3.0, 2.5, strip=2)
+    grid = Grid()
+    found, _, labels = buildings.segment(sc["dom"], sc["dtm"], grid,
+                                         [BuildingPoint(111, 0.0, 0.0, 1, "TB")],
+                                         return_labels=True)
+    lone, _ = roofs.fit_all(found, sc["dom"], sc["dtm"], grid, labels, (0, 0))
+    assert lone[found[0].label]["outline"] == "straightened"
+    band = affinity.rotate(box(4.0, 3.9, 7.0, 6.0), 25, origin=(0, 0))
+    assert not found[0].polygon.intersects(band)
+    shed = buildings.Building(label=int(labels.max()) + 1, polygon=band, raw=band, ground=20.0,
+                              roof=24.0, area=band.area)
+    details = {}
+    shapes, _ = roofs.fit_all(found + [shed], sc["dom"], sc["dtm"], grid, labels, (0, 0),
+                              details=details)
+    shape = shapes[found[0].label]
+    ring = buildings.buildings_record(found, (0, 0))["features"][0]["ring"]
+    assert shape["model"] == "gable" and shape["outline"] == "traced"
+    assert len(shape["parts"]) == 1 and shape["parts"][0]["ring"] == ring
+    drawn = Polygon([(x, -z) for x, z in shape["parts"][0]["ring"]])
+    assert drawn.intersection(band).area < 1e-6
+    assert shapes[shed.label] == {"model": "none", "reason": "too few cells"}
+    assert roofs.check_shape(shape) == []
+
+
+def test_two_outlines_that_meet_in_the_gap_between_them_are_not_both_drawn(monkeypatch):
+    # Two flat roofs 3 m apart. A straightening that pushed every edge 1.8 m out would keep
+    # each outline clear of the other's traced ring, and still draw them over each other:
+    # the later building keeps its traced ring.
+    xs = np.arange(SIZE) + 0.5 - SIZE / 2
+    X, N = np.meshgrid(xs, -xs)
+    dtm = 20.0 + 0.05 * X - 0.02 * N
+    dom = dtm.copy()
+    rng = np.random.default_rng(1)
+    for m in ((X > -12) & (X < -3) & (np.abs(N) < 4), (X > 0) & (X < 9) & (np.abs(N) < 4)):
+        dom[m] = dtm[m].max() + 5 + rng.normal(0, 0.02, int(m.sum()))
+    grid = Grid()
+    found, _, labels = buildings.segment(dom, dtm, grid, [BuildingPoint(111, -7.5, 0.0, 1, "TB"),
+                                                          BuildingPoint(111, 4.5, 0.0, 2, "TB")],
+                                         return_labels=True)
+    assert len(found) == 2
+    monkeypatch.setattr(roofs, "straighten",
+                        lambda raw, phi: (raw.buffer(1.8, join_style="mitre"), True))
+    shapes, _ = roofs.fit_all(found, dom, dtm, grid, labels, (0, 0))
+    first, later = sorted(found, key=lambda b: b.label)
+    a, b = shapes[first.label], shapes[later.label]
+    assert (a["outline"], b["outline"]) == ("straightened", "traced")
+    ring = buildings.buildings_record([later], (0, 0))["features"][0]["ring"]
+    assert b["parts"][0]["ring"] == ring
+    pa, pb = (Polygon([(x, -z) for x, z in s["parts"][0]["ring"]]) for s in (a, b))
+    assert pa.intersection(pb).area < 1e-6 and pa.distance(pb) < 1.5
+
+
 def test_the_house_is_drawn_over_its_traced_ring_and_not_regrown(monkeypatch):
     monkeypatch.setattr(roofs, "HOUSE_OUTLINE", "traced")
     sc = scene("gable", 12, 9, 25, 3.0, 2.5, strip=2)
@@ -231,6 +288,24 @@ def test_the_house_is_drawn_over_its_traced_ring_and_not_regrown(monkeypatch):
     # as another building it would be regrown and straightened
     other, _, info = fit(sc, house=False)
     assert other["outline"] == "straightened" and info["grown"] > 0
+
+
+@pytest.mark.parametrize("rot,wing", [(0, (3.5, 7.0, 7.0, 8.0)), (10, (3.5, 7.0, 7.0, 8.0)),
+                                      (0, (0.0, 7.0, 6.0, 8.0))], ids=["L", "L at 10", "T"])
+def test_the_traced_house_is_never_split(monkeypatch, rot, wing):
+    # A split's parts are cut along a line the fit places, so their union would leave the
+    # house's ring. Traced, the house keeps one part whose ring is its ring; an L or T
+    # whose one roof fits poorly is left unmeasured (drawn as the plain prism) instead.
+    monkeypatch.setattr(roofs, "HOUSE_OUTLINE", "traced")
+    sc = scene("wings", 14, 8, rot, 3.0, 2.3, wing=wing)
+    shape, _, info = fit(sc, house=True)
+    assert shape == {"model": "none", "reason": "no model fits"}
+    assert info["model"] != "split"          # no split was tried
+    # the same building as any other building, or with the house's outline straightened,
+    # is split
+    assert fit(sc, house=False)[0]["model"] == "split"
+    monkeypatch.setattr(roofs, "HOUSE_OUTLINE", "straightened")
+    assert fit(sc, house=True)[0]["model"] == "split"
 
 
 def _sawtooth(width, depth, period, amp):
@@ -270,11 +345,12 @@ def test_the_batched_shed_solve_takes_the_minimum_norm_answer_on_one_row_of_cell
 
 def test_a_split_whose_parts_fold_when_rounded_falls_back_instead_of_stopping_the_build(
         monkeypatch):
-    # With no reflex corner to snap to, the cut can leave a part thin enough that the
-    # 0.1 m rounding folds it over itself: that building is refused, the build goes on
+    # With no reflex corner to snap to, the cut through a traced outline can leave a part
+    # thin enough that the 0.1 m rounding folds it over itself: that building is refused,
+    # the build goes on
     monkeypatch.setattr(roofs, "SPLIT_SNAP_M", 0.0)
-    shape, _, info = fit(scene("wings", 14, 8, 10, 3.0, 2.3, wing=(3.5, 7.0, 7.0, 8.0)),
-                         house=True)
+    monkeypatch.setattr(roofs, "STRAIGHTEN_OTHERS", False)
+    shape, _, info = fit(scene("wings", 14, 8, 10, 3.0, 2.3, wing=(3.5, 7.0, 7.0, 8.0)))
     assert shape == {"model": "none", "reason": "implausible"}
     assert any("could not be recorded" in p for p in info["problems"])
 
@@ -408,6 +484,33 @@ def test_check_shape_finds_what_a_reader_would_trip_on():
     nan = dict(good, parts=[dict(good["parts"][0], planes=[[float("nan"), 0.0, 1.0]]),
                             good["parts"][1]])
     assert any("finite" in p for p in roofs.check_shape(nan))
+    # every number, the bearing and the cell count included, and every word
+    gable = fit(scene("gable", 12, 9, 25, 3.0, 2.5))[0]
+    assert roofs.check_shape(gable) == []
+    for key, value, says in [("ridge_bearing", float("nan"), "ridge_bearing"),
+                             ("ridge_bearing", 180.0, "ridge_bearing"),
+                             ("ridge_bearing", -0.5, "ridge_bearing"),
+                             ("ridge_bearing", None, "ridge_bearing"),
+                             ("cells", float("inf"), "cells"), ("cells", -1, "cells"),
+                             ("cells", 12.5, "cells"), ("cells", True, "cells"),
+                             ("quality", "excellent", "quality"), ("quality", "poor", "quality"),
+                             ("outline", "sketched", "outline"), ("pitch", float("nan"), "pitch")]:
+        broken = dict(gable, **{key: value})
+        assert any(says in p for p in roofs.check_shape(broken)), (key, value)
+        # as _check_buildings reads it: through JSON text, where NaN survives
+        assert any(says in p for p in roofs.check_shape(json.loads(json.dumps(broken)))), (key, value)
+    assert any("ridge_bearing" in p for p in roofs.check_shape(
+        {k: v for k, v in gable.items() if k != "ridge_bearing"}))
+    assert any("ridge_bearing" in p for p in roofs.check_shape(dict(good, ridge_bearing=90.0)))
+    shed = fit(scene("shed", 12, 8, 30, 3.0, 2.0))[0]
+    assert roofs.check_shape(dict(shed, ridge_bearing=270.0)) == []      # downhill, 0-360
+
+
+def test_the_format_md_example_is_a_sound_roof_shape():
+    text = (Path(__file__).resolve().parents[2] / "FORMAT.md").read_text(encoding="ascii")
+    section = text.split("### `buildings.json.gz`")[1].split("\n### ")[0]
+    example = json.loads(section.split("```json")[2].split("```")[0])
+    assert roofs.check_shape(example) == []
 
 
 def _rewrite_buildings(folder, edit):

@@ -28,13 +28,17 @@ ridge bearing phi and v the distance across it:
    3 cells where the surface continues the fitted roof, and is refitted once.
 5. A poor fit tries a split into two sides along a line; the split must win
    by 6 score units, the line costing 2 parameters. The parts are cut from
-   the drawn outline, so a concave outline can give three.
+   the drawn outline, so a concave outline can give three. The house is not
+   split while HOUSE_OUTLINE is "traced": its one part is its ring.
 6. The plausibility gate refuses a roof that comes within 1.5 m of the
    terrain over the drawn outline plus 0.5 m, or rises more than 1 m above the
    highest surface-model cell of the building.
 7. The drawn outline of a building other than the house is straightened along
    the fitted ridge when that stays close to the traced cells; otherwise, and
-   for the house while HOUSE_OUTLINE is "traced", it is traced.
+   for the house while HOUSE_OUTLINE is "traced", it is traced. A straightened
+   or regrown outline that would reach into another building's traced ring, or
+   meet another's drawn outline in the gap between them (the later building of
+   the two), is refused, and the building keeps its own traced ring.
 
 Every search is on a fixed grid with first-found tie-breaking, and every
 output is rounded, so a rebuild writes the same bytes. No network code.
@@ -48,25 +52,32 @@ import shapely
 from affine import Affine
 from scipy import ndimage
 from shapely import affinity, contains_xy
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import split as shapely_split
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from . import buildings as buildingslib
 from .parcel import ring_local
 
 # The listing house (a visible choice): "traced" draws it over its measured ring,
-# neither regrown nor straightened; "straightened" treats it as any other building.
+# neither regrown, straightened nor split; "straightened" treats it as any other building.
 HOUSE_OUTLINE = "traced"
 # Straighten other buildings' outlines along the fitted ridge (a visible choice).
 STRAIGHTEN_OTHERS = True
+# A straightened or regrown outline that reaches further into another building's traced
+# ring than the building's own traced ring does, or meets another's drawn outline, is
+# refused: the building keeps its traced ring.
+CLEAR_OF_NEIGHBOURS = True
 # Set False to write no roof_shape at all (the file is then as before this module).
 FIT = True
 
 MODELS = ("flat", "shed", "gable", "hip", "split", "none")
 PART_MODELS = ("flat", "shed", "gable", "hip")
 REASONS = ("too few cells", "no model fits", "implausible")
+QUALITIES = ("good", "fair")       # a poor fit is written as "none"
+OUTLINES = ("straightened", "traced")
 
 MIN_CELLS = 10
 CORE_SHARE = 0.25
@@ -727,6 +738,23 @@ def check_shape(shape):
     for key in ("rms", "inliers", "pitch", "eave", "ridge"):
         if not finite(shape.get(key)):
             problems.append("roof_shape {} missing or not finite".format(key))
+    cells = shape.get("cells")
+    if not (isinstance(cells, int) and not isinstance(cells, bool) and cells >= 0):
+        problems.append("roof_shape cells is not a whole number of cells")
+    if shape.get("quality") not in QUALITIES:
+        problems.append("roof_shape quality {!r} is not one of {}".format(shape.get("quality"),
+                                                                        QUALITIES))
+    if shape.get("outline") not in OUTLINES:
+        problems.append("roof_shape outline {!r} is not one of {}".format(shape.get("outline"),
+                                                                        OUTLINES))
+    if model in ("gable", "hip", "shed"):
+        top = 360.0 if model == "shed" else 180.0
+        rb = shape.get("ridge_bearing")
+        if not (finite(rb) and 0.0 <= rb < top):
+            problems.append("roof_shape ridge_bearing {!r} is not a finite bearing in "
+                            "[0, {:g})".format(rb, top))
+    elif "ridge_bearing" in shape:
+        problems.append("roof_shape ridge_bearing is given for a {} roof".format(model))
     at = shape.get("at")
     if not (isinstance(at, list) and len(at) == 2 and all(finite(v) for v in at)):
         problems.append("roof_shape at is not two finite numbers")
@@ -878,12 +906,22 @@ def _none(reason):
     return {"model": "none", "reason": reason}
 
 
-def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False):
+def _intrudes(Q, own, neighbours):
+    """Whether outline Q (x, north), as it will be recorded, overlaps any of the other
+    buildings' traced rings (polygons in (x, north)) by more than `own` ring does."""
+    q = _poly_xz(_ring_xz(Q))
+    return any(q.intersection(nb).area > own.intersection(nb).area + 1e-6 for nb in neighbours)
+
+
+def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False, neighbours=(),
+                 traced=False):
     """roof_shape for one building from its crop.
 
     X, N: cell-centre coordinates (local metres east and north of the origin), as
     2-D arrays like the others; comp, core, other: masks as in the module
-    docstring; ring_xz: its FORMAT ring. Returns (shape, info)."""
+    docstring; ring_xz: its FORMAT ring; neighbours: the other buildings' traced
+    rings near it, as polygons in (x, north); traced: draw it over its traced ring
+    whatever the straightening finds. Returns (shape, info)."""
     traced_house = house and HOUSE_OUTLINE == "traced"
     ring_poly = _poly_xz(ring_xz)
     phi0 = mrr_bearing(ring_poly)
@@ -906,7 +944,9 @@ def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False):
     fit = dict(model=s["model"], quality=s["quality"], rms=s["rms"], inliers=s["inliers"],
                cells=int(use.sum()), phi=s["phi"], planes=_to_abs(s["planes"], cx, cn))
     split = None
-    if s["quality"] == "poor":
+    # The traced house is never split: a split's parts are cut along a drawn line, so
+    # their union would no longer be its ring. A poor single fit leaves it unmeasured.
+    if s["quality"] == "poor" and not traced_house:
         cand = [s["phi"], s["phi"] + 90.0] if s["phi"] is not None else []
         phis = sorted(set(round(p % 180.0, 1) for p in cand + [phi0, phi0 + 90.0]))
         split = _try_split(x, n, z, phis, s)
@@ -932,6 +972,8 @@ def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False):
                 Q = None
         if Q is None:
             Q = buildingslib.footprint(raw)
+        if traced or (CLEAR_OF_NEIGHBOURS and neighbours and _intrudes(Q, ring_poly, neighbours)):
+            Q, outline = ring_poly, "traced"
     # the parts: the drawn outline, cut along the split line when there is one
     if split is None:
         pieces = [(list(ring_xz) if traced_house else Q, fit["model"], fit["planes"])]
@@ -979,6 +1021,13 @@ def fit_building(X, N, dom, dtm, comp, core, other, ring_xz, house=False):
     return shape, info
 
 
+def _drawn(shape, ring_poly):
+    """The outline a building is drawn over, as a polygon in (x, north)."""
+    if shape.get("model") == "none":
+        return ring_poly
+    return unary_union([_poly_xz(part["ring"]) for part in shape["parts"]])
+
+
 def fit_all(found, dom, dtm, grid, labels, origin, details=None):
     """({label: roof_shape}, stats) for every building in `found`.
 
@@ -987,8 +1036,13 @@ def fit_all(found, dom, dtm, grid, labels, origin, details=None):
     oe, on = origin
     dom = np.asarray(dom, dtype=np.float64)
     dtm = np.asarray(dtm, dtype=np.float64)
-    shapes = {}
-    for b in sorted(found, key=lambda b: b.label):
+    order = sorted(found, key=lambda b: b.label)
+    rings = [ring_local(b.polygon.exterior.coords, origin) for b in order]
+    polys = [_poly_xz(ring) for ring in rings]
+    tree = STRtree(polys)
+
+    def one(i, traced=False):
+        b = order[i]
         minx, miny, maxx, maxy = b.raw.bounds
         q0 = max(int(math.floor(minx - grid.west)) - CROP_MARGIN, 0)
         q1 = min(int(math.ceil(maxx - grid.west)) + CROP_MARGIN, dom.shape[1])
@@ -1002,9 +1056,28 @@ def fit_all(found, dom, dtm, grid, labels, origin, details=None):
         xs = grid.west + np.arange(q0, q1) + 0.5 - oe
         ns = grid.north - np.arange(r0, r1) - 0.5 - on
         X, N = np.meshgrid(xs, ns)
-        ring = ring_local(b.polygon.exterior.coords, origin)
-        shapes[b.label], info = fit_building(X, N, d, t, comp, comp & closed, (lab > 0) & ~comp,
-                                             ring, house=bool(b.house))
+        near = box(xs[0] - 1, ns[-1] - 1, xs[-1] + 1, ns[0] + 1)
+        neighbours = [polys[j] for j in sorted(int(j) for j in tree.query(near)) if j != i]
+        return fit_building(X, N, d, t, comp, comp & closed, (lab > 0) & ~comp, rings[i],
+                            house=bool(b.house), neighbours=neighbours, traced=traced)
+
+    fits = [one(i) for i in range(len(order))]
+    if CLEAR_OF_NEIGHBOURS:
+        # Two outlines can each stay clear of the other's traced ring and still meet in the
+        # gap between them: the later building of such a pair keeps its traced ring.
+        drawn = [_drawn(shape, polys[i]) for i, (shape, _) in enumerate(fits)]
+        dtree = STRtree(drawn)
+        redo = set()
+        for i in range(len(order)):
+            for j in sorted(int(j) for j in dtree.query(drawn[i])):
+                if j > i and drawn[i].intersection(drawn[j]).area > \
+                        polys[i].intersection(polys[j]).area + 1e-6:
+                    redo.add(j)
+        for j in sorted(redo):
+            fits[j] = one(j, traced=True)
+    shapes = {}
+    for b, (shape, info) in zip(order, fits):
+        shapes[b.label] = shape
         if details is not None:
             details[b.label] = info
     return shapes, roof_stats(shapes.values(), time.perf_counter() - t0)

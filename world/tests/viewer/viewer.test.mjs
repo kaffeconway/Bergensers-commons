@@ -884,6 +884,27 @@ test('building walls reach the drawn ground all round, even where the recorded g
   assert.ok(hi.recordedMinus2 > hi.ground, 'the raised building would float on its recorded ground alone');
   assert.deepEqual(near.filter((b) => !(b.bottom <= b.ground)), [], 'every wall reaches the drawn ground');
   assert.deepEqual(far.filter((b) => !(b.bottom <= b.ground)), [], 'and still does from 1.5 km up');
+  // reground() says how much it moved, which is what redraws shadows: the raised building,
+  // offered ground 1 m lower, is lowered (walls and their boards), and a repeat moves
+  // nothing; a chunk's trees stood 0.5 m higher and back are counted both ways
+  const rg = await page.evaluate((id) => {
+    const { buildings: B, trees: T, manager } = window.__cw.internals;
+    const it = B.items.find((x) => x.id === id), was = it.bottom, box = it.box;
+    const low = () => was - 1 + 0.25, touches = (b) => b === box;
+    const lowered = B.reground(low, touches), again = B.reground(low, touches);
+    const geo = B.othersMesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
+    const walls = it.verts.every((v) => P[v * 3 + 1] === Math.fround(was - 1) && Math.abs(U[v * 2 + 1] - (was - 1) / 1.6) < 1e-4);
+    const c = window.__cw.house.centroid;
+    const dist = (h) => Math.hypot(Math.max(h.x0 - c[0], 0, c[0] - h.x0 - h.side), Math.max(h.z0 - c[1], 0, c[1] - h.z0 - h.side));
+    const g = T.groups.reduce((a, h) => (dist(h) < dist(a) ? h : a));   // the trees nearest the house
+    const up = T.reground(g.key, (x, z) => { const y = manager.surfaceAt(x, z); return y === null ? null : y + 0.5; });
+    const down = T.reground(g.key, (x, z) => manager.surfaceAt(x, z));
+    const still = T.reground(g.key, (x, z) => manager.surfaceAt(x, z));
+    return { lowered, again, walls, up, down, still };
+  }, raised.id);
+  assert.deepEqual([rg.lowered, rg.again], [1, 0], 'buildings.reground: ' + JSON.stringify(rg));
+  assert.ok(rg.walls, 'the walls went down, boards and all');
+  assert.ok(rg.up > 0 && rg.down === rg.up && rg.still === 0, 'trees.reground: ' + JSON.stringify(rg));
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();

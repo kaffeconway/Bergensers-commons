@@ -153,15 +153,16 @@ Buildings within `h1` radius.
 - `roof` is the 90th percentile of the surface model inside it.
 - `roof_shape` (optional) is the roof fitted to the 1 m surface model, and the outline it is
   drawn over. When it is absent, or has `"model": "none"`, the shape was not measured, and a
-  reader draws a flat top at `roof` as before. An example from the synthetic world:
+  reader draws a flat top at `roof` as before. A `roof_shape` from the synthetic world:
 
   ```json
-  "roof_shape": {"model": "gable", "quality": "good", "rms": 0.02, "inliers": 1.0,
-                 "cells": 64, "pitch": 31.0, "ridge_bearing": 90.0,
-                 "eave": 103.49, "ridge": 106.5, "outline": "straightened",
-                 "at": [-60.0, -45.0],
-                 "parts": [{"model": "gable", "ring": [[x, z], ...],
-                            "planes": [[0.0, -0.6017, 106.5], [0.0, 0.6017, 106.5]]}]}
+  {"model": "gable", "quality": "good", "rms": 0.02, "inliers": 1.0,
+   "cells": 64, "pitch": 31.0, "ridge_bearing": 90.0,
+   "eave": 103.49, "ridge": 106.5, "outline": "straightened",
+   "at": [-60.0, -45.0],
+   "parts": [{"model": "gable",
+              "ring": [[-65.0, -50.0], [-65.0, -40.0], [-55.0, -40.0], [-55.0, -50.0]],
+              "planes": [[0.0, -0.6017, 106.5], [0.0, 0.6017, 106.5]]}]}
   ```
 
   - A part's roof height at (x, z) is the minimum over its planes `[sx, sz, y0]` of
@@ -176,10 +177,11 @@ Buildings within `h1` radius.
     fitted ridge to the same cells, and kept only when it stays within 15 % of the traced
     area, 1.5 m of every traced vertex and 0.45 m of the traced outline on average
     (symmetric difference over perimeter); otherwise it is traced. Either may also be
-    grown where the fitted roof clearly continues past the traced cells. The listing
-    house is always `"traced"`: it is neither grown nor straightened, and its parts tile
-    its `ring`, so the drawn outline is its `ring` (one part, whose `ring` is its `ring`,
-    unless the roof is split).
+    grown where the fitted roof clearly continues past the traced cells. While the
+    pipeline's `roofs.HOUSE_OUTLINE` is `"traced"` (the default), the listing house is
+    `"traced"`: it is neither grown, straightened nor split, so it has one part whose
+    `ring` is its `ring`, and the drawn outline is its `ring`. Where no single shape fits
+    it, its `model` is `none`.
   - `model` is `flat`, `shed`, `gable`, `hip` (a pyramid is a hip), `split` (two or three
     parts, each with its own `model` of `flat`, `shed` or `gable`), or `none`. `quality`
     is `good` or `fair`. `rms` (m, 0.01) and `inliers` (a share, 0.01) describe the fit to

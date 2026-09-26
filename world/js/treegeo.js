@@ -19,7 +19,11 @@
  */
 import * as THREE from 'three';
 
-// measured crown / height below 0.15: conifer; above 0.30: broadleaf (treeLook, in integers)
+// The look rule (a visible choice, one line each): a measured crown / height below
+// CONIFER_BELOW looks like a conifer, above BROAD_ABOVE like a broadleaf, and in between a
+// hash of the position decides. Exact fractions [numerator, denominator], compared in integers.
+export const CONIFER_BELOW = [3, 20];      // 0.15
+export const BROAD_ABOVE = [3, 10];        // 0.30
 const TRUNK = new THREE.Color(0x5b4a38);
 export const GREENS = { conifer: [0x3f5a3c, 0x4a5f38], broad: [0x6b8a4c, 0x5f7f45] };
 
@@ -37,9 +41,9 @@ export function hash2(x, z) {
  * integers, so a ratio exactly on a threshold is the same on every device. */
 export function treeLook(xdm, zdm, height, crown) {
   const hq = Math.round(height * 4), cq = Math.round(crown * 10);
-  // crown / height = 0.4 cq / hq: below 0.15 is 8 cq < 3 hq, above 0.30 is 4 cq > 3 hq
-  if (8 * cq < 3 * hq) return 'conifer';
-  if (4 * cq > 3 * hq) return 'broad';
+  // crown / height = 0.4 cq / hq = 2 cq / (5 hq), against num / den: 2 cq den <> 5 hq num
+  if (2 * cq * CONIFER_BELOW[1] < 5 * hq * CONIFER_BELOW[0]) return 'conifer';
+  if (2 * cq * BROAD_ABOVE[1] > 5 * hq * BROAD_ABOVE[0]) return 'broad';
   const tall = Math.max(0, Math.min(1, (height - 12) / 10));
   return hash2(xdm, zdm) < 0.55 + 0.3 * tall ? 'conifer' : 'broad';
 }

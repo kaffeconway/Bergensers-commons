@@ -359,10 +359,11 @@ export const HOUSE_ROOF_MAP = null;                                    // plain 
 export const HOUSE_WALL_LIFT = 1;                                      // 1.08: lifted for the cladding, as the neighbours
 // Colours: neighbours neutral with a +-5 % lightness jitter and no hue change; the house keeps
 // its highlight, which is not its real colour. The neighbours' walls are lifted 8 % for the
-// cladding's average.
+// cladding's average. Every factor scales the sRGB values, as they show on screen.
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
-const SLICE = { buildings: 50, ms: 6 };   // neighbours are meshed in slices this size, at most (lowered from 8 ms per B-11)
+const FOCUS_MERGE = 64;                   // triangles: changed runs this close are uploaded as one
+const SLICE = { buildings: 50, ms: 4 };   // neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11)
 const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
 const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
 
@@ -421,13 +422,22 @@ function meshOptions(plan, isHouse, opts = {}) {
   return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs };
 }
 
+/* hex, its sRGB values times f (so f is a lightness factor as the eye sees it, with no hue
+ * change), as a colour in three's linear working space. f = 1 gives new THREE.Color(hex). */
+function srgbTimes(hex, f) {
+  const k = (shift) => Math.min(1, (((hex >> shift) & 255) / 255) * f);
+  return new THREE.Color().setRGB(k(16), k(8), k(0), THREE.SRGBColorSpace);
+}
+
+export function buildingJitter(id) {
+  return 1 + JITTER * (2 * hash2(Number(id) * 7919 + 13, 101) - 1);
+}
+
 function coloursFor(plan, isHouse) {
   const c = COLOURS[isHouse ? 'house' : 'others'];
-  const j = isHouse ? 1 : 1 + JITTER * (2 * hash2(Number(plan.id) * 7919 + 13, 101) - 1);
-  const walls = new THREE.Color(c.walls).multiplyScalar((isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
-  const roof = new THREE.Color(c.roof).multiplyScalar(j);
-  const trim = roof.clone().multiplyScalar(TRIM_SHADE);
-  return [walls, roof, trim];
+  const j = isHouse ? 1 : buildingJitter(plan.id);
+  const walls = srgbTimes(c.walls, (isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
+  return [walls, srgbTimes(c.roof, j), srgbTimes(c.roof, j * TRIM_SHADE)];
 }
 
 const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
@@ -474,8 +484,8 @@ class BuildingMesh {
     this.mesh.receiveShadow = true;
     this.entries = [];
     this.inFocus = [0, 0, 0];
-    this.focusKey = null;
-    this.source = null;
+    this.owner = null;          // per triangle slot of the index: the entry drawn there
+    this.lastUpload = 0;        // index entries queued for upload by the last focus change
     this.mesh.onBeforeShadow = (r, o, cam, sc, geometry, depth, group) => {
       if (!group) return;
       geometry.drawRange.start = group.start;
@@ -560,9 +570,13 @@ class BuildingMesh {
     this.entries = entries;
     this.starts = starts;
     this.counts = counts;
-    this.source = idx.slice();
+    const owner = new Int32Array(ni / 3);
+    entries.forEach((e, i) => { for (const [from, n] of e.blocks) owner.fill(i, from / 3, (from + n) / 3); });
+    this.owner = owner;
+    this.state = new Uint8Array(entries.length).fill(1);     // everything starts in focus
+    this.want = new Uint8Array(entries.length);
     this.inFocus = counts.slice();
-    this.focusKey = null;
+    this.lastUpload = 0;
   }
 
   /* The geometry's box from the buildings' boxes, and a sphere around its centre that
@@ -587,27 +601,47 @@ class BuildingMesh {
   }
 
   /* Put the buildings whose box meets rect first within each group; null: all in focus.
-   * True iff the order or the in-focus counts changed. */
+   * In place: only the triangles of buildings whose in/out state changed move, each
+   * swapped with a triangle across the group's new boundary, and only the index spans
+   * that changed are queued for upload (addUpdateRange), not the whole index.
+   * True iff the in-focus set changed. */
   focus(rect) {
-    if (!this.source) return false;
-    const inside = this.entries.map((e) => !rect || boxMeets(e.item.box, rect));
-    const key = inside.map((b) => (b ? '1' : '0')).join('');
-    if (key === this.focusKey) return false;
-    this.focusKey = key;
-    const idx = this.mesh.geometry.index.array, src = this.source;
-    for (let g = 0; g < 3; g++) {
-      let w = this.starts[g];
-      for (const want of [true, false]) {
-        this.entries.forEach((e, i) => {
-          if (inside[i] !== want) return;
-          const [from, n] = e.blocks[g];
-          if (n) idx.set(src.subarray(from, from + n), w);
-          w += n;
-        });
-        if (want) this.inFocus[g] = w - this.starts[g];
-      }
+    if (!this.owner) return false;
+    const E = this.entries, n = E.length, want = this.want, state = this.state;
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      want[i] = !rect || boxMeets(E[i].item.box, rect) ? 1 : 0;
+      if (want[i] !== state[i]) changed = true;
     }
-    this.mesh.geometry.index.needsUpdate = true;
+    if (!changed) return false;
+    const index = this.mesh.geometry.index, idx = index.array, owner = this.owner;
+    const runs = [];                        // [first triangle, last triangle + 1], in order
+    const add = (list, t) => {
+      const r = list[list.length - 1];
+      if (r && t - r[1] <= FOCUS_MERGE) r[1] = t + 1; else list.push([t, t + 1]);
+    };
+    for (let g = 0; g < 3; g++) {
+      const t0 = this.starts[g] / 3, t1 = t0 + this.counts[g] / 3;
+      let tin = 0;
+      for (let i = 0; i < n; i++) if (want[i]) tin += E[i].blocks[g][1] / 3;
+      const b = t0 + tin, low = [], high = [];
+      for (let p = t0, q = b; ;) {
+        while (p < b && want[owner[p]]) p++;
+        while (q < t1 && !want[owner[q]]) q++;
+        if (p >= b || q >= t1) break;
+        for (let k = 0; k < 3; k++) { const x = idx[3 * p + k]; idx[3 * p + k] = idx[3 * q + k]; idx[3 * q + k] = x; }
+        const o = owner[p]; owner[p] = owner[q]; owner[q] = o;
+        add(low, p++);
+        add(high, q++);
+      }
+      runs.push(...low, ...high);
+      this.inFocus[g] = 3 * tin;
+    }
+    state.set(want);
+    let uploaded = 0;
+    for (const [a, z] of runs) { index.addUpdateRange(3 * a, 3 * (z - a)); uploaded += 3 * (z - a); }
+    if (runs.length) index.needsUpdate = true;
+    this.lastUpload = uploaded;
     return true;
   }
 }
@@ -618,7 +652,7 @@ class BuildingMesh {
  * ground just outside the downhill wall is lower than that: walls start sunk 2 m below
  * it, and reground() takes them further down, to the lowest ground drawable around the
  * footprint, once the heights there are loaded.
- * The house is meshed at once; the neighbours in slices of at most 50 buildings or 6 ms,
+ * The house is meshed at once; the neighbours in slices of at most 50 buildings or 4 ms,
  * on a setTimeout chain, and drawn in one swap when the last slice ends (`ready`). */
 export function buildBuildings(features) {
   const maps = detailMaps();
@@ -774,8 +808,8 @@ export function buildBuildings(features) {
     },
     /* Test hook: the index counts in focus, and in all, per group of each mesh. */
     shadowFocus() {
-      return { house: { inFocus: house.inFocus.slice(), counts: (house.counts || [0, 0, 0]).slice() },
-               others: { inFocus: others.inFocus.slice(), counts: (others.counts || [0, 0, 0]).slice() } };
+      const of = (b) => ({ inFocus: b.inFocus.slice(), counts: (b.counts || [0, 0, 0]).slice(), uploaded: b.lastUpload });
+      return { house: of(house), others: of(others) };
     },
     info() { return { byModel: Object.assign({}, info.byModel), fallback: info.fallback, malformed: info.malformed }; },
     dispose() {
