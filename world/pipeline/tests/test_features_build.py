@@ -264,6 +264,8 @@ def test_classes_and_house_match_the_synthetic_shapes(built):
     assert class_at("h5", 550, 800) == classes.FOREST      # paths are h1 only
     data = json.loads(gzip.decompress((folder / "buildings.json.gz").read_bytes()))
     assert sum(f["house"] for f in data["features"]) == 1
+    house = next(f for f in data["features"] if f["house"])
+    assert house["roof_shape"]["model"] == "gable"            # fitted to the fake surface model
 
 
 def test_an_offline_rebuild_is_identical(built):

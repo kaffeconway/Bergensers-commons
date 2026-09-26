@@ -229,7 +229,7 @@ test('h1 chunk seams are covered at every mix of tolerances', { timeout: 240000 
   assert.ok(results.every((r) => r.checked >= 200), 'each seam was sampled along its length');
 });
 
-test('clicking the house opens the specs panel', { timeout: 60000 }, async () => {
+test('clicking the house, walls or roof, opens the specs panel', { timeout: 60000 }, async () => {
   const { page } = await mainPage();
   await page.evaluate(() => { window.__cw.camera.start(); window.__cw.specsOpenedBy = null; });
   await page.evaluate(() => window.__cw.frame());
@@ -257,6 +257,44 @@ test('clicking the house opens the specs panel', { timeout: 60000 }, async () =>
   assert.doesNotMatch(text, /(^|\s)0 NOK/, 'a blank figure is never shown as 0');
   await page.click('#specs-close');
   assert.equal(await page.locator('#specs').isVisible(), false);
+  // the roof too: a click at a point halfway along the measured ridge
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const ridge = await page.evaluate(() => {
+    const h = window.__cw.internals.buildings.house, s = h.shape;
+    if (!s || s.parts.length !== 1 || s.parts[0].planes.length !== 2) return null;
+    const [p0, p1] = s.parts[0].planes, ring = s.parts[0].ring;
+    const y = (p, x, z) => p[2] + p[0] * (x - s.at[0]) + p[1] * (z - s.at[1]);
+    const ends = [];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const da = y(p0, a[0], a[1]) - y(p1, a[0], a[1]), db = y(p0, b[0], b[1]) - y(p1, b[0], b[1]);
+      if ((da > 0) === (db > 0)) continue;
+      const t = da / (da - db);
+      ends.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+    }
+    if (ends.length !== 2) return null;
+    const x = (ends[0][0] + ends[1][0]) / 2, z = (ends[0][1] + ends[1][1]) / 2;
+    return { x, z, y: Math.min(y(p0, x, z), y(p1, x, z)) };
+  });
+  assert.ok(ridge, 'the synthetic house has a measured gable');
+  const q = await page.evaluate(async (r) => {
+    const THREE = await import('three');
+    const { camera, canvas } = { camera: window.__cw.internals.camera, canvas: document.getElementById('view') };
+    camera.updateMatrixWorld();
+    const p = new THREE.Vector3(r.x, r.y, r.z).project(camera), rect = canvas.getBoundingClientRect();
+    document.getElementById('house-label').style.visibility = 'hidden';
+    return { x: rect.left + (p.x + 1) / 2 * rect.width, y: rect.top + (1 - p.y) / 2 * rect.height,
+             visible: p.z > -1 && p.z < 1 && Math.abs(p.x) < 0.95 && Math.abs(p.y) < 0.95 };
+  }, ridge);
+  assert.ok(q.visible, 'the ridge is on screen from the start');
+  assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y).id, q), 'view');
+  await page.evaluate(() => { window.__cw.specsOpenedBy = null; });
+  await page.mouse.click(q.x, q.y);
+  await page.locator('#specs').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.__cw.lastPick), 'house');
+  assert.equal(await page.evaluate(() => window.__cw.specsOpenedBy), 'pick');
+  await page.evaluate(() => { document.getElementById('house-label').style.visibility = ''; });
+  await page.click('#specs-close');
 });
 
 test('a click where a hill hides the house does not open the specs', { timeout: READY_MS + 60000 }, async () => {
@@ -711,30 +749,34 @@ test('the title never falls back to the world id; screen readers hear the end of
 // and a border wall's depth came from one apron column, which cannot see a drop inside the
 // neighbour's 4 m block.
 
-test('trees stand on the drawn block top at every block size', { timeout: 180000 }, async () => {
+test('trees stand on the drawn surface at every detail, near set included', { timeout: 180000 }, async () => {
   const { page } = await mainPage();
   const check = () => page.evaluate(() => {
     const { trees, manager, camera } = window.__cw.internals;
     const m = camera.matrix.clone();
-    let n = 0, off = 0, oneOff = 0, worst = 0;
-    const lods = {};
-    for (const g of trees.groups) for (const mesh of g.meshes) for (let k = 0; k < mesh.count; k++) {
+    let n = 0, off = 0, worst = 0, near = 0;
+    const meshes = trees.groups.flatMap((g) => g.meshes).concat(trees.nearMeshes);
+    for (const mesh of meshes) for (let k = 0; k < mesh.count; k++) {
       mesh.getMatrixAt(k, m);
-      const e = m.elements, top = manager.drawnTopAt(e[12], e[14]);
+      const e = m.elements, top = manager.surfaceAt(e[12], e[14]);
       if (top === null) continue;
       n++;
-      if (Math.abs(e[13] - top) > 1e-6) { off++; worst = Math.max(worst, Math.abs(e[13] - top)); }
-      const g1 = manager.groundAt(e[12], e[14]);
-      if (g1 && g1.y !== top) oneOff++;
-      const lod = manager.chunkAt('h1', e[12], e[14]).lod;
-      lods[lod] = (lods[lod] || 0) + 1;
+      if (mesh.name.startsWith('trees:near:')) near++;
+      if (Math.abs(e[13] - top) > 1e-3) { off++; worst = Math.max(worst, Math.abs(e[13] - top)); }
     }
-    return { n, off, oneOff, worst, lods };
+    return { n, off, worst, near };
   });
   await page.evaluate(() => window.__cw.camera.start());
   await page.evaluate(() => window.__cw.settle());
+  const start = await check();
+  // next to a tree, so the near set holds some
+  const tree = await page.evaluate(() => {
+    const T = window.__cw.internals.trees, k = T.groups[0].meshes[0].userData.ids[0];
+    return { x: T.tx[k] + 4, z: T.tz[k] + 3 };
+  });
+  await page.evaluate(({ x, z }) => window.__cw.camera.set({ x, z, mode: 'walk' }), tree);
+  await page.evaluate(() => window.__cw.settle());
   const near = await check();
-  // high above the start every chunk is far enough away for 4 m blocks
   const cam = await page.evaluate(() => window.__cw.camera.get());
   await page.evaluate(({ x, z }) => window.__cw.camera.set({ x, z, y: 1500, mode: 'fly' }), cam);
   await page.evaluate(() => window.__cw.settle());
@@ -742,57 +784,93 @@ test('trees stand on the drawn block top at every block size', { timeout: 180000
   await page.evaluate(() => window.__cw.camera.start());
   await page.evaluate(() => window.__cw.settle());
   const back = await check();
-  assert.ok(near.n > 100, 'trees were checked');
-  assert.equal(near.off, 0, 'near the start: ' + JSON.stringify(near));
-  assert.deepEqual(Object.keys(far.lods), ['4'], 'from 1.5 km up every tree is over 4 m blocks');
-  assert.ok(far.oneOff > 0, 'some 4 m block tops differ from the 1 m top under a tree, so this checks something');
-  assert.equal(far.off, 0, 'over 4 m blocks: ' + JSON.stringify(far));
+  assert.ok(start.n > 100, 'trees were checked');
+  assert.equal(start.off, 0, 'near the start: ' + JSON.stringify(start));
+  assert.ok(near.near > 0, 'the near set was checked too: ' + JSON.stringify(near));
+  assert.equal(near.off, 0, 'next to a tree: ' + JSON.stringify(near));
+  assert.equal(far.off, 0, 'from 1.5 km up: ' + JSON.stringify(far));
   assert.equal(back.off, 0, 'back at the start: ' + JSON.stringify(back));
 });
 
 test('building walls reach the drawn ground all round, even where the recorded ground is high', { timeout: READY_MS + 60000 }, async () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
   const doc = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest.files.buildings.file))).toString('utf8'));
-  // as on a slope: the median under the footprint 4 m above the ground at its edge
+  // as on a slope: the median under the footprint 4 m above the ground at its edge (the
+  // measured roof, if any, moved up with it)
   const raised = doc.features.find((f) => !f.house);
   raised.ground += 4;
   raised.roof += 4;
+  const s = raised.roof_shape;
+  if (s && s.parts) {
+    for (const part of s.parts) for (const plane of part.planes) plane[2] += 4;
+    s.eave += 4;
+    s.ridge += 4;
+  }
   const ctx = await newContext();
   await ctx.route('**/out/synthetic/' + manifest.files.buildings.file, (route) =>
     route.fulfill({ status: 200, body: JSON.stringify(doc), contentType: 'application/json' }));
   const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
   await page.evaluate(() => window.__cw.settle());
-  const r = await page.evaluate((features) => {
+  const check = () => page.evaluate(() => {
     const { buildings, manager } = window.__cw.internals;
     const out = [];
-    for (const f of features) {
-      const mesh = f.house ? buildings.houseMesh : buildings.othersMesh;
-      const P = mesh.geometry.attributes.position.array;
-      // the lowest wall vertex standing on this footprint's corners, as drawn
-      let bottom = Infinity;
-      for (let v = 0; v < P.length / 3; v++) {
-        if (f.ring.some((p) => Math.abs(p[0] - P[v * 3]) < 1e-3 && Math.abs(p[1] - P[v * 3 + 2]) < 1e-3)) bottom = Math.min(bottom, P[v * 3 + 1]);
-      }
-      // the lowest drawn ground just outside and inside the walls
-      let ground = Infinity;
-      for (let i = 0; i < f.ring.length; i++) {
-        const a = f.ring[i], b = f.ring[(i + 1) % f.ring.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        for (let s = 0; s <= Math.ceil(len * 2); s++) {
-          const x = a[0] + (b[0] - a[0]) * s / Math.ceil(len * 2), z = a[1] + (b[1] - a[1]) * s / Math.ceil(len * 2);
-          for (const [dx, dz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) {
-            const t = manager.drawnTopAt(x + dx, z + dz);
+    for (const it of buildings.items) {
+      const P = (it.house ? buildings.houseMesh : buildings.othersMesh).geometry.attributes.position.array;
+      // the wall bottoms as drawn, in pairs along each wall; the lowest drawn ground 0.3 m
+      // either side of every wall. `bottom` is the HIGHEST wall bottom: all round means
+      // every wall, not just the lowest
+      let bottom = -Infinity, ground = Infinity;
+      for (let k = 0; k + 1 < it.verts.length; k += 2) {
+        const a = it.verts[k], b = it.verts[k + 1];
+        const ax = P[a * 3], az = P[a * 3 + 2], bx = P[b * 3], bz = P[b * 3 + 2];
+        bottom = Math.max(bottom, P[a * 3 + 1], P[b * 3 + 1]);
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1e-6) continue;
+        const nx = -(bz - az) / len, nz = (bx - ax) / len, steps = Math.max(1, Math.ceil(len * 2));
+        for (let st = 0; st <= steps; st++) {
+          const x = ax + (bx - ax) * st / steps, z = az + (bz - az) * st / steps;
+          for (const side of [0.3, -0.3]) {
+            const t = manager.surfaceAt(x + nx * side, z + nz * side);
             if (t !== null) ground = Math.min(ground, t);
           }
         }
       }
-      out.push({ id: f.id, bottom, ground, recordedMinus2: f.ground - 2 });
+      out.push({ id: it.id, walls: it.verts.length / 2, bottom, ground, recordedMinus2: it.ground - 2 });
     }
     return out;
-  }, doc.features);
-  const bad = r.filter((b) => !(b.bottom <= b.ground));
-  const hi = r.find((b) => b.id === raised.id);
+  });
+  const near = await check();
+  const cam = await page.evaluate(() => window.__cw.camera.get());
+  await page.evaluate(({ x, z }) => window.__cw.camera.set({ x, z, y: 1500, mode: 'fly' }), cam);
+  await page.evaluate(() => window.__cw.settle());
+  const far = await check();
+  const hi = near.find((b) => b.id === raised.id);
+  assert.ok(near.every((b) => b.walls > 0), 'every building has walls');
   assert.ok(hi.recordedMinus2 > hi.ground, 'the raised building would float on its recorded ground alone');
-  assert.deepEqual(bad, [], 'every wall reaches the drawn ground');
+  assert.deepEqual(near.filter((b) => !(b.bottom <= b.ground)), [], 'every wall reaches the drawn ground');
+  assert.deepEqual(far.filter((b) => !(b.bottom <= b.ground)), [], 'and still does from 1.5 km up');
+  // reground() says how much it moved, which is what redraws shadows: the raised building,
+  // offered ground 1 m lower, is lowered (walls and their boards), and a repeat moves
+  // nothing; a chunk's trees stood 0.5 m higher and back are counted both ways
+  const rg = await page.evaluate((id) => {
+    const { buildings: B, trees: T, manager } = window.__cw.internals;
+    const it = B.items.find((x) => x.id === id), was = it.bottom, box = it.box;
+    const low = () => was - 1 + 0.25, touches = (b) => b === box;
+    const lowered = B.reground(low, touches), again = B.reground(low, touches);
+    const geo = B.othersMesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
+    const walls = it.verts.every((v) => P[v * 3 + 1] === Math.fround(was - 1) && Math.abs(U[v * 2 + 1] - (was - 1) / 1.6) < 1e-4);
+    const c = window.__cw.house.centroid;
+    const dist = (h) => Math.hypot(Math.max(h.x0 - c[0], 0, c[0] - h.x0 - h.side), Math.max(h.z0 - c[1], 0, c[1] - h.z0 - h.side));
+    const g = T.groups.reduce((a, h) => (dist(h) < dist(a) ? h : a));   // the trees nearest the house
+    const up = T.reground(g.key, (x, z) => { const y = manager.surfaceAt(x, z); return y === null ? null : y + 0.5; });
+    const down = T.reground(g.key, (x, z) => manager.surfaceAt(x, z));
+    const still = T.reground(g.key, (x, z) => manager.surfaceAt(x, z));
+    return { lowered, again, walls, up, down, still };
+  }, raised.id);
+  assert.deepEqual([rg.lowered, rg.again], [1, 0], 'buildings.reground: ' + JSON.stringify(rg));
+  assert.ok(rg.walls, 'the walls went down, boards and all');
+  assert.ok(rg.up > 0 && rg.down === rg.up && rg.still === 0, 'trees.reground: ' + JSON.stringify(rg));
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
   await page.close();

@@ -1,10 +1,17 @@
 /* Commons World: things on the terrain.
  *
- * Fetching (with gzip detection), trees.bin (FORMAT.md section 4) as instanced
- * meshes per h1 chunk, buildings.json as extruded prisms, the plot boundary as a
- * low fence, and an index of footprints so the walker cannot step through walls.
+ * Fetching (with gzip detection); trees.bin (FORMAT.md section 4) as instanced meshes per
+ * h1 chunk, at three levels of detail (treegeo.js); buildings.json as meshes of their
+ * measured roofs where the file has them (roofmesh.js) and flat prisms where it does not;
+ * the plot boundary as a low fence; and an index of the drawn outlines so the walker
+ * cannot step through walls and stands on roofs as drawn.
  */
 import * as THREE from 'three';
+import { prepareShape, prismShape, meshBuilding, roofAt as roofOf, lowestRoof, isPitched, GROUP } from './roofmesh.js';
+import { detailMaps, releaseDetailMaps } from './detailmaps.js';
+import { treeGeometries, treeLook, greenRatio, hash2 } from './treegeo.js';
+
+export { hash2 };
 
 // ------------------------------------------------------------------ fetching
 export function safeWorldPath(path) {
@@ -35,16 +42,6 @@ export async function fetchJSON(url) {
   return JSON.parse(new TextDecoder('utf-8').decode(bytes));
 }
 
-// ------------------------------------------------------------------ hashing
-/* An integer hash of a position, identical on every device (Math.imul is exact). */
-export function hash2(x, z) {
-  let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul((z | 0) + 0x9e3779b9, 0x165667b1);
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
 // ------------------------------------------------------------------ trees
 export function parseTrees(bytes) {
   if (bytes.length < 12) throw new Error('trees.bin is too short');
@@ -66,177 +63,267 @@ export function parseTrees(bytes) {
   return { count, xdm, zdm, gdm, height, crown };
 }
 
-function mergeParts(parts) {
-  // parts: [{geometry, color: THREE.Color}] -> one non-indexed geometry with a colour attribute
-  const geos = parts.map((p) => (p.geometry.index ? p.geometry.toNonIndexed() : p.geometry));
-  let n = 0;
-  for (const g of geos) n += g.attributes.position.count;
-  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
-  let o = 0;
-  geos.forEach((g, k) => {
-    const c = parts[k].color, cnt = g.attributes.position.count;
-    pos.set(g.attributes.position.array, o * 3);
-    nor.set(g.attributes.normal.array, o * 3);
-    for (let v = 0; v < cnt; v++) { col[(o + v) * 3] = c.r; col[(o + v) * 3 + 1] = c.g; col[(o + v) * 3 + 2] = c.b; }
-    o += cnt;
-  });
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  out.computeBoundingSphere();
-  geos.forEach((g) => g.dispose());
-  parts.forEach((p) => p.geometry.dispose());
-  return out;
-}
+// Per profile: the dynamic near set (the nearest trees, drawn in full) and the mid/far
+// switch's hysteresis, in metres. The mid/far distance itself is PROFILES.treesNear.
+export const TREE_PROFILES = {
+  phone: { nearRadius: 50, nearCap: 64, hyst: 20 },
+  laptop: { nearRadius: 90, nearCap: 256, hyst: 20 }
+};
+const NEAR_BUCKET = 16;          // metres: the grid the near set is looked up in
+const NEAR_REFILL = 5;           // metres the camera moves before the near set is refilled
+const LOOKS = ['conifer', 'broad'];
 
-function treeGeometries() {
-  const trunk = new THREE.Color(0x5b4a38), spruce = new THREE.Color(0x3f5a3c), leaf = new THREE.Color(0x6b8a4c);
-  const t = (g, y) => g.translate(0, y, 0);
-  return {
-    coniferNear: mergeParts([
-      { geometry: t(new THREE.CylinderGeometry(0.06, 0.09, 0.45, 5, 1, true), 0.105), color: trunk },
-      { geometry: t(new THREE.ConeGeometry(1.0, 0.62, 7, 1, false), 0.46), color: spruce },
-      { geometry: t(new THREE.ConeGeometry(0.66, 0.5, 7, 1, false), 0.75), color: spruce }
-    ]),
-    coniferFar: mergeParts([
-      { geometry: t(new THREE.ConeGeometry(1.0, 0.95, 5, 1, true), 0.525), color: spruce }
-    ]),
-    broadNear: mergeParts([
-      { geometry: t(new THREE.CylinderGeometry(0.07, 0.11, 0.6, 5, 1, true), 0.18), color: trunk },
-      { geometry: t(new THREE.IcosahedronGeometry(1, 0).scale(1, 0.36, 1), 0.62), color: leaf }
-    ]),
-    broadFar: mergeParts([
-      { geometry: t(new THREE.OctahedronGeometry(1, 0).scale(1, 0.4, 1), 0.6), color: leaf }
-    ])
-  };
-}
-
-/* One InstancedMesh per h1 chunk and look (conifer or broadleaf). The look is decoration:
- * it comes from a hash of the tree's position, not from data about the species.
- * A tree starts on its 1 m block top (from trees.bin). The chunk manager draws far chunks
- * in 2 m and 4 m blocks whose tops are means, up to several metres off that, so each time
- * a chunk is (re)meshed reground() stands its trees on the top actually drawn. */
+/* One InstancedMesh per h1 chunk and look (conifer or broadleaf), drawn at the mid level
+ * within PROFILES.treesNear of the camera and at the far level beyond it, plus a near set:
+ * one InstancedMesh per look holding the nearest trees in full, each of which is hidden in
+ * its chunk mesh (a zero-scale matrix) while it is there. The look follows the measured
+ * proportions where they are clear (treegeo.js); it is not the species. A tree starts on
+ * the terrain model's height (trees.bin) and is stood on the surface as drawn by
+ * reground() whenever its chunk is (re)meshed. */
 export class TreeSet {
   constructor(scene, trees, origin, chunkSide, profile) {
     this.geo = treeGeometries();
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.material.toneMapped = false;
     this.profile = profile;
+    this.tp = TREE_PROFILES[profile && profile.name] || TREE_PROFILES.laptop;
+    this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'trees';
     this.groups = [];
     this.byKey = new Map();
     this.count = trees.count;
+    const n = trees.count;
+    this.tx = new Float64Array(n); this.ty = new Float64Array(n); this.tz = new Float64Array(n);
+    this.scale = new Float32Array(2 * n); this.yaw = new Float32Array(n); this.colour = new Float32Array(3 * n);
+    this.look = new Uint8Array(n); this.slot = new Int32Array(n); this.chunkOf = new Array(n);
+    this.looks = { conifer: 0, broad: 0 };
     const [oe, on] = origin;
     const buckets = new Map();
-    for (let k = 0; k < trees.count; k++) {
+    const ratio = LOOKS.map((l) => greenRatio(l));
+    for (let k = 0; k < n; k++) {
       const x = trees.xdm[k] / 10, z = trees.zdm[k] / 10;
+      this.tx[k] = x; this.tz[k] = z; this.ty[k] = trees.gdm[k] / 10;
+      this.scale[2 * k] = Math.max(0.5, trees.crown[k]);
+      this.scale[2 * k + 1] = Math.max(2, trees.height[k]);
+      const hsh = hash2(trees.zdm[k] * 7 + 3, trees.xdm[k] * 13 + 1);
+      this.yaw[k] = hsh * Math.PI * 2;
+      const look = treeLook(trees.xdm[k], trees.zdm[k], trees.height[k], trees.crown[k]) === 'conifer' ? 0 : 1;
+      this.look[k] = look;
+      this.looks[LOOKS[look]]++;
+      const b = 0.84 + 0.26 * hash2(trees.xdm[k] + 11, trees.zdm[k] - 5);
+      const second = hash2(trees.xdm[k] * 3 + 17, trees.zdm[k] * 5 - 9) < 0.5;
+      const g = second ? ratio[look] : [1, 1, 1];
+      this.colour[3 * k] = b * (0.96 + 0.06 * hsh) * g[0];
+      this.colour[3 * k + 1] = b * g[1];
+      this.colour[3 * k + 2] = b * (0.95 + 0.05 * (1 - hsh)) * g[2];
       const key = Math.floor((x + oe) / chunkSide) + '_' + Math.floor((on - z) / chunkSide);
-      let b = buckets.get(key);
-      if (!b) { b = []; buckets.set(key, b); }
-      b.push(k);
+      let bk = buckets.get(key);
+      if (!bk) { bk = []; buckets.set(key, bk); }
+      bk.push(k);
     }
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
-    const up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+    const m = new THREE.Matrix4(), col = new THREE.Color();
     for (const [key, list] of buckets) {
       const [ci, cj] = key.split('_').map(Number);
       const x0 = ci * chunkSide - oe, z0 = -((cj + 1) * chunkSide - on);
-      const kinds = { conifer: [], broad: [] };
-      for (const k of list) {
-        const hsh = hash2(trees.xdm[k], trees.zdm[k]);
-        const tall = Math.max(0, Math.min(1, (trees.height[k] - 12) / 10));
-        (hsh < 0.55 + 0.3 * tall ? kinds.conifer : kinds.broad).push(k);
-      }
-      const entry = { key, x0, z0, side: chunkSide, meshes: [], near: true };
-      for (const kind of ['conifer', 'broad']) {
-        const ids = kinds[kind];
+      const entry = { key, x0, z0, side: chunkSide, meshes: [], near: true, lodSet: false, orig: new Map() };
+      for (let look = 0; look < 2; look++) {
+        const ids = list.filter((k) => this.look[k] === look);
         if (!ids.length) continue;
-        const mesh = new THREE.InstancedMesh(this.geo[kind + 'Near'], this.material, ids.length);
+        const kind = LOOKS[look];
+        const mesh = new THREE.InstancedMesh(this.geo[kind + 'Mid'], this.material, ids.length);
         mesh.name = 'trees:' + key + ':' + kind;
         mesh.userData.kind = kind;
-        ids.forEach((k, n) => {
-          const h = Math.max(2, trees.height[k]);
-          const r = Math.max(0.5, trees.crown[k]) * (kind === 'conifer' ? 1.25 : 1.0);
-          const hsh = hash2(trees.zdm[k] * 7 + 3, trees.xdm[k] * 13 + 1);
-          // stand on the 1 m block top, which is the ground drawn near the walker
-          p.set(trees.xdm[k] / 10, Math.floor((trees.gdm[k] + 5) / 10), trees.zdm[k] / 10);
-          q.setFromAxisAngle(up, hsh * Math.PI * 2);
-          s.set(r, h, r);
-          mesh.setMatrixAt(n, m.compose(p, q, s));
-          const b = 0.84 + 0.26 * hash2(trees.xdm[k] + 11, trees.zdm[k] - 5);
-          col.setRGB(b * (0.96 + 0.06 * hsh), b, b * (0.95 + 0.05 * (1 - hsh)));
-          mesh.setColorAt(n, col);
+        mesh.userData.ids = Int32Array.from(ids);
+        ids.forEach((k, i) => {
+          this.slot[k] = i;
+          this.chunkOf[k] = mesh;
+          mesh.setMatrixAt(i, this._matrix(k, m));
+          mesh.setColorAt(i, col.setRGB(this.colour[3 * k], this.colour[3 * k + 1], this.colour[3 * k + 2]));
         });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         mesh.computeBoundingSphere();
+        entry.orig.set(mesh, mesh.instanceMatrix.array.slice());
         this.group.add(mesh);
         entry.meshes.push(mesh);
       }
       this.groups.push(entry);
       this.byKey.set(key, entry);
     }
+    // the near set
+    this.nearMeshes = LOOKS.map((kind) => {
+      const mesh = new THREE.InstancedMesh(this.geo[kind + 'Near'], this.material, this.tp.nearCap);
+      mesh.name = 'trees:near:' + kind;
+      mesh.userData.kind = kind;
+      mesh.userData.ids = new Int32Array(this.tp.nearCap);
+      mesh.count = 0;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.setColorAt(0, col.setRGB(1, 1, 1));
+      this.group.add(mesh);
+      return mesh;
+    });
+    this.nearIndex = new Map();      // tree -> [look, slot in the near mesh]
+    this.lastFill = null;
+    this.cells = new Map();
+    for (let k = 0; k < n; k++) {
+      const key = Math.floor(this.tx[k] / NEAR_BUCKET) + '_' + Math.floor(this.tz[k] / NEAR_BUCKET);
+      let c = this.cells.get(key);
+      if (!c) { c = []; this.cells.set(key, c); }
+      c.push(k);
+    }
     scene.add(this.group);
   }
 
-  /* Stand the trees of h1 chunk `key` on topAt(x, z), the block top drawn there (null
-   * leaves a tree where it is). Returns how many moved. */
-  reground(key, topAt) {
+  _matrix(k, m) {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw[k]);
+    const r = this.scale[2 * k], h = this.scale[2 * k + 1];
+    return m.compose(new THREE.Vector3(this.tx[k], this.ty[k], this.tz[k]), q, new THREE.Vector3(r, h, r));
+  }
+
+  // hide tree k in its chunk mesh (zero scale, same place) or restore its matrix
+  _hide(k, hidden) {
+    const mesh = this.chunkOf[k], i = this.slot[k];
+    const orig = this._entryOf(mesh).orig.get(mesh), arr = mesh.instanceMatrix.array;
+    for (let e = 0; e < 16; e++) arr[i * 16 + e] = orig[i * 16 + e];
+    if (hidden) for (const e of [0, 1, 2, 4, 5, 6, 8, 9, 10]) arr[i * 16 + e] = 0;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  _entryOf(mesh) { return this.byKey.get(mesh.name.split(':')[1]); }
+
+  /* Stand the trees of h1 chunk `key` on surfaceAt(x, z), the surface drawn there (null
+   * leaves a tree where it is), the near set's copies included. Returns how many moved. */
+  reground(key, surfaceAt) {
     const g = this.byKey.get(key);
     if (!g) return 0;
-    const m = new THREE.Matrix4();
-    let moved = 0;
+    let moved = 0, nearMoved = false;
     for (const mesh of g.meshes) {
+      const ids = mesh.userData.ids, orig = g.orig.get(mesh), arr = mesh.instanceMatrix.array;
       let changed = false;
-      for (let n = 0; n < mesh.count; n++) {
-        mesh.getMatrixAt(n, m);
-        const e = m.elements, y = topAt(e[12], e[14]);
-        if (y === null || y === undefined || e[13] === y) continue;
-        e[13] = y;
-        mesh.setMatrixAt(n, m);
+      for (let i = 0; i < ids.length; i++) {
+        const k = ids[i], y = surfaceAt(this.tx[k], this.tz[k]);
+        if (y === null || y === undefined || y === this.ty[k]) continue;
+        this.ty[k] = y;
+        orig[i * 16 + 13] = y;
+        arr[i * 16 + 13] = y;
         changed = true;
         moved++;
+        const at = this.nearIndex.get(k);
+        if (at) {
+          const nm = this.nearMeshes[at[0]];
+          nm.instanceMatrix.array[at[1] * 16 + 13] = y;
+          nm.instanceMatrix.needsUpdate = true;
+          nearMoved = true;
+        }
       }
       if (changed) {
         mesh.instanceMatrix.needsUpdate = true;
         mesh.computeBoundingSphere();
       }
     }
+    if (nearMoved) for (const nm of this.nearMeshes) nm.computeBoundingSphere();
     return moved;
   }
 
+  /* Levels of detail for the camera at `cam`: each chunk's mid or far geometry (with 20 m of
+   * hysteresis around PROFILES.treesNear), and the near set once the camera has moved more
+   * than 5 m. True iff any geometry, matrix or count changed. */
   update(cam) {
     let changed = false;
+    const edge = this.profile.treesNear, half = this.tp.hyst / 2;
     for (const g of this.groups) {
       const dx = Math.max(g.x0 - cam.x, 0, cam.x - (g.x0 + g.side));
       const dz = Math.max(g.z0 - cam.z, 0, cam.z - (g.z0 + g.side));
-      const near = Math.hypot(dx, dz) < this.profile.treesNear;
-      if (near === g.near) continue;
-      g.near = near;
+      const d = Math.hypot(dx, dz);
+      let mid = g.near;
+      if (!g.lodSet) { mid = d < edge; g.lodSet = true; }
+      else if (g.near && d > edge + half) mid = false;
+      else if (!g.near && d < edge - half) mid = true;
+      if (mid === g.near) continue;
+      g.near = mid;
       changed = true;
-      for (const mesh of g.meshes) mesh.geometry = this.geo[mesh.userData.kind + (near ? 'Near' : 'Far')];
+      for (const mesh of g.meshes) {
+        mesh.geometry = this.geo[mesh.userData.kind + (mid ? 'Mid' : 'Far')];
+        mesh.receiveShadow = mid;
+      }
+    }
+    if (this._refill(cam)) changed = true;
+    return changed;
+  }
+
+  _refill(cam) {
+    const last = this.lastFill;
+    if (last && Math.hypot(cam.x - last[0], cam.y - last[1], cam.z - last[2]) <= NEAR_REFILL) return false;
+    this.lastFill = [cam.x, cam.y, cam.z];
+    const R = this.tp.nearRadius, B = NEAR_BUCKET, found = [[], []];
+    for (let i = Math.floor((cam.x - R) / B); i <= Math.floor((cam.x + R) / B); i++) {
+      for (let j = Math.floor((cam.z - R) / B); j <= Math.floor((cam.z + R) / B); j++) {
+        for (const k of this.cells.get(i + '_' + j) || []) {
+          const d = Math.hypot(this.tx[k] - cam.x, this.ty[k] - cam.y, this.tz[k] - cam.z);
+          if (d <= R) found[this.look[k]].push([d, k]);
+        }
+      }
+    }
+    const next = new Map();
+    for (let look = 0; look < 2; look++) {
+      found[look].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      found[look].slice(0, this.tp.nearCap).forEach(([, k], slot) => next.set(k, [look, slot]));
+    }
+    let same = next.size === this.nearIndex.size;
+    if (same) for (const [k, at] of next) { const was = this.nearIndex.get(k); if (!was || was[1] !== at[1]) { same = false; break; } }
+    if (same) return false;
+    for (const k of this.nearIndex.keys()) if (!next.has(k)) this._hide(k, false);
+    for (const k of next.keys()) if (!this.nearIndex.has(k)) this._hide(k, true);
+    this.nearIndex = next;
+    const m = new THREE.Matrix4(), col = new THREE.Color(), counts = [0, 0];
+    for (const [k, [look, slot]] of next) {
+      const nm = this.nearMeshes[look];
+      nm.setMatrixAt(slot, this._matrix(k, m));
+      nm.setColorAt(slot, col.setRGB(this.colour[3 * k], this.colour[3 * k + 1], this.colour[3 * k + 2]));
+      nm.userData.ids[slot] = k;
+      counts[look] = Math.max(counts[look], slot + 1);
+    }
+    this.nearMeshes.forEach((nm, look) => {
+      nm.count = counts[look];
+      nm.instanceMatrix.needsUpdate = true;
+      if (nm.instanceColor) nm.instanceColor.needsUpdate = true;
+      nm.computeBoundingSphere();
+    });
+    return true;
+  }
+
+  /* Chunk meshes that meet `rect` ({x0, z0, x1, z1}, local metres) cast shadows, the others
+   * do not; the near set always does. null: every chunk casts. True iff a flag changed. */
+  setShadowFocus(rect) {
+    let changed = false;
+    for (const g of this.groups) {
+      const on = !rect || (g.x0 <= rect.x1 && g.x0 + g.side >= rect.x0 && g.z0 <= rect.z1 && g.z0 + g.side >= rect.z0);
+      for (const mesh of g.meshes) if (mesh.castShadow !== on) { mesh.castShadow = on; changed = true; }
     }
     return changed;
   }
+
+  nearSet() {
+    const ids = [...this.nearIndex.keys()].sort((a, b) => a - b);
+    return { ids, count: ids.length };
+  }
+
+  lookCounts() { return { conifer: this.looks.conifer, broad: this.looks.broad }; }
 
   dispose() {
     for (const g of Object.values(this.geo)) g.dispose();
     this.material.dispose();
     for (const g of this.groups) for (const m of g.meshes) m.dispose();
+    for (const m of this.nearMeshes) m.dispose();
+    if (this.group.parent) this.group.parent.remove(this.group);
   }
 }
 
 // ------------------------------------------------------------------ buildings
-function signedAreaXZ(ring) {
-  let a = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const p = ring[i], q = ring[(i + 1) % ring.length];
-    a += p[0] * q[1] - q[0] * p[1];
-  }
-  return a / 2;
-}
-
 export function ringCentroid(ring) {
   let a = 0, cx = 0, cz = 0;
   for (let i = 0; i < ring.length; i++) {
@@ -260,91 +347,423 @@ export function pointInRing(ring, x, z) {
   return inside;
 }
 
-class Prisms {
-  constructor() { this.pos = []; this.col = []; this.idx = []; }
-  // Returns the indices of the wall-bottom vertices, so the walls can be lowered later.
-  add(ring, bottom, top, wall, roof) {
-    // FORMAT.md rings are counter-clockwise in grid (E, N), i.e. negative area in (x, z).
-    // Normalise to that, so each wall quad below faces out of the footprint.
-    const r = signedAreaXZ(ring) > 0 ? ring.slice().reverse() : ring;
-    const bottoms = [];
-    for (let i = 0; i < r.length; i++) {
-      const p = r[i], q = r[(i + 1) % r.length];
-      const v = this.pos.length / 3;
-      this.pos.push(p[0], top, p[1], p[0], bottom, p[1], q[0], bottom, q[1], q[0], top, q[1]);
-      for (let k = 0; k < 4; k++) this.col.push(wall.r, wall.g, wall.b);
-      this.idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
-      bottoms.push(v + 1, v + 2);
-    }
-    const contour = r.map((p) => new THREE.Vector2(p[0], p[1]));
-    const tris = THREE.ShapeUtils.triangulateShape(contour, []);
-    const v0 = this.pos.length / 3;
-    for (const p of r) { this.pos.push(p[0], top, p[1]); this.col.push(roof.r, roof.g, roof.b); }
-    for (const t of tris) {
-      // keep the roof facing up: (b - a) x (c - a) must have a positive y
-      const a = r[t[0]], b = r[t[1]], c = r[t[2]];
-      const ny = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
-      if (ny >= 0) this.idx.push(v0 + t[0], v0 + t[1], v0 + t[2]);
-      else this.idx.push(v0 + t[0], v0 + t[2], v0 + t[1]);
-    }
-    return bottoms;
+// Drawn, not measured (a visible choice each, one line to change):
+export const OVERHANG = { pitched: 0.4, flat: 0.15, fallback: 0 };   // eave inset of the walls, m
+export const FASCIA = 0.2;                                             // trim board under the eaves, m
+// The listing house is drawn only as measured (Joseph's answer, A2): its roof as fitted, no
+// drawn eave, no fascia, and a plain roof in its highlight colour. Its walls keep the cladding.
+export const HOUSE_ROOF = 'fitted';                                    // 'prism': the flat prism at `roof` instead
+export const HOUSE_OVERHANG = { pitched: 0, flat: 0, fallback: 0 };   // walls at the measured roof edge
+export const HOUSE_FASCIA = 0;
+export const HOUSE_ROOF_MAP = null;                                    // plain roof: no tile courses ('tiles' to add them)
+export const HOUSE_WALL_LIFT = 1;                                      // 1.08: lifted for the cladding, as the neighbours
+// Colours: neighbours neutral with a +-5 % lightness jitter and no hue change; the house keeps
+// its highlight, which is not its real colour. The neighbours' walls are lifted 8 % for the
+// cladding's average. Every factor scales the sRGB values, as they show on screen.
+const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
+const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
+const FOCUS_MERGE = 64;                   // triangles: changed runs this close are uploaded as one
+const SLICE = { buildings: 50, ms: 4 };   // neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11)
+const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
+const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
+
+/* The features of a buildings.json document, or [] (reported through onError) if it is
+ * not version 1. */
+export function buildingFeatures(doc, onError) {
+  if (!doc || typeof doc !== 'object') return [];
+  if (doc.version !== 1) {
+    if (onError) onError(new Error('buildings.json version ' + doc.version + ' is not supported'));
+    return [];
   }
-  mesh(name) {
+  return Array.isArray(doc.features) ? doc.features : [];
+}
+
+/* What a feature is drawn as, worked out once per feature object:
+ * {id, ground, top, ridge, prep (roofmesh), fallback, malformed, model, pitched, box, ring}. */
+const plans = new WeakMap();
+function planOf(f) {
+  if (!f || typeof f !== 'object') return null;
+  if (plans.has(f)) return plans.get(f);
+  let plan = null;
+  const ground = Number(f.ground), roof = Number(f.roof);
+  if (Array.isArray(f.ring) && f.ring.length >= 3 && Number.isFinite(ground) && Number.isFinite(roof)) {
+    const top = Math.max(roof, ground + 2);
+    const s = f.house === true && HOUSE_ROOF === 'prism' ? undefined : f.roof_shape;
+    let prep = null, malformed = false, ridge = top;
+    if (s !== undefined && s !== null && !(typeof s === 'object' && s.model === 'none')) {
+      try {
+        if (typeof s !== 'object' || !MODELS.has(s.model)) throw new Error('unknown model');
+        prep = prepareShape(s);
+        if (!(lowestRoof(prep) >= ground - 2 + 0.5)) throw new Error('roof below the walls');
+        if (!Number.isFinite(s.ridge)) throw new Error('ridge');
+        ridge = s.ridge;
+      } catch (e) {
+        prep = null;
+        malformed = true;
+      }
+    }
+    const fallback = !prep;
+    if (fallback) prep = prismShape(f.ring, top);
+    let box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of prep.outline.concat(f.ring)) {
+      box = [Math.min(box[0], p[0]), Math.min(box[1], p[1]), Math.max(box[2], p[0]), Math.max(box[3], p[1])];
+    }
+    plan = { f, id: f.id, ground, top, ridge, prep, fallback, malformed, model: fallback ? null : s.model,
+             pitched: !fallback && isPitched(prep), box, ring: prep.outline };
+  }
+  plans.set(f, plan);
+  return plan;
+}
+
+function meshOptions(plan, isHouse, opts = {}) {
+  const kind = plan.fallback ? 'fallback' : plan.pitched ? 'pitched' : 'flat';
+  const overhang = opts.overhang !== undefined ? opts.overhang : (isHouse ? HOUSE_OVERHANG : OVERHANG)[kind];
+  const fascia = opts.fascia !== undefined ? opts.fascia : (plan.fallback ? 0 : isHouse ? HOUSE_FASCIA : FASCIA);
+  return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs };
+}
+
+/* hex, its sRGB values times f (so f is a lightness factor as the eye sees it, with no hue
+ * change), as a colour in three's linear working space. f = 1 gives new THREE.Color(hex). */
+function srgbTimes(hex, f) {
+  const k = (shift) => Math.min(1, (((hex >> shift) & 255) / 255) * f);
+  return new THREE.Color().setRGB(k(16), k(8), k(0), THREE.SRGBColorSpace);
+}
+
+export function buildingJitter(id) {
+  return 1 + JITTER * (2 * hash2(Number(id) * 7919 + 13, 101) - 1);
+}
+
+function coloursFor(plan, isHouse) {
+  const c = COLOURS[isHouse ? 'house' : 'others'];
+  const j = isHouse ? 1 : buildingJitter(plan.id);
+  const walls = srgbTimes(c.walls, (isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
+  return [walls, srgbTimes(c.roof, j), srgbTimes(c.roof, j * TRIM_SHADE)];
+}
+
+const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
+
+/* One building's mesh as typed arrays ready to copy: positions, flat normals (a vertex
+ * belongs to one face), uvs, colours by group, the local index per group, the wall
+ * bottoms and the box. */
+function packMesh(m, colours) {
+  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups;
+  const pos = Float32Array.from(P), uv = Float32Array.from(m.uv);
+  const nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
+  const counts = [0, 0, 0];
+  for (let t = 0; t < G.length; t++) counts[G[t]] += 3;
+  const groups = counts.map((n) => new Uint32Array(n)), fill = [0, 0, 0];
+  for (let t = 0; t < G.length; t++) {
+    const a = I[3 * t], b = I[3 * t + 1], c = I[3 * t + 2], g = G[t];
+    const ux = P[3 * b] - P[3 * a], uy = P[3 * b + 1] - P[3 * a + 1], uz = P[3 * b + 2] - P[3 * a + 2];
+    const vx = P[3 * c] - P[3 * a], vy = P[3 * c + 1] - P[3 * a + 1], vz = P[3 * c + 2] - P[3 * a + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    nx /= L; ny /= L; nz /= L;
+    const k = colours[g];
+    for (const v of [a, b, c]) {
+      nor[3 * v] = nx; nor[3 * v + 1] = ny; nor[3 * v + 2] = nz;
+      col[3 * v] = k.r; col[3 * v + 1] = k.g; col[3 * v + 2] = k.b;
+    }
+    groups[g][fill[g]++] = a; groups[g][fill[g]++] = b; groups[g][fill[g]++] = c;
+  }
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let v = 0; v < nv; v++) {
+    for (let k = 0; k < 3; k++) { const x = P[3 * v + k]; if (x < lo[k]) lo[k] = x; if (x > hi[k]) hi[k] = x; }
+  }
+  return { nv, ni: I.length, pos, nor, uv, col, groups, wallBottom: m.wallBottom, lo, hi };
+}
+
+/* One of the two building meshes, built from per-building meshes in one go. Its index is
+ * laid out walls, roofs, trim, each a geometry group, and within a group one contiguous
+ * block per building, so setShadowFocus() can put the buildings near the sun's box first. */
+class BuildingMesh {
+  constructor(name, materials) {
+    this.mesh = new THREE.Mesh(BuildingMesh.empty(), materials);
+    this.mesh.name = name;
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    this.entries = [];
+    this.inFocus = [0, 0, 0];
+    this.owner = null;          // per triangle slot of the index: the entry drawn there
+    this.lastUpload = 0;        // index entries queued for upload by the last focus change
+    this.mesh.onBeforeShadow = (r, o, cam, sc, geometry, depth, group) => {
+      if (!group) return;
+      geometry.drawRange.start = group.start;
+      geometry.drawRange.count = this.inFocus[group.materialIndex];
+    };
+    this.mesh.onAfterShadow = (r, o, cam, sc, geometry) => {
+      geometry.drawRange.start = 0;
+      geometry.drawRange.count = Infinity;
+    };
+  }
+
+  static empty() {
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    g.setIndex(this.idx.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1)
-                                            : new THREE.Uint16BufferAttribute(this.idx, 1));
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-    mat.toneMapped = false;
-    const m = new THREE.Mesh(g, mat);
-    m.name = name;
-    return m;
+    g.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute([], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([], 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+    g.setAttribute('cwGround', new THREE.Float32BufferAttribute([], 1));
+    g.setIndex([]);
+    for (let m = 0; m < 3; m++) g.addGroup(0, 0, m);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
+    g.boundingBox = new THREE.Box3(new THREE.Vector3(), new THREE.Vector3());
+    return g;
+  }
+
+  /* entries: [{item, packed (packMesh), order}]. Only copies: every per-building array was
+   * made when that building was meshed, so the swap stays short. */
+  build(entries) { this.finish(this.stage(entries)); }
+
+  /* The first half of a build: the vertex attributes, copied into place. */
+  stage(entries) {
+    // within each group, buildings in 240 m squares, row by row, for locality
+    const sq = (e) => [Math.floor(e.item.box[1] / 240), Math.floor(e.item.box[0] / 240)];
+    entries = entries.slice().sort((a, b) => { const p = sq(a), q = sq(b); return p[0] - q[0] || p[1] - q[1] || a.order - b.order; });
+    let nv = 0, ni = 0;
+    for (const e of entries) { e.voff = nv; nv += e.packed.nv; ni += e.packed.ni; }
+    const st = { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
+                 col: new Float32Array(nv * 3), gnd: new Float32Array(nv) };
+    for (const e of entries) {
+      const p = e.packed;
+      st.pos.set(p.pos, e.voff * 3);
+      st.nor.set(p.nor, e.voff * 3);
+      st.uv.set(p.uv, e.voff * 2);
+      st.col.set(p.col, e.voff * 3);
+      st.gnd.fill(e.item.ground, e.voff, e.voff + p.nv);
+    }
+    return st;
+  }
+
+  /* The second half: the index, one group per material, and the swap. */
+  finish(st) {
+    const { entries, nv, ni, pos, nor, uv, col, gnd } = st;
+    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+    const starts = [0, 0, 0], counts = [0, 0, 0];
+    let cursor = 0;
+    for (let g = 0; g < 3; g++) {
+      starts[g] = cursor;
+      for (const e of entries) {
+        e.blocks = e.blocks || [];
+        const local = e.packed.groups[g], off = e.voff, from = cursor;
+        for (let i = 0; i < local.length; i++) idx[cursor++] = local[i] + off;
+        e.blocks[g] = [from, cursor - from];
+      }
+      counts[g] = cursor - starts[g];
+    }
+    for (const e of entries) {
+      e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
+      e.item.span = [e.voff, e.packed.nv];            // its vertices in the mesh: first, count
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('cwGround', new THREE.BufferAttribute(gnd, 1));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    for (let g = 0; g < 3; g++) geo.addGroup(starts[g], counts[g], g);
+    BuildingMesh.bounds(geo, entries.map((e) => e.packed));
+    const old = this.mesh.geometry;
+    this.mesh.geometry = geo;
+    old.dispose();
+    this.entries = entries;
+    this.starts = starts;
+    this.counts = counts;
+    const owner = new Int32Array(ni / 3);
+    entries.forEach((e, i) => { for (const [from, n] of e.blocks) owner.fill(i, from / 3, (from + n) / 3); });
+    this.owner = owner;
+    this.state = new Uint8Array(entries.length).fill(1);     // everything starts in focus
+    this.want = new Uint8Array(entries.length);
+    this.inFocus = counts.slice();
+    this.lastUpload = 0;
+  }
+
+  /* The geometry's box from the buildings' boxes, and a sphere around its centre that
+   * holds every building's box (a little larger than three's own, never smaller). */
+  static bounds(geo, packs) {
+    const box = new THREE.Box3();
+    for (const p of packs) {
+      box.expandByPoint(new THREE.Vector3(p.lo[0], p.lo[1], p.lo[2]));
+      box.expandByPoint(new THREE.Vector3(p.hi[0], p.hi[1], p.hi[2]));
+    }
+    if (box.isEmpty()) box.set(new THREE.Vector3(), new THREE.Vector3());
+    const c = box.getCenter(new THREE.Vector3());
+    let r = 0;
+    for (const p of packs) {
+      const dx = Math.max(Math.abs(p.lo[0] - c.x), Math.abs(p.hi[0] - c.x));
+      const dy = Math.max(Math.abs(p.lo[1] - c.y), Math.abs(p.hi[1] - c.y));
+      const dz = Math.max(Math.abs(p.lo[2] - c.z), Math.abs(p.hi[2] - c.z));
+      r = Math.max(r, Math.hypot(dx, dy, dz));
+    }
+    geo.boundingBox = box;
+    geo.boundingSphere = new THREE.Sphere(c, r);
+  }
+
+  /* Put the buildings whose box meets rect first within each group; null: all in focus.
+   * In place: only the triangles of buildings whose in/out state changed move, each
+   * swapped with a triangle across the group's new boundary, and only the index spans
+   * that changed are queued for upload (addUpdateRange), not the whole index.
+   * True iff the in-focus set changed. */
+  focus(rect) {
+    if (!this.owner) return false;
+    const E = this.entries, n = E.length, want = this.want, state = this.state;
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      want[i] = !rect || boxMeets(E[i].item.box, rect) ? 1 : 0;
+      if (want[i] !== state[i]) changed = true;
+    }
+    if (!changed) return false;
+    const index = this.mesh.geometry.index, idx = index.array, owner = this.owner;
+    const runs = [];                        // [first triangle, last triangle + 1], in order
+    const add = (list, t) => {
+      const r = list[list.length - 1];
+      if (r && t - r[1] <= FOCUS_MERGE) r[1] = t + 1; else list.push([t, t + 1]);
+    };
+    for (let g = 0; g < 3; g++) {
+      const t0 = this.starts[g] / 3, t1 = t0 + this.counts[g] / 3;
+      let tin = 0;
+      for (let i = 0; i < n; i++) if (want[i]) tin += E[i].blocks[g][1] / 3;
+      const b = t0 + tin, low = [], high = [];
+      for (let p = t0, q = b; ;) {
+        while (p < b && want[owner[p]]) p++;
+        while (q < t1 && !want[owner[q]]) q++;
+        if (p >= b || q >= t1) break;
+        for (let k = 0; k < 3; k++) { const x = idx[3 * p + k]; idx[3 * p + k] = idx[3 * q + k]; idx[3 * q + k] = x; }
+        const o = owner[p]; owner[p] = owner[q]; owner[q] = o;
+        add(low, p++);
+        add(high, q++);
+      }
+      runs.push(...low, ...high);
+      this.inFocus[g] = 3 * tin;
+    }
+    state.set(want);
+    let uploaded = 0;
+    for (const [a, z] of runs) { index.addUpdateRange(3 * a, 3 * (z - a)); uploaded += 3 * (z - a); }
+    if (runs.length) index.needsUpdate = true;
+    this.lastUpload = uploaded;
+    return true;
   }
 }
 
-/* Buildings as flat-roofed prisms. `ground` is the median terrain under a footprint, so
- * on a slope the ground just outside the downhill wall is lower than that: walls start
- * sunk 2 m below it, and reground() takes them further down, to the lowest ground any
- * block size can draw around the footprint, once the 1 m heights there are loaded. */
+/* Buildings: each drawn from its measured roof where the file has a sound roof_shape, and
+ * as a flat-topped prism at max(roof, ground + 2) where it does not (the top then plain,
+ * in the trim group). `ground` is the median terrain under a footprint, so on a slope the
+ * ground just outside the downhill wall is lower than that: walls start sunk 2 m below
+ * it, and reground() takes them further down, to the lowest ground drawable around the
+ * footprint, once the heights there are loaded.
+ * The house is meshed at once; the neighbours in slices of at most 50 buildings or 4 ms,
+ * on a setTimeout chain, and drawn in one swap when the last slice ends (`ready`). */
 export function buildBuildings(features) {
-  const others = new Prisms(), house = new Prisms();
-  const wall = new THREE.Color(0xcfc9bd), roof = new THREE.Color(0x69706d);
-  const hWall = new THREE.Color(0xc98e5c), hRoof = new THREE.Color(0x7c2e3e);
-  let houseInfo = null, n = 0;
-  const items = [];
-  for (const f of features) {
-    if (!Array.isArray(f.ring) || f.ring.length < 3) continue;
-    const ground = Number(f.ground), top = Number(f.roof);
-    if (!isFinite(ground) || !isFinite(top)) continue;
-    const bottom = ground - 2;                       // sunk, so no block top shows beneath it
-    const roofY = Math.max(top, ground + 2);
-    n++;
-    const xs = f.ring.map((p) => p[0]), zs = f.ring.map((p) => p[1]);
-    const box = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
-    let target, verts;
-    if (f.house === true && !houseInfo) {
-      verts = house.add(f.ring, bottom, roofY, hWall, hRoof);
-      target = 'house';
-      houseInfo = { ring: f.ring, ground, roof: roofY, centroid: ringCentroid(f.ring), id: f.id };
-    } else {
-      verts = others.add(f.ring, bottom, roofY, wall, roof);
-      target = 'others';
-    }
-    items.push({ id: f.id, house: target === 'house', ground, bottom, roof: roofY, box, target, verts });
-  }
+  const maps = detailMaps();
+  const matsFor = (roofMap) => {
+    const walls = new THREE.MeshLambertMaterial({ vertexColors: true, map: maps.cladding });
+    const roofs = new THREE.MeshLambertMaterial({ vertexColors: true, map: roofMap, side: THREE.DoubleSide });
+    const trim = new THREE.MeshLambertMaterial({ vertexColors: true });
+    for (const m of [walls, roofs, trim]) m.toneMapped = false;
+    return [walls, roofs, trim];
+  };
+  const house = new BuildingMesh('house', matsFor(HOUSE_ROOF_MAP === 'tiles' ? maps.tiles : null));
+  const others = new BuildingMesh('buildings', matsFor(maps.tiles));
   const group = new THREE.Group();
   group.name = 'buildings';
-  const othersMesh = others.mesh('buildings');
-  const houseMesh = house.mesh('house');
-  group.add(othersMesh, houseMesh);
-  const meshes = { house: houseMesh, others: othersMesh };
+  group.add(others.mesh, house.mesh);
 
+  const items = [], byId = new Map(), pending = [];
+  const info = { byModel: {}, fallback: 0, malformed: 0 };
+  let houseInfo = null, houseEntry = null, order = 0;
+  for (const f of features || []) {
+    const plan = planOf(f);
+    if (!plan) continue;
+    const isHouse = f.house === true && !houseInfo;
+    const item = { id: f.id, house: isHouse, ground: plan.ground, bottom: plan.ground - 2, roof: plan.ridge,
+                   box: plan.box, target: isHouse ? 'house' : 'others', verts: null, plan };
+    items.push(item);
+    byId.set(f.id, item);
+    if (plan.fallback) info.fallback++;
+    else info.byModel[plan.model] = (info.byModel[plan.model] || 0) + 1;
+    if (plan.malformed) info.malformed++;
+    const entry = { item, order: order++, colours: coloursFor(plan, isHouse), packed: null };
+    if (isHouse) {
+      houseInfo = { ring: plan.ring, ground: plan.ground, roof: plan.ridge, centroid: ringCentroid(plan.ring),
+                    id: f.id, shape: plan.fallback ? null : f.roof_shape };
+      houseEntry = entry;
+    } else {
+      pending.push(entry);
+    }
+  }
+  const timing = { houseMs: 0, slices: 0, longestSliceMs: 0, totalMs: 0, swapMs: 0, sliceMs: [] };
+  const mesh1 = (entry) => {
+    const m = meshBuilding(entry.item.plan.prep, entry.item.bottom, meshOptions(entry.item.plan, entry.item.house));
+    entry.packed = packMesh(m, entry.colours);
+    entry.meshedBottom = entry.item.bottom;
+  };
+  const t0 = performance.now();
+  if (houseEntry) {
+    mesh1(houseEntry);
+    house.build([houseEntry]);
+  }
+  timing.houseMs = performance.now() - t0;
+
+  let lastRect = null, disposed = false;
+  const ready = new Promise((resolve) => {
+    const start = performance.now();
+    let next = 0;
+    const note = (ms) => { timing.slices++; timing.sliceMs.push(ms); timing.longestSliceMs = Math.max(timing.longestSliceMs, ms); };
+    // the last step: one swap of the whole geometry, and the walls lowered meanwhile
+    let staged = null;
+    const stage = () => {
+      if (disposed) { resolve(false); return; }
+      const s0 = performance.now();
+      staged = others.stage(pending);
+      const ms = performance.now() - s0;
+      timing.swapMs = ms;
+      note(ms);
+      setTimeout(swap, 0);
+    };
+    const swap = () => {
+      if (disposed) { resolve(false); return; }
+      const s0 = performance.now();
+      others.finish(staged);
+      staged = null;
+      const geo = others.mesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
+      let moved = false;
+      for (const e of pending) {
+        if (e.item.bottom === e.meshedBottom) continue;
+        for (const v of e.item.verts) { P[v * 3 + 1] = e.item.bottom; U[v * 2 + 1] = e.item.bottom / WALL_TILE; }
+        moved = true;
+      }
+      if (moved) {
+        geo.attributes.position.needsUpdate = true;
+        geo.attributes.uv.needsUpdate = true;
+        BuildingMesh.bounds(geo, pending.map((e) => ({ lo: [e.packed.lo[0], Math.min(e.packed.lo[1], e.item.bottom), e.packed.lo[2]], hi: e.packed.hi })));
+      }
+      others.focus(lastRect);
+      const ms = performance.now() - s0;
+      timing.swapMs = Math.max(timing.swapMs, ms);
+      note(ms);
+      timing.totalMs = performance.now() - start;
+      resolve(true);
+    };
+    const slice = () => {
+      if (disposed) { resolve(false); return; }
+      const s0 = performance.now();
+      let n = 0;
+      while (next < pending.length && n < SLICE.buildings && (n === 0 || performance.now() - s0 < SLICE.ms)) {
+        mesh1(pending[next]);
+        next++;
+        n++;
+      }
+      note(performance.now() - s0);
+      setTimeout(next < pending.length ? slice : stage, 0);
+    };
+    setTimeout(pending.length ? slice : stage, 0);
+  });
+
+  const meshes = { house, others };
   /* lowestAt(x0, z0, x1, z1) gives the lowest ground drawable over a box, or null while it
    * is not known. `touches(box)`, when given, limits the work to the buildings it accepts.
-   * Returns how many buildings were lowered. */
+   * Returns how many buildings were lowered (a building not yet meshed is meshed with it). */
   function reground(lowestAt, touches) {
     const dirty = new Set();
     let lowered = 0;
@@ -355,37 +774,71 @@ export function buildBuildings(features) {
       const bottom = Math.min(it.ground - 2, low - 0.25);
       if (bottom >= it.bottom) continue;
       it.bottom = bottom;
-      const arr = meshes[it.target].geometry.attributes.position.array;
-      for (const v of it.verts) arr[v * 3 + 1] = bottom;
-      dirty.add(it.target);
       lowered++;
+      if (!it.verts) continue;
+      const geo = meshes[it.target].mesh.geometry;
+      const P = geo.attributes.position.array, U = geo.attributes.uv.array;
+      for (const v of it.verts) { P[v * 3 + 1] = bottom; U[v * 2 + 1] = bottom / WALL_TILE; }
+      dirty.add(it.target);
     }
     for (const t of dirty) {
-      const g = meshes[t].geometry;
+      const g = meshes[t].mesh.geometry;
       g.attributes.position.needsUpdate = true;
+      g.attributes.uv.needsUpdate = true;
       g.computeBoundingBox();
       g.computeBoundingSphere();
     }
     return lowered;
   }
-  return { group, othersMesh, houseMesh, house: houseInfo, count: n, items, reground };
+
+  return {
+    group, othersMesh: others.mesh, houseMesh: house.mesh, house: houseInfo, count: items.length, items, reground, ready,
+    timing,
+    /* Test hook: one building's geometry, rebuilt off-scene (by default as drawn). */
+    meshFor(id, opts = {}) {
+      const it = byId.get(id);
+      if (!it) return null;
+      const m = meshBuilding(it.plan.prep, it.bottom, meshOptions(it.plan, it.house, opts));
+      return { pos: m.pos, uv: m.uv, idx: m.idx, groups: m.groups, wallBottom: m.wallBottom };
+    },
+    setShadowFocus(rect) {
+      lastRect = rect || null;
+      const a = house.focus(lastRect), b = others.focus(lastRect);
+      return a || b;
+    },
+    /* Test hook: the index counts in focus, and in all, per group of each mesh. */
+    shadowFocus() {
+      const of = (b) => ({ inFocus: b.inFocus.slice(), counts: (b.counts || [0, 0, 0]).slice(), uploaded: b.lastUpload });
+      return { house: of(house), others: of(others) };
+    },
+    info() { return { byModel: Object.assign({}, info.byModel), fallback: info.fallback, malformed: info.malformed }; },
+    dispose() {
+      disposed = true;
+      for (const b of [house, others]) {
+        b.mesh.geometry.dispose();
+        for (const m of b.mesh.material) m.dispose();
+      }
+      if (group.parent) group.parent.remove(group);
+      releaseDetailMaps();
+    }
+  };
 }
 
-/* Footprints in 16 m buckets, for walking: inside a footprint the ground is its roof. */
+/* The drawn outlines in 16 m buckets, for walking: inside one the ground is its roof as
+ * drawn (the planes of the part containing the point), or the flat top of a prism. */
 export class FootprintIndex {
   constructor(features) {
     this.size = 16;
     this.cells = new Map();
-    for (const f of features) {
-      if (!Array.isArray(f.ring) || f.ring.length < 3) continue;
-      const xs = f.ring.map((p) => p[0]), zs = f.ring.map((p) => p[1]);
-      const b = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
-      const item = { ring: f.ring, box: b, roof: Math.max(Number(f.roof), Number(f.ground) + 2) };
+    for (const f of features || []) {
+      const plan = planOf(f);
+      if (!plan) continue;
+      const b = plan.box;
       for (let i = Math.floor(b[0] / this.size); i <= Math.floor(b[2] / this.size); i++) {
         for (let j = Math.floor(b[1] / this.size); j <= Math.floor(b[3] / this.size); j++) {
           const k = i + '_' + j;
           if (!this.cells.has(k)) this.cells.set(k, []);
-          this.cells.get(k).push(item);
+          this.cells.get(k).push(plan);
         }
       }
     }
@@ -393,18 +846,19 @@ export class FootprintIndex {
   roofAt(x, z) {
     const list = this.cells.get(Math.floor(x / this.size) + '_' + Math.floor(z / this.size));
     if (!list) return null;
-    for (const it of list) {
-      const b = it.box;
+    for (const p of list) {
+      const b = p.box;
       if (x < b[0] || x > b[2] || z < b[1] || z > b[3]) continue;
-      if (pointInRing(it.ring, x, z)) return it.roof;
+      const y = roofOf(p.prep, x, z);
+      if (y !== null) return y;
     }
     return null;
   }
 }
 
 // ------------------------------------------------------------------ plot fence
-/* A low (0.4 m) ribbon along every ring of the parcel, standing on the drawn block
- * tops, so the boundary reads from a distance. Rebuilt when the blocks under it change. */
+/* A low (0.4 m) ribbon along every ring of the parcel, standing on the drawn surface, so
+ * the boundary reads from a distance. Rebuilt when the ground under it changes. */
 export class PlotFence {
   constructor(scene, parcels) {
     this.rings = [];
@@ -412,8 +866,9 @@ export class PlotFence {
       if (Array.isArray(p.ring) && p.ring.length >= 3) this.rings.push(p.ring);
       for (const h of p.holes || []) if (Array.isArray(h) && h.length >= 3) this.rings.push(h);
     }
+    this.colour = new THREE.Color(0xb8552f);
     this.material = new THREE.MeshBasicMaterial({
-      color: 0xb8552f, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2
+      color: this.colour.clone(), side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2
     });
     this.material.toneMapped = false;
     this.mesh = null;
@@ -453,8 +908,19 @@ export class PlotFence {
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.name = 'plot-fence';
     this.mesh.renderOrder = 2;
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
     this.scene.add(this.mesh);
     return missing;
+  }
+  /* The fence's colour times f, f in [0.4, 1] (dimmed at night). */
+  setDim(f) {
+    const k = Math.max(0.4, Math.min(1, Number(f)));
+    this.material.color.copy(this.colour).multiplyScalar(Number.isFinite(k) ? k : 1);
+  }
+  dispose() {
+    if (this.mesh) { this.scene.remove(this.mesh); this.mesh.geometry.dispose(); this.mesh = null; }
+    this.material.dispose();
   }
 }
 

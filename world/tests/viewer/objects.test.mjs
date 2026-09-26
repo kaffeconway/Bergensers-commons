@@ -1,0 +1,919 @@
+// Commons World viewer tests: buildings drawn from measured roofs, and trees, on the
+// synthetic world (world/out/synthetic). Run with the other viewer tests:
+//
+//   node --test --test-concurrency=1 world/tests/viewer/*.test.mjs
+//
+// The shared harness (harness.mjs) serves the repo root, builds the synthetic world if it
+// is missing, and refuses any request that leaves localhost.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import { SYN, WORLD, READY_MS, offenders, newContext, openWorld, mainPage } from './harness.mjs';
+
+const manifest = () => JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
+const buildingsDoc = () => JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest().files.buildings.file))).toString('utf8'));
+
+async function shared() {
+  const main = await mainPage();
+  await main.page.evaluate(() => window.__cw.internals.buildings.ready);
+  return main;
+}
+
+// The roof of a one-part roof_shape at (x, z), from its planes.
+const PLANES_JS = `
+  window.__roofOf = function (shape, x, z) {
+    let y = Infinity;
+    for (const [sx, sz, y0] of shape.parts[0].planes) y = Math.min(y, y0 + sx * (x - shape.at[0]) + sz * (z - shape.at[1]));
+    return y;
+  };
+  window.__triNormal = function (P, a, b, c) {
+    const ux = P[3 * b] - P[3 * a], uy = P[3 * b + 1] - P[3 * a + 1], uz = P[3 * b + 2] - P[3 * a + 2];
+    const vx = P[3 * c] - P[3 * a], vy = P[3 * c + 1] - P[3 * a + 1], vz = P[3 * c + 2] - P[3 * a + 2];
+    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx], L = Math.hypot(...n);
+    return [n[0] / L, n[1] / L, n[2] / L, L / 2];
+  };
+`;
+
+// One building's mesh at overhang 0, closed with a bottom cap: whether it is closed, faces
+// out and holds the volume under `roofAt`; its roofs face up and its walls are vertical.
+const SOLID_JS = `
+  window.__solid = function (THREE, m, roofAt) {
+    const P = m.pos, I = m.idx, res = { uvPairs: m.uv.length / 2 === P.length / 3 };
+    let roofDown = 0, tilted = 0;
+    for (let t = 0; t < I.length / 3; t++) {
+      const n = window.__triNormal(P, I[3 * t], I[3 * t + 1], I[3 * t + 2]);
+      const top = m.groups[t] === 1 || (m.groups[t] === 2 && Math.abs(n[1]) > 0.5);
+      if (top) { if (!(n[1] > 0)) roofDown++; } else if (Math.abs(n[1]) > 1e-6) tilted++;
+    }
+    Object.assign(res, { roofDown, tilted });
+    // the outline, from the wall bottoms in order, closed with a bottom cap
+    const ring = [];
+    for (let k = 0; k < m.wallBottom.length; k += 2) {
+      const v = m.wallBottom[k], p = [P[3 * v], P[3 * v + 2]], l = ring[ring.length - 1];
+      if (!l || Math.hypot(l[0] - p[0], l[1] - p[1]) > 1e-6) ring.push(p);
+    }
+    if (Math.hypot(ring[0][0] - ring[ring.length - 1][0], ring[0][1] - ring[ring.length - 1][1]) < 1e-6) ring.pop();
+    const bottom = P[3 * m.wallBottom[0] + 1];
+    const pos = P.slice(), idx = I.slice(), v0 = pos.length / 3;
+    for (const p of ring) pos.push(p[0], bottom, p[1]);
+    for (const t of THREE.ShapeUtils.triangulateShape(ring.map((p) => new THREE.Vector2(p[0], p[1])), [])) {
+      const a = ring[t[0]], b = ring[t[1]], c = ring[t[2]];
+      const ny = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]);
+      if (ny <= 0) idx.push(v0 + t[0], v0 + t[1], v0 + t[2]); else idx.push(v0 + t[0], v0 + t[2], v0 + t[1]);
+    }
+    // weld at 0.1 mm; every directed edge left over must be covered, point for point, by
+    // collinear edges running the other way (a vertex lying on an edge is closed geometry)
+    const key = (v) => pos[3 * v].toFixed(4) + ',' + pos[3 * v + 1].toFixed(4) + ',' + pos[3 * v + 2].toFixed(4);
+    const weld = new Map(), id = [], first = [];
+    for (let v = 0; v < pos.length / 3; v++) {
+      const k = key(v);
+      if (!weld.has(k)) { weld.set(k, weld.size); first.push([pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]]); }
+      id.push(weld.get(k));
+    }
+    const edges = new Map();
+    let vol = 0;
+    for (let t = 0; t < idx.length / 3; t++) {
+      const a = id[idx[3 * t]], b = id[idx[3 * t + 1]], c = id[idx[3 * t + 2]];
+      if (a === b || b === c || a === c) continue;
+      for (const [u, w] of [[a, b], [b, c], [c, a]]) edges.set(u + '>' + w, (edges.get(u + '>' + w) || 0) + 1);
+      const A = idx[3 * t], B2 = idx[3 * t + 1], C = idx[3 * t + 2];
+      const ax = pos[3 * A], ay = pos[3 * A + 1], az = pos[3 * A + 2], bx = pos[3 * B2], by = pos[3 * B2 + 1], bz = pos[3 * B2 + 2];
+      const cx = pos[3 * C], cy = pos[3 * C + 1], cz = pos[3 * C + 2];
+      vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+    }
+    const rest = [];
+    for (const [e, n] of edges) {
+      const [u, w] = e.split('>');
+      const back = edges.get(w + '>' + u) || 0;
+      for (let k = 0; k < n - Math.min(n, back); k++) rest.push([first[Number(u)], first[Number(w)]]);
+    }
+    let open = 0;
+    for (const [a, b] of rest) {
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d), u = d.map((x) => x / L);
+      const cover = [];
+      for (const [c, e] of rest) {
+        const off = (p) => { const w = [p[0] - a[0], p[1] - a[1], p[2] - a[2]]; const t = w[0] * u[0] + w[1] * u[1] + w[2] * u[2]; return [t, Math.hypot(w[0] - t * u[0], w[1] - t * u[1], w[2] - t * u[2])]; };
+        const [tc, dc] = off(c), [te, de] = off(e);
+        if (dc > 2e-4 || de > 2e-4 || !(tc > te)) continue;
+        cover.push([te, tc]);
+      }
+      cover.sort((x, y) => x[0] - y[0]);
+      let reach = 0;
+      for (const [s0, s1] of cover) { if (s0 > reach + 2e-4) break; reach = Math.max(reach, s1); }
+      if (reach < L - 2e-4) open++;
+    }
+    // the volume against a 0.1 m integral of the drawn roof over the outline
+    const xs = ring.map((p) => p[0]), zs = ring.map((p) => p[1]);
+    let num = 0;
+    for (let x = Math.min(...xs) + 0.05; x < Math.max(...xs); x += 0.1) {
+      for (let z = Math.min(...zs) + 0.05; z < Math.max(...zs); z += 0.1) {
+        const y = roofAt(x, z);
+        if (y !== null) num += (y - bottom) * 0.01;
+      }
+    }
+    Object.assign(res, { open, vol, volErr: Math.abs(vol - num) / num });
+    return res;
+  };
+`;
+
+// ------------------------------------------------------------------------------------------
+test('buildings are closed and face out', { timeout: READY_MS + 60000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS + SOLID_JS });
+  const r = await page.evaluate(async () => {
+    const THREE = await import('three');
+    const { buildings: B, footprints: F } = window.__cw.internals;
+    const out = [];
+    for (const it of B.items) {
+      const m = B.meshFor(it.id, { overhang: 0 });
+      const res = Object.assign({ id: it.id }, window.__solid(THREE, m, (x, z) => F.roofAt(x, z)));
+      out.push(res);
+    }
+    return out;
+  });
+  assert.equal(r.length, 8);
+  for (const b of r) {
+    assert.ok(b.uvPairs, 'one uv pair per vertex: ' + JSON.stringify(b));
+    assert.equal(b.open, 0, 'closed: ' + JSON.stringify(b));
+    assert.ok(b.vol > 0, 'faces out: ' + JSON.stringify(b));
+    assert.ok(b.volErr < 0.01, 'volume: ' + JSON.stringify(b));
+    assert.equal(b.roofDown, 0, 'roofs face up: ' + JSON.stringify(b));
+    assert.equal(b.tilted, 0, 'walls are vertical: ' + JSON.stringify(b));
+  }
+});
+
+// Invented roofs as the pipeline fits them (the scenes of pipeline/tests/test_roofs.py, laid
+// 50 m apart): splits (an L square to the grid, at 30 degrees, and traced as the house's is,
+// twice; a T; and a flat part standing above a gable, which needs step faces), a hip, a
+// pyramid, a shed, a flat roof, and a patch that fits no model. The synthetic world itself
+// holds only one-part gables and flat roofs, so these are the mesher's other paths.
+const SHAPES = [
+  {"id":1,"label":"L","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[0.0,-11.0],[0.0,-4.0],[-7.0,-4.0],[-7.0,4.0],[7.0,4.0],[7.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":0.95,"cells":107,"outline":"straightened","at":[1.1,-2.3],"pitch":29.3,"eave":23.38,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[0.0,-11.0],[0.0,-4.0],[7.0,-4.0],[7.0,-11.0]],"planes":[[-0.5673,0.0,26.76],[0.5673,0.0,24.03]]},
+     {"model":"gable","ring":[[7.0,4.0],[7.0,-4.0],[0.0,-4.0],[-7.0,-4.0],[-7.0,4.0]],"planes":[[0.0,-0.5547,26.87],[0.0,0.5547,24.46]]}]}},
+  {"id":2,"label":"L at 30","type":111,"source":"dom","ground":19.9,"roof":25.3,"house":false,
+   "ring":[[48.0,-12.0],[48.0,-11.0],[46.0,-11.0],[46.0,-6.0],[47.0,-6.0],[47.0,-4.0],[48.0,-4.0],[48.0,-3.0],[46.0,-3.0],[45.0,-1.0],[43.0,-1.0],[43.0,3.0],[45.0,4.0],[45.0,6.0],[48.0,6.0],[48.0,5.0],[50.0,5.0],[50.0,4.0],[54.0,3.0],[55.0,1.0],[57.0,1.0],[57.0,-3.0],[55.0,-3.0],[55.0,-6.0],[54.0,-6.0],[53.0,-10.0],[52.0,-10.0],[51.0,-12.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":1.0,"cells":88,"outline":"straightened","at":[49.8,-2.5],"pitch":30.1,"eave":23.3,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[46.0,-6.8],[47.9,-3.4],[54.0,-6.8],[50.4,-13.0],[46.0,-10.5]],"planes":[[0.5128,-0.2925,24.01],[-0.5128,0.2925,26.77]]},
+     {"model":"gable","ring":[[57.0,-1.5],[54.0,-6.8],[47.9,-3.4],[43.0,-0.6],[43.0,1.8],[45.9,6.8],[57.0,0.5]],"planes":[[-0.2822,-0.4948,26.89],[0.2822,0.4948,24.42]]}]}},
+  {"id":3,"label":"T","type":111,"source":"dom","ground":19.9,"roof":25.4,"house":false,
+   "ring":[[97.0,-11.0],[97.0,-4.0],[93.0,-4.0],[93.0,4.0],[107.0,4.0],[107.0,-4.0],[103.0,-4.0],[103.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.03,"inliers":1.0,"cells":100,"outline":"straightened","at":[100.0,-2.0],"pitch":30.3,"eave":23.36,"ridge":25.7,"parts":[
+     {"model":"gable","ring":[[97.0,-11.0],[97.0,-4.0],[103.0,-4.0],[103.0,-11.0]],"planes":[[-0.5894,0.0,25.13],[0.5894,0.0,25.13]]},
+     {"model":"gable","ring":[[107.0,-4.0],[103.6,-4.0],[103.0,-4.0],[97.0,-4.0],[93.0,-4.0],[93.0,4.0],[107.0,4.0]],"planes":[[0.0,-0.5807,26.86],[0.0,0.5807,24.54]]}]}},
+  {"id":4,"label":"stepped","type":111,"source":"dom","ground":20.0,"roof":29.6,"house":false,
+   "ring":[[142.0,-4.0],[142.0,4.0],[158.0,4.0],[158.0,-4.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.03,"inliers":1.0,"cells":84,"outline":"straightened","at":[150.0,0.0],"pitch":26.6,"eave":25.07,"ridge":29.56,"parts":[
+     {"model":"gable","ring":[[142.0,4.0],[150.0,4.0],[150.0,-4.0],[142.0,-4.0]],"planes":[[0.0,-0.5002,27.07],[0.0,0.5002,27.07]]},
+     {"model":"flat","ring":[[158.0,-4.0],[150.0,-4.0],[150.0,4.0],[158.0,4.0]],"planes":[[0.0,0.0,29.56]]}]}},
+  {"id":5,"label":"hip","type":111,"source":"dom","ground":20.0,"roof":25.5,"house":false,
+   "ring":[[202.0,-6.0],[202.0,-5.0],[199.0,-5.0],[199.0,-4.0],[196.0,-4.0],[196.0,-3.0],[194.0,-3.0],[194.0,-2.0],[193.0,-2.0],[193.0,3.0],[194.0,3.0],[194.0,5.0],[195.0,5.0],[195.0,6.0],[198.0,6.0],[198.0,5.0],[201.0,5.0],[201.0,4.0],[204.0,4.0],[204.0,3.0],[206.0,3.0],[206.0,2.0],[207.0,2.0],[207.0,-3.0],[206.0,-3.0],[206.0,-5.0],[205.0,-5.0],[205.0,-6.0]],
+   "roof_shape":{"model":"hip","quality":"good","rms":0.03,"inliers":1.0,"cells":78,"outline":"straightened","at":[200.0,0.0],"pitch":30.0,"ridge_bearing":69.6,"eave":23.33,"ridge":26.0,"parts":[
+     {"model":"hip","ring":[[191.8,-1.7],[194.2,4.8],[195.9,6.3],[208.2,1.7],[205.8,-4.8],[204.1,-6.3]],"planes":[[-0.2017,-0.5412,26.0],[0.2017,0.5412,26.0],[-0.5412,0.2017,27.44],[0.5412,-0.2017,27.44]]}]}},
+  {"id":6,"label":"pyramid","type":111,"source":"dom","ground":20.0,"roof":25.0,"house":false,
+   "ring":[[250.0,-5.0],[250.0,-4.0],[245.0,-4.0],[245.0,0.0],[246.0,0.0],[246.0,5.0],[250.0,5.0],[250.0,4.0],[255.0,4.0],[255.0,0.0],[254.0,0.0],[254.0,-5.0]],
+   "roof_shape":{"model":"hip","quality":"good","rms":0.03,"inliers":1.0,"cells":44,"outline":"straightened","at":[250.0,0.0],"pitch":29.8,"ridge_bearing":79.7,"eave":23.31,"ridge":25.88,"parts":[
+     {"model":"hip","ring":[[244.8,-3.6],[246.4,5.2],[255.2,3.6],[253.6,-5.2]],"planes":[[-0.1027,-0.5643,25.88],[0.1027,0.5643,25.88],[-0.5643,0.1027,25.88],[0.5643,-0.1027,25.88]]}]}},
+  {"id":7,"label":"shed","type":111,"source":"dom","ground":20.0,"roof":25.1,"house":false,
+   "ring":[[300.0,-5.0],[300.0,-4.0],[298.0,-4.0],[298.0,-3.0],[296.0,-3.0],[296.0,-2.0],[294.0,-1.0],[294.0,2.0],[295.0,2.0],[295.0,4.0],[296.0,4.0],[296.0,5.0],[300.0,5.0],[300.0,4.0],[302.0,4.0],[302.0,3.0],[304.0,3.0],[304.0,2.0],[306.0,1.0],[306.0,-2.0],[305.0,-2.0],[305.0,-4.0],[304.0,-4.0],[304.0,-5.0]],
+   "roof_shape":{"model":"shed","quality":"good","rms":0.03,"inliers":1.0,"cells":54,"outline":"straightened","at":[300.0,0.0],"pitch":14.0,"ridge_bearing":150.1,"eave":23.27,"ridge":25.39,"parts":[
+     {"model":"shed","ring":[[292.9,-0.8],[296.4,6.2],[307.1,0.8],[303.6,-6.2]],"planes":[[-0.1246,-0.2167,24.33]]}]}},
+  {"id":8,"label":"flat","type":111,"source":"dom","ground":20.0,"roof":26.4,"house":false,
+   "ring":[[343.0,-5.0],[343.0,5.0],[357.0,5.0],[357.0,-5.0]],
+   "roof_shape":{"model":"flat","quality":"good","rms":0.03,"inliers":1.0,"cells":96,"outline":"straightened","at":[350.0,0.0],"pitch":0.0,"eave":26.41,"ridge":26.41,"parts":[
+     {"model":"flat","ring":[[343.0,-5.0],[343.0,5.0],[357.0,5.0],[357.0,-5.0]],"planes":[[0.0,0.0,26.41]]}]}},
+  {"id":9,"label":"L traced","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[400.0,-11.0],[400.0,-4.0],[393.0,-4.0],[393.0,4.0],[407.0,4.0],[407.0,-11.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.06,"inliers":0.95,"cells":107,"outline":"traced","at":[401.1,-2.3],"pitch":29.3,"eave":23.38,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[400.0,-11.0],[400.0,-4.0],[407.0,-4.0],[407.0,-11.0]],"planes":[[-0.5673,0.0,26.76],[0.5673,0.0,24.03]]},
+     {"model":"gable","ring":[[407.0,4.0],[407.0,-4.0],[400.0,-4.0],[393.0,-4.0],[393.0,4.0]],"planes":[[0.0,-0.5547,26.87],[0.0,0.5547,24.46]]}]}},
+  {"id":10,"label":"L at 10 traced","type":111,"source":"dom","ground":20.0,"roof":25.4,"house":false,
+   "ring":[[452.0,-12.0],[452.0,-11.0],[449.0,-11.0],[449.0,-4.0],[447.0,-4.0],[447.0,-3.0],[443.0,-3.0],[443.0,3.0],[444.0,3.0],[444.0,5.0],[448.0,5.0],[448.0,4.0],[453.0,4.0],[453.0,3.0],[457.0,3.0],[456.0,-9.0],[455.0,-9.0],[455.0,-12.0]],
+   "roof_shape":{"model":"split","quality":"good","rms":0.15,"inliers":1.0,"cells":98,"outline":"traced","at":[450.7,-2.4],"pitch":28.2,"eave":22.24,"ridge":25.66,"parts":[
+     {"model":"gable","ring":[[447.0,-4.0],[447.0,-3.0],[456.4,-3.8],[456.0,-9.0],[455.0,-9.0],[455.0,-12.0],[452.0,-12.0],[452.0,-11.0],[449.0,-11.0],[449.0,-4.0]],"planes":[[0.5509,-0.0463,24.25],[-0.5509,0.0463,26.52]]},
+     {"model":"gable","ring":[[453.0,3.0],[457.0,3.0],[456.4,-3.8],[447.0,-3.0],[443.0,-3.0],[443.0,-2.7],[443.0,3.0],[444.0,3.0],[444.0,5.0],[448.0,5.0],[448.0,4.0],[453.0,4.0]],"planes":[[-0.0436,-0.5193,26.87],[0.0436,0.5193,24.44]]}]}},
+  {"id":11,"label":"none","type":111,"source":"dom","ground":20.0,"roof":32.8,"house":false,
+   "ring":[[493.0,-7.0],[493.0,7.0],[507.0,7.0],[507.0,-7.0]],
+   "roof_shape":{"model":"none","reason":"no model fits"}}
+]
+
+test('split, stepped, hipped and unfitted roofs are closed and meet their walls', { timeout: 120000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS + SOLID_JS });
+  const r = await page.evaluate(async (features) => {
+    const THREE = await import('three');
+    const m = await import('./js/objects.js');
+    const b = m.buildBuildings(m.buildingFeatures({ version: 1, features }));
+    await b.ready;
+    const F = new m.FootprintIndex(features);
+    // the roof of every part whose ring holds (x, z), its edges included; a prism's top
+    const inRing = (r, x, z) => {
+      let inside = false;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [xi, zi] = r[i], [xj, zj] = r[j];
+        if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    const onEdge = (r, x, z) => r.some((a, i) => {
+      const c = r[(i + 1) % r.length], dx = c[0] - a[0], dz = c[1] - a[1];
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(a[0] + t * dx - x, a[1] + t * dz - z) < 1e-6;
+    });
+    const roofs = (f, x, z) => {
+      const s = f.roof_shape;
+      if (!s.parts) return [Math.max(f.roof, f.ground + 2)];
+      return s.parts.filter((p) => inRing(p.ring, x, z) || onEdge(p.ring, x, z))
+        .map((p) => Math.min(...p.planes.map(([sx, sz, y0]) => y0 + sx * (x - s.at[0]) + sz * (z - s.at[1]))));
+    };
+    const out = [];
+    for (const f of features) {
+      const res = Object.assign({ label: f.label, parts: f.roof_shape.parts ? f.roof_shape.parts.length : 0 },
+                                window.__solid(THREE, b.meshFor(f.id, { overhang: 0 }), (x, z) => F.roofAt(x, z)));
+      for (const [name, opts] of [['bare', { overhang: 0 }], ['live', {}]]) {
+        const mm = b.meshFor(f.id, opts), P = mm.pos, bottoms = new Set(mm.wallBottom);
+        let tops = 0, topsOff = 0, roofOff = 0, steps = 0;
+        for (let t = 0; t < mm.groups.length; t++) {
+          const g = mm.groups[t], vs = [0, 1, 2].map((k) => mm.idx[3 * t + k]);
+          if (g === 0 && !vs.some((v) => bottoms.has(v))) steps++;     // a wall piece with no foot
+          for (const v of vs) {
+            const x = P[3 * v], y = P[3 * v + 1], z = P[3 * v + 2], ys = roofs(f, x, z);
+            if (g === 0 && !bottoms.has(v)) { tops++; if (!ys.some((h) => Math.abs(h - y) <= 1e-4)) topsOff++; }
+            if (g === 1 && !ys.some((h) => Math.abs(h - y) <= 1e-6)) roofOff++;
+          }
+        }
+        res[name] = { tops, topsOff, roofOff, steps };
+      }
+      out.push(res);
+    }
+    const info = b.info();
+    b.dispose();
+    return { out, info };
+  }, SHAPES);
+  assert.deepEqual(r.info, { byModel: { split: 6, hip: 2, shed: 1, flat: 1 }, fallback: 1, malformed: 0 });
+  for (const b of r.out) {
+    const say = JSON.stringify(b);
+    assert.ok(b.uvPairs, 'one uv pair per vertex: ' + say);
+    assert.equal(b.open, 0, 'closed: ' + say);
+    assert.ok(b.vol > 0, 'faces out: ' + say);
+    assert.ok(b.volErr < 0.01, 'volume: ' + say);
+    assert.equal(b.roofDown, 0, 'roofs face up: ' + say);
+    assert.equal(b.tilted, 0, 'walls are vertical: ' + say);
+    for (const at of [b.bare, b.live]) {
+      assert.ok(at.tops > 0, say);
+      assert.equal(at.topsOff, 0, 'every wall top and step face is on a part\'s roof: ' + say);
+      assert.equal(at.roofOff, 0, 'every roof vertex is on its part\'s planes: ' + say);
+    }
+    if (b.parts < 2) assert.equal(b.bare.steps, 0, 'a one-part roof has no step face: ' + say);
+  }
+  const stepped = r.out.find((b) => b.label === 'stepped');
+  assert.ok(stepped.bare.steps > 0 && stepped.live.steps > 0, 'the flat part above the gable is joined by a step face');
+});
+
+test('the listing house draws nothing made up', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS });
+  const feature = buildingsDoc().features.find((f) => f.house);
+  assert.equal(feature.roof_shape.model, 'gable');
+  const r = await page.evaluate((f) => {
+    const B = window.__cw.internals.buildings;
+    const m = B.meshFor(f.id);                     // as drawn: the house's own constants
+    const bottoms = new Set(m.wallBottom), P = m.pos, ring = f.ring;
+    const onRing = (x, z) => ring.some((a, i) => {
+      const b = ring[(i + 1) % ring.length], dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz);
+      const t = ((x - a[0]) * dx + (z - a[1]) * dz) / (L * L);
+      return t >= -1e-9 && t <= 1 + 1e-9 && Math.abs((x - a[0]) * dz - (z - a[1]) * dx) / L < 1e-6;
+    });
+    let tops = 0, offRing = 0, offRoof = 0, trim = 0;
+    for (let t = 0; t < m.groups.length; t++) {
+      if (m.groups[t] === 2) trim++;
+      if (m.groups[t] !== 0) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = m.idx[3 * t + k];
+        if (bottoms.has(v)) continue;
+        tops++;
+        if (!onRing(P[3 * v], P[3 * v + 2])) offRing++;
+        if (Math.abs(P[3 * v + 1] - window.__roofOf(f.roof_shape, P[3 * v], P[3 * v + 2])) > 1e-4) offRoof++;
+      }
+    }
+    // the house's wall colour, as drawn (three keeps vertex colours in its linear working space)
+    const k = B.houseMesh.geometry.attributes.color, w = B.houseMesh.geometry.groups[0];
+    const v = B.houseMesh.geometry.index.getX(w.start);
+    return { tops, offRing, offRoof, trim, roofMap: B.houseMesh.material[1].map, wallMap: !!B.houseMesh.material[0].map,
+             outline: B.house.ring, shape: B.house.shape && B.house.shape.model, walls: [k.getX(v), k.getY(v), k.getZ(v)] };
+  }, feature);
+  const want = await page.evaluate(async () => (new (await import('three')).Color(0xc98e5c)).toArray());
+  assert.ok(r.tops > 0);
+  assert.equal(r.offRing, 0, 'the walls stand on the traced ring: no drawn eave');
+  assert.equal(r.offRoof, 0, 'and meet the measured roof');
+  assert.equal(r.trim, 0, 'no fascia');
+  assert.equal(r.roofMap, null, 'a plain roof');
+  assert.ok(r.wallMap, 'the walls keep the cladding');
+  assert.deepEqual(r.outline, feature.ring, 'the drawn outline is the traced ring');
+  assert.equal(r.shape, 'gable');
+  r.walls.forEach((c, i) => assert.ok(Math.abs(c - want[i]) < 1e-6, 'the walls are the highlight colour, unlifted: ' + r.walls));
+});
+
+test('the house roof can be drawn as the flat prism instead, in one line', { timeout: READY_MS + 60000 }, async () => {
+  // A2 (a): the alternative to the fitted roof is one constant; served with it changed, the
+  // house is the flat prism at max(roof, ground + 2), and nothing else is
+  const src = fs.readFileSync(path.join(WORLD, 'js', 'objects.js'), 'ascii');
+  const line = "export const HOUSE_ROOF = 'fitted';";
+  assert.equal(src.split(line).length, 2, 'the constant is one line');
+  const ctx = await newContext();
+  await ctx.route('**/js/objects.js', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: src.replace(line, "export const HOUSE_ROOF = 'prism';") }));
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const f = buildingsDoc().features.find((x) => x.house);
+  const r = await page.evaluate((f) => {
+    const { buildings: B, footprints: F } = window.__cw.internals;
+    const m = B.meshFor(f.id), c = window.__cw.house.centroid;
+    return { info: B.info(), shape: B.house.shape, roof: B.house.roof, at: F.roofAt(c[0], c[1]),
+             roofs: m.groups.filter((g) => g === 1).length, tops: m.groups.filter((g) => g === 2).length,
+             errors: window.__cw.errors };
+  }, f);
+  assert.deepEqual(r.info, { byModel: { flat: 3, gable: 4 }, fallback: 1, malformed: 0 });
+  assert.equal(r.shape, null);
+  assert.equal(r.roof, Math.max(f.roof, f.ground + 2));
+  assert.equal(r.at, r.roof, 'walking on it finds the flat top');
+  assert.equal(r.roofs, 0);
+  assert.ok(r.tops > 0, 'a plain top, as every unmeasured roof');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(log.errors, []);
+  await page.close();
+});
+
+test('wall tops meet the roof', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS });
+  const features = buildingsDoc().features.filter((f) => f.roof_shape && f.roof_shape.parts && f.roof_shape.parts.length === 1);
+  assert.ok(features.length >= 6);
+  const r = await page.evaluate((fs) => {
+    const B = window.__cw.internals.buildings;
+    const out = [];
+    for (const f of fs) {
+      const m = B.meshFor(f.id);                   // at the live overhang
+      const bottoms = new Set(m.wallBottom), P = m.pos;
+      let wallOff = 0, roofOff = 0, walls = 0;
+      for (let t = 0; t < m.groups.length; t++) {
+        for (let k = 0; k < 3; k++) {
+          const v = m.idx[3 * t + k], y = window.__roofOf(f.roof_shape, P[3 * v], P[3 * v + 2]);
+          if (m.groups[t] === 0 && !bottoms.has(v)) { walls++; if (Math.abs(P[3 * v + 1] - y) > 1e-4) wallOff++; }
+          if (m.groups[t] === 1 && Math.abs(P[3 * v + 1] - y) > 1e-6) roofOff++;
+        }
+      }
+      out.push({ id: f.id, walls, wallOff, roofOff });
+    }
+    return out;
+  }, features);
+  for (const b of r) {
+    assert.ok(b.walls > 0);
+    assert.equal(b.wallOff, 0, JSON.stringify(b));
+    assert.equal(b.roofOff, 0, JSON.stringify(b));
+  }
+});
+
+test('the drawn roof is the measured roof', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS });
+  const f = buildingsDoc().features.find((x) => x.house);
+  const r = await page.evaluate((f) => {
+    const B = window.__cw.internals.buildings;
+    const m = B.meshFor(f.id), P = m.pos;
+    let top = -Infinity, pitchOff = 0, bearingOff = 0, faces = 0;
+    const bd = (a, b) => { const d = Math.abs(((a - b) % 180 + 180) % 180); return Math.min(d, 180 - d); };
+    for (let t = 0; t < m.groups.length; t++) {
+      if (m.groups[t] !== 1) continue;
+      const n = window.__triNormal(P, m.idx[3 * t], m.idx[3 * t + 1], m.idx[3 * t + 2]);
+      if (n[3] < 1e-6) continue;
+      faces++;
+      const pitch = Math.acos(n[1]) * 180 / Math.PI;
+      // the face's level line, square to its normal, runs along the ridge; its grid
+      // bearing is measured clockwise from -z
+      const dx = -n[2], dz = n[0];
+      const b = Math.atan2(dx, -dz) * 180 / Math.PI;
+      if (Math.abs(pitch - f.roof_shape.pitch) > 0.5) pitchOff++;
+      if (bd(b, f.roof_shape.ridge_bearing) > 0.5) bearingOff++;
+    }
+    for (let t = 0; t < m.groups.length; t++) for (let k = 0; k < 3; k++) {
+      const v = m.idx[3 * t + k];
+      if (m.groups[t] === 1) top = Math.max(top, P[3 * v + 1]);
+    }
+    return { faces, pitchOff, bearingOff, top };
+  }, f);
+  assert.ok(r.faces > 0);
+  assert.equal(r.pitchOff, 0, 'every roof face slopes at the measured pitch');
+  assert.equal(r.bearingOff, 0, 'and runs along the measured ridge');
+  assert.ok(Math.abs(r.top - f.roof_shape.ridge) <= 0.01, 'the drawn ridge is the measured one: ' + r.top);
+});
+
+test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async () => {
+  const doc = buildingsDoc();
+  const file = manifest().files.buildings.file;
+  // without roof_shape: today's prisms
+  const plain = JSON.parse(JSON.stringify(doc));
+  for (const f of plain.features) delete f.roof_shape;
+  let ctx = await newContext();
+  await ctx.route('**/out/synthetic/' + file, (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(plain), contentType: 'application/json' }));
+  let { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const prisms = await page.evaluate((fs) => {
+    const B = window.__cw.internals.buildings, out = [];
+    for (const f of fs) {
+      const m = B.meshFor(f.id), P = m.pos, top = Math.max(f.roof, f.ground + 2);
+      const corners = new Set(f.ring.map((p) => p[0].toFixed(3) + ',' + p[1].toFixed(3)));
+      const seen = new Set();
+      let stray = 0, topOff = 0;
+      const bottoms = new Set(m.wallBottom);
+      for (let t = 0; t < m.groups.length; t++) {
+        if (m.groups[t] !== 0) continue;
+        for (let k = 0; k < 3; k++) {
+          const v = m.idx[3 * t + k], c = P[3 * v].toFixed(3) + ',' + P[3 * v + 2].toFixed(3);
+          if (!corners.has(c)) stray++;
+          seen.add(c);
+          if (!bottoms.has(v) && Math.abs(P[3 * v + 1] - top) > 1e-6) topOff++;
+        }
+      }
+      out.push({ id: f.id, stray, topOff, missing: [...corners].filter((c) => !seen.has(c)).length });
+    }
+    return { out, info: B.info(), errors: window.__cw.errors };
+  }, plain.features);
+  for (const b of prisms.out) assert.deepEqual([b.stray, b.topOff, b.missing], [0, 0, 0], JSON.stringify(b));
+  assert.equal(prisms.info.fallback, 8);
+  assert.equal(prisms.info.malformed, 0);
+  assert.deepEqual(prisms.errors, []);
+  assert.deepEqual(log.errors, []);
+  assert.deepEqual(log.console, []);
+  await page.close();
+  // malformed shapes, one of each kind the viewer refuses: those buildings flat, the others
+  // as measured
+  const bad = JSON.parse(JSON.stringify(doc));
+  const gables = bad.features.filter((f) => !f.house && f.roof_shape.model === 'gable');
+  const quads = gables.filter((f) => f.roof_shape.parts.length === 1 && f.roof_shape.parts[0].ring.length === 4);
+  const [notFinite, unchained] = [gables[0], quads.find((f) => f !== gables[0])];
+  const sunk = gables.find((f) => f !== notFinite && f !== unchained);
+  // a number that is not finite
+  notFinite.roof_shape.parts[0].planes[0][0] = null;
+  // two parts that would tile the outline, one moved 0.3 m: their edges no longer chain
+  const part = unchained.roof_shape.parts[0], [p0, p1, p2, p3] = part.ring;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const m01 = mid(p0, p1), m23 = mid(p2, p3);
+  unchained.roof_shape.parts = [
+    { model: part.model, planes: part.planes, ring: [p0, m01, m23, p3] },
+    { model: part.model, planes: part.planes, ring: [m01, p1, p2, m23].map((q) => [q[0] + 0.3, q[1]]) }];
+  // a roof below the wall bottom plus 0.5 m: every plane lowered until the ridge is at ground - 3
+  const drop = sunk.roof_shape.ridge - (sunk.ground - 3);
+  for (const pl of sunk.roof_shape.parts[0].planes) pl[2] -= drop;
+  const victims = [notFinite.id, unchained.id, sunk.id];
+  assert.equal(new Set(victims).size, 3);
+  ctx = await newContext();
+  await ctx.route('**/out/synthetic/' + file, (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(bad), contentType: 'application/json' }));
+  ({ page, log } = await openWorld(ctx));
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const r = await page.evaluate((ids) => {
+    const B = window.__cw.internals.buildings;
+    const flatTop = (i) => { const m = B.meshFor(i); return m.groups.filter((g) => g === 1).length === 0 && m.groups.filter((g) => g === 2).length > 0; };
+    return { info: B.info(), victimsFlat: ids.map(flatTop), othersFlat: B.items.filter((it) => !ids.includes(it.id) && flatTop(it.id)).length,
+             errors: window.__cw.errors };
+  }, victims);
+  assert.equal(r.info.malformed, 3);
+  assert.deepEqual(r.victimsFlat, [true, true, true], 'each malformed building is drawn as the flat prism');
+  assert.equal(r.othersFlat, 0, 'no other building is');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(log.errors, []);
+  // a version the viewer does not read
+  const v2 = await page.evaluate(async () => {
+    const m = await import('./js/objects.js');
+    let message = null;
+    const features = m.buildingFeatures({ version: 2, features: [{ id: 1 }] }, (e) => { message = e.message; });
+    return { features, message, none: m.buildingFeatures(null, () => { message = 'called'; }) };
+  });
+  assert.deepEqual(v2.features, []);
+  assert.match(v2.message, /version 2/);
+  assert.deepEqual(v2.none, []);
+  await page.close();
+});
+
+test('the house has no openings', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const f = buildingsDoc().features.find((x) => x.house);
+  const r = await page.evaluate((f) => {
+    const B = window.__cw.internals.buildings, g = B.houseMesh.geometry;
+    // predicted walls: one quad per outline edge, plus one wherever a crease crosses it
+    const s = f.roof_shape, [p0, p1] = s.parts[0].planes, ring = f.ring;
+    const d = (x, z) => (p0[2] + p0[0] * (x - s.at[0]) + p0[1] * (z - s.at[1])) - (p1[2] + p1[0] * (x - s.at[0]) + p1[1] * (z - s.at[1]));
+    let quads = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length], da = d(a[0], a[1]), db = d(b[0], b[1]);
+      quads += 1 + ((da > 1e-6 && db < -1e-6) || (da < -1e-6 && db > 1e-6) ? 1 : 0);
+    }
+    return { groups: g.groups.map((x) => x.materialIndex), materials: B.houseMesh.material.length,
+             walls: g.groups.find((x) => x.materialIndex === 0).count / 3, predicted: 2 * quads };
+  }, f);
+  assert.deepEqual(r.groups, [0, 1, 2]);
+  assert.equal(r.materials, 3);
+  assert.equal(r.walls, r.predicted, 'no triangle beyond the walls the outline and ridge call for');
+});
+
+test('neighbours arrive after the house', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const m = await import('./js/objects.js');
+    const { manifest } = window.__cw;
+    const doc = await m.fetchJSON('out/synthetic/' + manifest.files.buildings.file);
+    const b = m.buildBuildings(m.buildingFeatures(doc));
+    const now = { house: b.houseMesh.geometry.index.count, others: b.othersMesh.geometry.index.count,
+                  count: b.count, items: b.items.length };
+    const before = Array.from(b.houseMesh.geometry.attributes.position.array);
+    await b.ready;
+    const expected = b.items.filter((it) => !it.house).reduce((s, it) => s + b.meshFor(it.id).idx.length, 0);
+    const after = { others: b.othersMesh.geometry.index.count, expected,
+                    houseSame: JSON.stringify(before) === JSON.stringify(Array.from(b.houseMesh.geometry.attributes.position.array)) };
+    b.dispose();
+    return { now, after };
+  });
+  assert.ok(r.now.house > 0, 'the house is drawn at once');
+  assert.equal(r.now.others, 0, 'the neighbours are not yet');
+  assert.equal(r.now.count, 8);
+  assert.equal(r.now.items, 8);
+  assert.equal(r.after.others, r.after.expected, 'then every neighbour is');
+  assert.ok(r.after.houseSame, 'and the house is untouched');
+});
+
+test('walking on a sloped roof', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  await page.addScriptTag({ content: PLANES_JS });
+  const f = buildingsDoc().features.find((x) => x.house);
+  // a point a third of the way from the centroid to the first ring vertex: on a roof face
+  const spot = await page.evaluate((f) => {
+    const h = window.__cw.house, v = f.ring[0];
+    const x = h.centroid[0] + (v[0] - h.centroid[0]) / 3, z = h.centroid[1] + (v[1] - h.centroid[1]) / 3;
+    const roof = window.__cw.internals.footprints.roofAt(x, z);
+    return { x, z, roof, planes: window.__roofOf(f.roof_shape, x, z) };
+  }, f);
+  assert.ok(Math.abs(spot.roof - spot.planes) < 1e-9, 'roofAt is the measured planes');
+  assert.ok(Math.abs(spot.roof - f.roof) > 0.05, 'which differ from the flat roof');
+  await page.evaluate(({ x, z, roof }) => window.__cw.camera.set({ mode: 'walk', x, z, y: roof + 3 + 1.7 }), spot);
+  await page.waitForFunction((y) => Math.abs(window.__cw.camera.get().feet - y) < 1e-6, spot.roof, { timeout: 20000 });
+  await page.evaluate(() => window.__cw.camera.start());
+});
+
+test('every building carries its ground for the sun', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(() => {
+    const B = window.__cw.internals.buildings, out = { meshes: [], wrong: 0, checked: 0 };
+    for (const mesh of [B.othersMesh, B.houseMesh]) {
+      const a = mesh.geometry.attributes.cwGround;
+      out.meshes.push(!!a && a.itemSize === 1 && a.count === mesh.geometry.attributes.position.count);
+    }
+    // every vertex of every building, roofs, trim and step faces included: each building's
+    // vertices are one span of its mesh, and the spans cover the mesh
+    const total = [B.othersMesh, B.houseMesh].reduce((s, mesh) => s + mesh.geometry.attributes.position.count, 0);
+    for (const it of B.items) {
+      const a = (it.house ? B.houseMesh : B.othersMesh).geometry.attributes.cwGround;
+      for (let v = it.span[0]; v < it.span[0] + it.span[1]; v++) { out.checked++; if (Math.abs(a.getX(v) - it.ground) > 1e-4) out.wrong++; }
+    }
+    out.total = total;
+    return out;
+  });
+  assert.deepEqual(r.meshes, [true, true]);
+  assert.equal(r.checked, r.total, 'every vertex is checked');
+  assert.equal(r.wrong, 0);
+});
+
+test('the neighbours\' colours change in lightness only, as seen on screen', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const THREE = await import('three');
+    const { buildingJitter } = await import('./js/objects.js');
+    const B = window.__cw.internals.buildings;
+    const srgb = (hex) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map((c) => c / 255);
+    const out = [];
+    for (const it of B.items) {
+      const geo = (it.house ? B.houseMesh : B.othersMesh).geometry, col = geo.attributes.color, index = geo.index;
+      // the colour of the building's first triangle in each group, as sRGB on screen
+      const seen = geo.groups.map((gr) => {
+        for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+          const v = index.getX(t);
+          if (v < it.span[0] || v >= it.span[0] + it.span[1]) continue;
+          const c = new THREE.Color(col.getX(v), col.getY(v), col.getZ(v)).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+          return [c.r, c.g, c.b];
+        }
+        return null;
+      });
+      out.push({ id: it.id, house: it.house, j: it.house ? 1 : buildingJitter(it.id), seen,
+                 walls: srgb(it.house ? 0xc98e5c : 0xcfc9bd), roof: srgb(it.house ? 0x7c2e3e : 0x5f6664) });
+    }
+    return out;
+  });
+  const ratio = (a, b) => a.map((x, i) => x / b[i]);
+  const near = (xs, want) => xs.every((x) => Math.abs(x - want) < 2e-3);
+  for (const b of r) {
+    const [walls, roof, trim] = b.seen;
+    assert.ok(b.j >= 0.95 && b.j <= 1.05, JSON.stringify(b));
+    // every channel scaled by the same factor: lightness, no hue change
+    assert.ok(near(ratio(walls, b.walls), (b.house ? 1 : 1.08) * b.j), 'walls: ' + JSON.stringify(b));
+    assert.ok(near(ratio(roof, b.roof), b.j), 'roof: ' + JSON.stringify(b));
+    if (trim) assert.ok(near(ratio(trim, b.roof), 0.8 * b.j), 'trim: ' + JSON.stringify(b));
+  }
+  assert.ok(new Set(r.filter((b) => !b.house).map((b) => b.j.toFixed(4))).size > 1, 'the jitter varies');
+});
+
+test('near set conserves trees', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const { trees: T, camera } = window.__cw.internals;
+    const k = T.groups[0].meshes[0].userData.ids[0];
+    const tree = { x: T.tx[k], y: T.ty[k], z: T.tz[k] };
+    const scaleOf = (mesh, i) => { const e = mesh.instanceMatrix.array; return Math.abs(e[i * 16]) + Math.abs(e[i * 16 + 5]) + Math.abs(e[i * 16 + 10]); };
+    const visibleCount = () => {
+      let n = 0;
+      for (const g of T.groups) for (const mesh of g.meshes) for (let i = 0; i < mesh.count; i++) if (scaleOf(mesh, i) > 0) n++;
+      for (const mesh of T.nearMeshes) n += mesh.count;
+      return n;
+    };
+    const chunkMesh = T.groups.flatMap((g) => g.meshes).find((m) => Array.from(m.userData.ids).includes(k));
+    const slot = Array.from(chunkMesh.userData.ids).indexOf(k);
+    const said = { filled: T.update({ x: tree.x + 3, y: tree.y + 1.7, z: tree.z + 2 }) };
+    const near = { inSet: T.nearSet().ids.includes(k), scale: scaleOf(chunkMesh, slot), visible: visibleCount() };
+    said.same = T.update({ x: tree.x + 3, y: tree.y + 1.7, z: tree.z + 2 });
+    said.metre = T.update({ x: tree.x + 4, y: tree.y + 1.7, z: tree.z + 2 });
+    said.away = T.update({ x: tree.x + 3000, y: tree.y + 500, z: tree.z });
+    const away = { inSet: T.nearSet().ids.includes(k), scale: scaleOf(chunkMesh, slot), visible: visibleCount(), count: T.nearSet().count };
+    T.update(camera.position);
+    return { near, away, said, total: window.__cw.stats().trees };
+  });
+  assert.deepEqual(r.said, { filled: true, same: false, metre: false, away: true },
+    'update() reports a refill of the near set, and nothing for a repeat or a move under 5 m');
+  assert.ok(r.near.inSet, 'the tree is in the near set');
+  assert.equal(r.near.scale, 0, 'and hidden in its chunk mesh');
+  assert.equal(r.near.visible, r.total, 'every tree is drawn exactly once');
+  assert.ok(!r.away.inSet && r.away.scale > 0, 'moving away restores it');
+  assert.equal(r.away.visible, r.total);
+});
+
+test('tree shapes are tied to the measured crown', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const radii = await page.evaluate(async () => (await import('./js/treegeo.js')).treeGeometryRadii());
+  assert.equal(radii.length, 6);
+  for (const r of radii) assert.ok(Math.abs(r.radiusAtHalf - 1) <= 0.02, JSON.stringify(r));
+  const tris = Object.fromEntries(radii.map((r) => [r.look + ':' + r.lod, r.triangles]));
+  assert.deepEqual(tris, { 'conifer:near': 108, 'conifer:mid': 26, 'conifer:far': 5, 'broad:near': 174, 'broad:mid': 32, 'broad:far': 8 });
+});
+
+test('the tree look rule is deterministic', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  // recomputed here from trees.bin, independently of the viewer
+  const raw = zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest().files.trees.file)));
+  const hash2 = (x, z) => {
+    let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul((z | 0) + 0x9e3779b9, 0x165667b1);
+    h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+  const [below, above] = await page.evaluate(async () => {
+    const m = await import('./js/treegeo.js');
+    return [m.CONIFER_BELOW, m.BROAD_ABOVE];
+  });
+  assert.ok(below[0] / below[1] < above[0] / above[1]);
+  const count = raw.readUInt32LE(8), want = { conifer: 0, broad: 0 };
+  for (let k = 0, o = 12; k < count; k++, o += 8) {
+    // crown / height = (0.1 c) / (0.25 h) in the file's own units, against each fraction
+    const x = raw.readInt16LE(o), z = raw.readInt16LE(o + 2), hq = raw[o + 6], cq = raw[o + 7];
+    const tall = Math.max(0, Math.min(1, (hq * 0.25 - 12) / 10));
+    const conifer = 2 * cq * below[1] < 5 * hq * below[0] ? true : 2 * cq * above[1] > 5 * hq * above[0] ? false
+      : hash2(x, z) < 0.55 + 0.3 * tall;
+    // the integer comparisons are the ratio's, wherever it is not exactly on a threshold
+    const ratio = (cq * 0.1) / (hq * 0.25);
+    for (const [num, den] of [below, above]) {
+      if (Math.abs(ratio - num / den) > 1e-9) assert.equal(2 * cq * den < 5 * hq * num, ratio < num / den);
+    }
+    want[conifer ? 'conifer' : 'broad']++;
+  }
+  const got = await page.evaluate(() => window.__cw.internals.trees.lookCounts());
+  assert.deepEqual(got, want);
+  assert.equal(got.conifer + got.broad, count);
+});
+
+test('trees do not flicker at the LOD boundary', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(() => {
+    const { trees: T, camera } = window.__cw.internals;
+    const g = T.groups[0], edge = T.profile.treesNear;
+    const at = (d) => ({ x: g.x0 + g.side + d, y: 200, z: g.z0 + g.side / 2 });
+    const geo = () => g.meshes.map((m) => m.geometry.uuid).join(',');
+    // everything update() may change: each chunk mesh's geometry and flags, the near set
+    const snap = () => JSON.stringify([T.groups.map((h) => h.meshes.map((m) => [m.geometry.uuid, m.receiveShadow, m.castShadow])),
+      T.nearMeshes.map((m) => [m.count, Array.from(m.instanceMatrix.array.subarray(0, 16 * m.count))])]);
+    const said = [];
+    const step = (cam) => { const before = snap(), r = T.update(cam); said.push([r, snap() !== before]); return r; };
+    step(at(edge - 15));                       // clearly inside: the mid level
+    const again = step(at(edge - 15));         // the same call again changes nothing
+    step(at(edge - 5));
+    const start = geo();
+    const seen = [];
+    for (let i = 0; i < 4; i++) { step(at(edge + 5)); seen.push(geo()); step(at(edge - 5)); seen.push(geo()); }
+    const swapped = step(at(edge + 15));
+    const beyond = geo();
+    const repeat = step(at(edge + 15));
+    T.update(camera.position);
+    return { start, seen, beyond, again, said, swapped, repeat };
+  });
+  assert.ok(r.seen.every((u) => u === r.start), 'moving 10 m back and forth across the edge swaps nothing');
+  assert.notEqual(r.beyond, r.start, 'well past the edge the far level is drawn');
+  // update() says whether anything changed, which is what asks for a new frame and shadows
+  assert.deepEqual(r.said.filter(([said, changed]) => said !== changed), [], 'true exactly when something changed');
+  assert.equal(r.again, false, 'an identical call reports no change');
+  assert.equal(r.swapped, true, 'a level swap is reported');
+  assert.equal(r.repeat, false);
+});
+
+test('tree budget', { timeout: READY_MS + 60000 }, async () => {
+  const ctx = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+  const { page } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  assert.equal(await page.evaluate(() => window.__cw.stats().profile), 'phone');
+  await page.evaluate(() => window.__cw.camera.start());
+  await page.evaluate(() => window.__cw.settle());
+  const v = await page.evaluate(() => window.__cw.visible());
+  assert.ok(v.trees <= 3000, 'trees: ' + v.trees);
+  assert.ok(v.buildings <= 1500, 'buildings: ' + v.buildings);
+  await page.close();
+});
+
+test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
+  const ctx = await newContext();
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const r = await page.evaluate(async () => {
+    const THREE = await import('three');
+    const { renderer, scene, buildings: B, trees: T } = window.__cw.internals;
+    const h = window.__cw.house;
+    const was = { enabled: renderer.shadowMap.enabled, auto: renderer.shadowMap.autoUpdate };
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.autoUpdate = false;
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.castShadow = true;
+    light.position.set(h.centroid[0] + 60, h.ground + 80, h.centroid[1] + 40);
+    light.target.position.set(h.centroid[0], h.ground, h.centroid[1]);
+    Object.assign(light.shadow.camera, { left: -300, right: 300, top: 300, bottom: -300, near: 1, far: 1000 });
+    light.shadow.camera.updateProjectionMatrix();
+    scene.add(light, light.target);
+    const rect = { x0: h.centroid[0] - 30, z0: h.centroid[1] - 30, x1: h.centroid[0] + 30, z1: h.centroid[1] + 30 };
+    // from everything in focus (the sun, once merged, sets its own focus every frame)
+    B.setShadowFocus(null);
+    const said = { first: B.setShadowFocus(rect), again: B.setShadowFocus(rect) };
+    // Another casting light (the sun's, once it is merged) draws its own pass, and may set
+    // its own focus before the shadow pass: only this light's pass is counted, and this
+    // rect is set again after anything else before three renders the shadows.
+    const before = scene.onBeforeRender;
+    scene.onBeforeRender = function (...a) { before.apply(this, a); B.setShadowFocus(rect); };
+    const drawn = { house: 0, others: 0 };
+    for (const [name, mesh] of [['house', B.houseMesh], ['others', B.othersMesh]]) {
+      const orig = mesh.onBeforeShadow;
+      mesh.onBeforeShadow = function (r, o, cam, sc, geometry, depth, group) {
+        orig.call(this, r, o, cam, sc, geometry, depth, group);
+        if (sc !== light.shadow.camera) return;
+        const end = Math.min(geometry.drawRange.start + geometry.drawRange.count, group.start + group.count);
+        drawn[name] += Math.max(0, end - Math.max(geometry.drawRange.start, group.start)) / 3;
+      };
+      mesh.userData.spy = orig;
+    }
+    renderer.shadowMap.needsUpdate = true;
+    await window.__cw.frame();
+    scene.onBeforeRender = before;
+    const focus = B.shadowFocus();
+    const meets = (b) => b[0] <= rect.x1 && b[2] >= rect.x0 && b[1] <= rect.z1 && b[3] >= rect.z0;
+    const expected = B.items.filter((it) => meets(it.box)).reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0);
+    const within = ['house', 'others'].every((k) => focus[k].inFocus.every((n, g) => n <= focus[k].counts[g]));
+    const inFocusTotal = ['house', 'others'].reduce((s, k) => s + focus[k].inFocus.reduce((a, b) => a + b, 0) / 3, 0);
+    T.setShadowFocus(null);
+    said.trees = T.setShadowFocus(rect);
+    said.treesAgain = T.setShadowFocus(rect);
+    const trees = T.groups.map((g) => ({ meets: g.x0 <= rect.x1 && g.x0 + g.side >= rect.x0 && g.z0 <= rect.z1 && g.z0 + g.side >= rect.z0,
+                                        cast: g.meshes.every((m) => m.castShadow) }));
+    for (const mesh of [B.houseMesh, B.othersMesh]) mesh.onBeforeShadow = mesh.userData.spy;
+    // A walk of foci, one building at a time, then pairs, then everything: each change moves
+    // triangles in place, and queues for upload every index entry it changed and no other
+    const tris = (a, from, to) => { const out = []; for (let t = from; t < to; t += 3) out.push(a[t] + ',' + a[t + 1] + ',' + a[t + 2]); return out.sort(); };
+    const meshes = { house: B.houseMesh, others: B.othersMesh };
+    const original = {};
+    for (const [k, mesh] of Object.entries(meshes)) {
+      original[k] = mesh.geometry.groups.map((gr) => tris(mesh.geometry.index.array, gr.start, gr.start + gr.count).join(' '));
+    }
+    const boxes = B.items.map((it) => ({ x0: it.box[0], z0: it.box[1], x1: it.box[2], z1: it.box[3] }));
+    const walk = boxes.concat(boxes.slice(1).map((b, i) => ({ x0: Math.min(b.x0, boxes[i].x0), z0: Math.min(b.z0, boxes[i].z0),
+                                                              x1: Math.max(b.x1, boxes[i].x1), z1: Math.max(b.z1, boxes[i].z1) })), [null]);
+    const walked = { steps: 0, unreported: 0, misplaced: 0, lost: 0, partial: 0, repeats: 0 };
+    for (const rc of walk) {
+      const seen = {};
+      for (const [k, mesh] of Object.entries(meshes)) seen[k] = { a: mesh.geometry.index.array.slice(), n: mesh.geometry.index.updateRanges.length };
+      if (!B.setShadowFocus(rc)) continue;
+      walked.steps++;
+      if (B.setShadowFocus(rc)) walked.repeats++;
+      const focus = B.shadowFocus();
+      for (const [k, mesh] of Object.entries(meshes)) {
+        const index = mesh.geometry.index, a = index.array, ranges = index.updateRanges.slice(seen[k].n);
+        const queued = new Uint8Array(a.length);
+        for (const r of ranges) queued.fill(1, r.start, r.start + r.count);
+        for (let i = 0; i < a.length; i++) if (a[i] !== seen[k].a[i] && !queued[i]) walked.unreported++;
+        const up = ranges.reduce((s, r) => s + r.count, 0);
+        if (up !== focus[k].uploaded) walked.unreported++;
+        if (up > 0 && up < a.length) walked.partial++;
+        const items = B.items.filter((it) => (it.house ? 'house' : 'others') === k);
+        const inFocus = (v) => {
+          const b = items.find((x) => v >= x.span[0] && v < x.span[0] + x.span[1]).box;
+          return !rc || (b[0] <= rc.x1 && b[2] >= rc.x0 && b[1] <= rc.z1 && b[3] >= rc.z0);
+        };
+        mesh.geometry.groups.forEach((gr, g) => {
+          if (tris(a, gr.start, gr.start + gr.count).join(' ') !== original[k][g]) walked.lost++;
+          for (let t = gr.start; t < gr.start + gr.count; t += 3) {
+            if ((t < gr.start + focus[k].inFocus[g]) !== inFocus(a[t])) walked.misplaced++;
+          }
+        });
+      }
+    }
+    said.none = B.setShadowFocus(null);
+    said.noneAgain = B.setShadowFocus(null);
+    said.treesNone = T.setShadowFocus(null);
+    said.treesNoneAgain = T.setShadowFocus(null);
+    scene.remove(light, light.target);
+    light.dispose();
+    renderer.shadowMap.enabled = was.enabled;
+    renderer.shadowMap.autoUpdate = was.auto;
+    await window.__cw.frame();
+    return { drawn, expected, within, inFocusTotal, said, walked, trees, all: B.items.length, allTris: B.items.reduce((s, it) => s + B.meshFor(it.id).idx.length / 3, 0) };
+  });
+  assert.ok(r.within, 'the in-focus count of each group is at most its size');
+  assert.equal(r.drawn.house + r.drawn.others, r.inFocusTotal, 'the shadow pass drew the buildings in focus');
+  assert.equal(r.inFocusTotal, r.expected, 'which are the buildings meeting the rect');
+  assert.ok(r.expected > 0 && r.expected < r.allTris, 'some, not all: ' + JSON.stringify([r.expected, r.allTris]));
+  assert.ok(r.trees.every((t) => t.meets === t.cast), 'only tree chunks meeting the rect cast');
+  // both report a change, and only a change: that is what redraws the sun's shadow map
+  assert.deepEqual(r.said, { first: true, again: false, trees: true, treesAgain: false, none: false, noneAgain: false,
+                             treesNone: true, treesNoneAgain: false });
+  assert.ok(r.walked.steps >= r.all, 'the walk changed the focus: ' + JSON.stringify(r.walked));
+  assert.deepEqual([r.walked.unreported, r.walked.misplaced, r.walked.lost, r.walked.repeats], [0, 0, 0, 0], JSON.stringify(r.walked));
+  assert.ok(r.walked.partial > 0, 'some changes upload part of the index, not all of it: ' + JSON.stringify(r.walked));
+  assert.deepEqual(log.errors, []);
+  await page.close();
+});
+
+test('materials never mix sun-shade kinds', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(() => {
+    const kinds = new Map(), clash = [];
+    window.__cw.internals.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      const kind = o.userData.cwHag || (o.isInstancedMesh ? 'instance' : o.geometry && o.geometry.attributes.cwGround ? 'attribute' : 'zero');
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (kinds.has(m.uuid) && kinds.get(m.uuid) !== kind) clash.push(o.name + ': ' + kinds.get(m.uuid) + ' and ' + kind);
+        kinds.set(m.uuid, kind);
+      }
+    });
+    return { clash, n: kinds.size };
+  });
+  assert.ok(r.n > 3);
+  assert.deepEqual(r.clash, []);
+});
+
+test('the fence dims at night and disposes of itself', { timeout: 60000 }, async () => {
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const { fence, scene, parcels } = window.__cw.internals;
+    const base = fence.material.color.getHex();
+    fence.setDim(0.5);
+    const half = fence.material.color.toArray();
+    fence.setDim(0.1);                               // clamped to 0.4
+    const low = fence.material.color.toArray();
+    fence.setDim(1);
+    const back = fence.material.color.getHex();
+    // a second fence, built and disposed off the shared one
+    const m = await import('./js/objects.js');
+    const f2 = new m.PlotFence(scene, parcels);
+    f2.rebuild(() => 0);
+    const added = scene.children.includes(f2.mesh);
+    const mesh = f2.mesh;
+    f2.dispose();
+    return { base, back, half, low, added, removed: !scene.children.includes(mesh), flags: [fence.mesh.castShadow, fence.mesh.receiveShadow] };
+  });
+  assert.equal(r.back, r.base);
+  const full = await page.evaluate(() => new (window.__cw.internals.fence.material.color.constructor)(0xb8552f).toArray());
+  r.half.forEach((c, i) => assert.ok(Math.abs(c - 0.5 * full[i]) < 1e-6));
+  r.low.forEach((c, i) => assert.ok(Math.abs(c - 0.4 * full[i]) < 1e-6));
+  assert.ok(r.added && r.removed);
+  assert.deepEqual(r.flags, [false, false]);
+});
+
+test('no request ever left localhost', () => {
+  assert.deepEqual(offenders, []);
+});

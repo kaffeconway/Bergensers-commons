@@ -154,7 +154,9 @@ def test_rings_are_counter_clockwise_unclosed_and_rounded():
         assert buildings.ring_signed_area_local(ring) > 0
         assert all(round(v, 1) == v for point in ring for v in point)
         assert feature["source"] == "dom" and feature["house"] is False
-        assert set(feature) == {"id", "type", "source", "ground", "roof", "house", "ring"}
+        # the seven keys, plus roof_shape when roofs were fitted (not here)
+        assert set(feature) - {"roof_shape"} == {"id", "type", "source", "ground", "roof",
+                                                 "house", "ring"}
     # North first: the house (50 m below the top edge) before the garage (140 m).
     assert [f["type"] for f in record["features"]] == [111, 181]
     text = json.dumps(record)
