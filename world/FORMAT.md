@@ -364,4 +364,8 @@ Notes:
 - Chunk keys are `"<i>_<j>"`.
 - `crs.lat_deg`, `crs.lon_deg` and `crs.time_zone` are described in section 1. Each is
   optional, and checked only when present.
+- `stats.map.buildings.roofs` summarises the roof fitting: `by_model`, `by_quality`,
+  `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
+  synthetic world and in a build under `SOURCE_DATE_EPOCH`, where a build promises the
+  same bytes every time; the build log records the time in every build.
 - The viewer ignores unknown keys, and refuses a `version` it does not know.

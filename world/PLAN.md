@@ -3,7 +3,9 @@
 An explorable 3D world around each Bergensers Commons listing. The step 1 plan was written
 on 24 Sept 2026 and reviewed by Joseph. This version, of 25 Sept, records what changed
 once work began: robots.txt ruled out OpenStreetMap, the first prototype sold, and step 2
-(the pipeline) is built.
+(the pipeline) is built. The HD pass of 26 Sept (smooth textured ground, measured roofs,
+fuller trees, and the sun with a date and time slider) is recorded in D16, D17 and
+sections 4, 5, 10 and 11.
 
 Figures are marked as one of:
 - **measured:** fetched, run or read at the source;
@@ -27,9 +29,16 @@ listing, and nothing that places a listing on the map. Those go to Joseph direct
 | D4 | The specs panel gets whole-property cost if owned outright; no per-person figures, targets or group scores | The recommendation |
 | D6 | No LICENSE file is added; that choice stays with Joseph. The vendored three.js keeps its MIT licence | Not the editor's call |
 | D7 | **No OpenStreetMap at all.** Norway is built from Kartverket's open data only (section 2) | robots.txt: `overpass-api.de` disallows `/api/`, and both extract hosts disallow `*.pbf`. So no ODbL applies either |
-| D9 | Vertex colours | The recommendation |
+| D9 | Vertex colours. **Superseded by D16** | The recommendation |
 | D11 | No cloudiness line, and no automated PVGIS cross-check | `re.jrc.ec.europa.eu` disallows all robots. Joseph downloaded two PVGIS horizon profiles by hand, which are used as a local check only |
 | - | **The prototype changed.** The first prototype and the next choice both sold. The prototype is now a live Vestland listing that Joseph confirmed is still for sale | A world of a sold house helps nobody |
+
+### Taken on 25 Sept 2026, before the HD pass (asked, and answered by Joseph)
+
+| # | What was done | Why |
+|---|---|---|
+| D16 | **Built-in materials, patched.** The world keeps three.js's built-in Lambert and Phong materials, but the h1 ground's textures and the sun's terrain shade are `onBeforeCompile` patches on them (`js/terrainmat.js`, `js/sunshade.js`). Replaces D9. A later move to WebGPU would need these patches ported | Joseph chose smooth ground textured by land type, and real shadows with a date and time slider. Neither can be built with vertex colours or unpatched materials. Asked first (A1); he said proceed |
+| D17 | **The listing house is drawn only as measured.** Its roof is drawn as fitted to the surface model (an off-centre ridge stays off-centre); its walls stand at the measured roof edge (no overhang), on its traced outline; no trim board; a plain roof in the highlight colour. Each is one constant. (Other buildings get a drawn overhang, trim, tile courses and straightened outlines; those are built as defaults and wait for his look, D18) | Joseph's choice of "nothing on the listing house is made up", asked part by part (A2); he took the conservative answer for all five |
 
 ### Still open
 
@@ -39,12 +48,13 @@ listing, and nothing that places a listing on the map. Those go to Joseph direct
 | D5 | **What gets published, and for how long.** A world is by construction a precise location of somebody's home, and publishing one per listing publishes the group's shortlist | before publishing | An allow-list Joseph approves, and a world taken down when its listing sells. CLAUDE.md's "no specific home locations for anyone" covers sellers as written, so adopting this means rewording that rule |
 | D6 | **Licences**: code licence, and the data notice | before publishing | Code: MIT or similar. Data: CC BY 4.0 attribution to Kartverket, carried in every world's `NOTICE.txt` and on screen |
 | D8 | The brief mentioned "two corrections to CLAUDE.md" but listed one (GitHub Pages), which was already there | - | What was the second? |
-| D10 | **How far you can see.** Fog fades the world out before its 10 km edge, so distant mountains are not drawn | 3 | Fog on phones. On laptops, a coarse horizon ring out to ~30 km at ~100 m, roughly 0.3–0.5 MB (estimate) |
+| D10 | **How far you can see.** Fog fades the world out before its 10 km edge, so distant mountains are not drawn. Since the HD pass, where the measured horizon says mountains beyond the edge hide the sun, the view is shown in their shade and the sun disc is hidden, but no silhouette of them is drawn | 3 | Fog on phones. On laptops, a coarse horizon ring out to ~30 km at ~100 m, roughly 0.3 to 0.5 MB (estimate) |
 | D11 | **Which sun figure the panel leads with**: plot median or a garden point; terrain only or with trees and buildings | 4 | Lead with the plot median, terrain only, with the with-trees figure beside it |
 | D12 | **Italy terrain.** The brief named Copernicus DEM, a 30 m *surface* model that reads 3.5–7.9 m above the ground on average at the sites tested | 5 | Regione Piemonte's 5 m ground model where it covers, TINITALY 10 m elsewhere, and Copernicus only as a last resort, with its required notice |
 | D13 | The link from `index.html`, and the hub map's base layer | 5 | Decide then. A world cannot open from a saved copy the way `index.html` can |
-| D14 | **Phone triangle budget.** On the real prototype the phone start view drew about 0.67 M triangles against the ~0.4 M rule of thumb (draw calls were within budget). Coarser height steps for the far blocks (2 m steps for 2 m blocks, 4 m for 4 m) cut it roughly in half, but make distant ground look chunkier | before approval | Try it on a real phone first; switch only if it stutters. It is one setting in `js/chunks.js` |
+| D14 | **Phone triangle budget.** Before the HD pass the real prototype's phone start view drew well over the ~0.4 M rule of thumb. The HD pass replaced the blocks with smooth ground: on the synthetic world the phone start view now draws about 191 k triangles in 74 draw calls, plus about 0.2 k in the shadow pass (laptop: about 282 k in 104 calls), and the real prototype's phone start view is under the rule, main and shadow pass together. These are counts from a headless browser; no phone has been tried | before approval | Try it on a real phone first. If it stutters, apply the cut order in README (Performance) one step at a time, re-measuring after each; the step that turns off the phone's blended borders needs Joseph's say |
 | D15 | **Small visible choices made in steps 3-4**: the house label shows through hills as a locator; a peak whose named point has no distinct top is reported as "short of the named point"; a summit found more than 50 m from its named point is flagged on the panel | before approval | Keep; each is one line to change |
+| D18 | **Visible choices built with a default in the HD pass**, each one named constant. Ground: the colours per land type; bare rock drawn by slope (34 to 60 degrees by type); sub-metre bumps, grain and a wet shore band; lakes reflecting a little sky; textures stopping at 1.5 km; the distant-ground tolerance (2 px phone, 1 px laptop); the plot's 35% wash and 80% line; the 50 degree walking limit; two-type borders on a phone; the ground under buildings drawn as built-up. Buildings: neutral neighbours with a small lightness jitter; a 0.4 m overhang (0.15 m on flat roofs) and a trim board; board cladding and tile courses; straightened outlines, kept clear of neighbours (round buildings become polygons); a plain flat top where no roof fits; a 1.5 m plausibility clearance; an L- or T-shaped listing house kept whole. Trees: the conifer or broadleaf look from the measured shape. Light and time: opening at 21 June mid-afternoon; the local clock and one facts year; the chip and panel; the time keys; the shadow map on phones; the softer daylight, under which low evening sun leaves faint object shadows; untoned colours; what the panel calls measured and drawn | before approval | Joseph to look at each in the screenshots; each is one line to change |
 
 ---
 
@@ -85,7 +95,14 @@ at run time. Everything below is CC BY 4.0, credited "© Kartverket".
 | Named peaks and places | `api.kartverket.no/stedsnavn/v1`; heights sampled from the terrain |
 
 **Not used:**
-- **Aerial photos (Norge i bilder):** restricted, so ground colour is procedural.
+- **Aerial photos (Norge i bilder):** restricted, so ground colour is procedural. Checked
+  again on 25 Sept 2026 (research only, no code): every form of it is still a licensed
+  product (its map services and downloads are for Norge digitalt members; only credited
+  screenshots of the website are free to use), and Norway has no open aerial imagery
+  finer than Sentinel-2's 10 m. Sentinel-2 is open and needs no key, but at 10 m it could
+  only tint the distance; whether to do that is a look decision not yet asked, and it
+  would be a new source. For step 5, France's IGN BD ORTHO (20 cm, Licence Ouverte) is
+  usable; Italy's orthophotos are unverified.
 - **FKB building footprints:** restricted. Footprints are segmented from the surface
   model instead (section 4).
 - **DTM10 in UTM 32:** its licence is CC BY-NC; the resampled 1 m model replaces it.
@@ -136,7 +153,7 @@ The full contract is `FORMAT.md`. In short:
 
 | Level | Resolution | Covers | Chunk |
 |---|---|---|---|
-| h1 | 1 m | 1.5 km from the house | 240 m (240 × 240 samples, plus a one-sample apron) |
+| h1 | 1 m | 1.5 km from the house | 240 m (240 x 240 samples, plus a one-sample apron) |
 | h5 | 5 m | 5 km | 1,200 m |
 | h20 | 20 m | 10 km, plus ~1 km margin | 4,800 m |
 
@@ -146,14 +163,14 @@ The full contract is `FORMAT.md`. In short:
 - **File names.** Each carries a content hash, so a republish re-downloads only what
   changed.
 
-**Drawing.** True 1 m blocks over the whole 1.5 km zone would be about 4.2 M triangles,
-too many for a phone. So the 1 m data is kept everywhere inside 1.5 km, but drawn at 1 m
-only near the walker, with coarser blocks further out:
-
-| | 1 m blocks | 2 m blocks | 4 m blocks |
-|---|---|---|---|
-| Phone | within 150 m | to 400 m | beyond, to 1.5 km |
-| Laptop | within 400 m | to 800 m | beyond, to 1.5 km |
+**Drawing.** Since the HD pass (26 Sept) there are no blocks. The 1 m data is kept
+everywhere inside 1.5 km and drawn as smooth ground: an adaptive right-triangulated
+irregular network (RTIN) per 240 m chunk, in 16 m tiles, meshed in the workers from an
+exact error map. Near the walker it stays within 5 cm of the 1 m surface; further out the
+allowed error grows with distance so that it stays about 2 CSS pixels on a phone and 1 on
+a laptop, which is what keeps the triangle count down. Chunks are re-meshed as the walker
+moves, with skirts under every edge. The ground is textured by land type in a patched
+material (D16), with slope rock and sub-metre detail drawn, not measured.
 
 Beyond 1.5 km the terrain is smooth tiles from h5 and h20, with skirts to hide cracks, and
 fog.
@@ -162,7 +179,9 @@ fog.
 - **Trees within 1.5 km.** Real positions and heights, from local peaks in surface height
   minus ground height, with building footprints masked out.
 - **Buildings.** Roof areas are segmented from the surface model and anchored to register
-  points, with heights measured. One is marked as the house.
+  points, with heights measured. One is marked as the house. Since the HD pass, roof
+  planes (flat, mono-pitch, gable, hipped, or split into parts) are fitted to the same
+  surface model; where none fits, the roof is drawn flat and plain.
 - **Roads, paths, water, land cover.** From the class band.
 - **Plot boundary.** The registered parcel, drawn as approximate: its accuracy class is
   published with it.
@@ -173,7 +192,8 @@ fog.
 
 **Technology.** three.js r185.1 with the plain WebGL renderer: vendored in
 `world/vendor/three/` and byte-identical to npm (checked by hash), with no build step.
-Built-in materials only, so a later move to WebGPU stays cheap. Babylon.js, CesiumJS,
+Built-in materials, with `onBeforeCompile` patches for the ground's textures and the sun's
+terrain shade (D16), so a later move to WebGPU would need those patches ported. Babylon.js, CesiumJS,
 MapLibre, deck.gl and PlayCanvas were compared and set aside; see the step 1 research.
 
 **Controls.**
@@ -318,7 +338,7 @@ replaces it.
 |---|---|
 | 1. Plan | Done, 24 Sept |
 | 2. Pipeline for one listing | **Built 25 Sept.** 409 tests (network tests separate). The first real build is described in 6.1. Committed to the working branch, not `main` |
-| 3. Viewer | **Built 25 Sept.** Walk and fly, blocks near and smooth far with no cracks at any level boundary, plot line, house and specs panel, facts, credits, phone controls. 30 headless Playwright tests on the synthetic world (decoder parity with the pipeline, winding, seams, picking, plot tint, phone layout, no request leaving the page's own server). Not yet tried on a real phone, Safari or iOS |
+| 3. Viewer | **Built 25 Sept.** Walk and fly, blocks near and smooth far with no cracks at any level boundary, plot line, house and specs panel, facts, credits, phone controls. 30 headless Playwright tests on the synthetic world (decoder parity with the pipeline, winding, seams, picking, plot tint, phone layout, no request leaving the page's own server). **HD pass built 26 Sept:** smooth textured ground, measured roofs, fuller trees, sun slider and shade; 111 viewer tests in four files (one of them a TODO test that waits on Joseph's choice of evening light), and 521 pipeline tests. Not yet tried on a real phone, Safari or iOS |
 | 4. Measured facts | **Built 25 Sept.** Slope and flat ground, clear-sky sun hours from a horizon cast to ~160 km, peaks and trailheads by walking route. Every figure independently recomputed by a reviewer. 459 pipeline tests in all |
 | 5. Hub map, other listings, France, Italy | **Only after Joseph approves the prototype** |
 
@@ -350,4 +370,12 @@ this repo is public on GitHub, so the public-safety rules apply from the first p
   fresh fine data.
 - **Seasons.** The surface model's survey season is inferred, not confirmed, so whether
   trees were in leaf is uncertain.
+- **The HD pass has not run on a real phone or a real GPU.** Every figure for it is a
+  count from headless Chromium with software rendering, or a timing in Node on a shared
+  machine. Not measured: frame rate on any device; the cost per pixel of the ground's
+  shader (several texture reads per pixel), of the sun's patch and of the shadow map's
+  filtering; shader compile time on mobile drivers; how long the terrain-shade sweep and
+  the ground's meshing take on a phone's CPU. The first follow-up is Joseph opening a
+  local build on his own phone, served from his own machine, since worlds are never
+  published.
 - **Legal reading.** The CC BY 4.0 reading is careful, but it is not legal advice.
