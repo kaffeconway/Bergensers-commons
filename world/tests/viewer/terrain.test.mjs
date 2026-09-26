@@ -4,11 +4,9 @@
 //   node --test --test-concurrency=1 world/tests/viewer/terrain.test.mjs
 //
 // The shared harness (harness.mjs) starts the server and the browser, and refuses any
-// request that leaves localhost. Every test on a shared page re-meshes every h1 chunk for
-// the current camera (forceSnapshots) before it settles, so its meshes do not depend on the
-// path earlier tests took, and restores what it changed. Once settle() re-meshes by itself
-// (SPEC 3.9, the sun package's settle), the tests leave that to it rather than do it twice:
-// they call forceSnapshots only when settle's own source does not.
+// request that leaves localhost. settle() brings every h1 chunk's mesh to the current camera
+// (forceSnapshots, SPEC 3.9), so a test's meshes do not depend on the path earlier tests
+// took; every test on a shared page restores what it changed.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,8 +34,6 @@ async function phonePage() {
 // Re-mesh every h1 chunk for the camera where it is, and wait for the page to go idle.
 function settleHere(page) {
   return page.evaluate(async () => {
-    const I = window.__cw.internals;
-    if (!String(window.__cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
     const ok = await window.__cw.settle(300000);
     if (window.__cw.sunIdle) await window.__cw.sunIdle();
     return ok;
@@ -482,7 +478,6 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
     const patch = async (x, z, up, n) => {
       const g = I.manager.surfaceAt(x, z);
       cw.camera.set({ mode: 'fly', x, z, y: g + up, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
-      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       if (cw.sunIdle) await cw.sunIdle();
       hide.forEach((o) => { o.visible = false; });
@@ -499,7 +494,6 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
     };
     const road = await patch(110 - 0.5, -500 - 0.5, 6, 160), forest = await patch(520 - 0.5, -650 - 0.5, 20, 360);
     cw.camera.start();
-    if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
     await cw.settle(300000);
     return { road, forest };
   });
@@ -873,7 +867,6 @@ test('no see-through cracks (magenta), on both tiers', { timeout: READY_MS + 900
           I.manager.tinForce(tol);
           const yaw = Math.atan2(-(pose.tx - pose.x), -(pose.tz - pose.z));
           cw.camera.set({ mode: 'fly', x: pose.x, z: pose.z, y: pose.y, yaw, pitch: -(I.camera.fov / 2 + 4) * Math.PI / 180 });
-          if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
           await cw.settle(600000);
           if (cw.sunIdle) await cw.sunIdle();
           return window.__cwMagenta();
@@ -1174,7 +1167,6 @@ test('the slope limit refuses steep ground, and roofs keep the step', { timeout:
       const cw = window.__cw, I = cw.internals, M = I.manager, c = M.byKey['h1:' + key];
       const x = c.x0 + XS - 4, z = c.z0 + r0 + 6;
       cw.camera.set({ mode: 'walk', x, z, y: M.surfaceAt(x, z) + 1.7, yaw: -Math.PI / 2, pitch: 0 });
-      if (!String(cw.settle).includes('forceSnapshots')) M.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       const C = I.controls;
       for (let k = 0; k < 60 && !C.onGround; k++) C.update(1 / 60);
@@ -1378,7 +1370,6 @@ test('the ground\'s noise is read at its own footprint across class borders, on 
       const other = M.materialAt(x + 0.25, z).cls;
       const g = M.surfaceAt(x, z);
       cw.camera.set({ mode: 'fly', x, z, y: g + 1.5, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
-      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       if (cw.sunIdle) await cw.sunIdle();
       const hide = [I.buildings && I.buildings.group, I.trees && I.trees.group, I.fence && I.fence.mesh].filter(Boolean);
@@ -1427,7 +1418,6 @@ test('the ground\'s noise is read at its own footprint across class borders, on 
       const seen = new Set();
       for (let q = -1; q <= 1; q += 0.25) seen.add(M.materialAt(x + q, z).cls);
       cw.camera.start();
-      if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);
       await cw.settle(300000);
       return { road, other, border: x, differ, pixels: w * h, seen: [...seen] };
     });

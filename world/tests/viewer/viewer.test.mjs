@@ -1,16 +1,21 @@
-// Commons World viewer tests: headless Chromium against the synthetic world.
+// Commons World viewer tests: headless Chromium against the synthetic world. This file holds
+// the tests of the page as a whole; terrain.test.mjs (the ground), objects.test.mjs (the
+// buildings and trees) and sun.test.mjs (the sun, shade and slider) hold the rest. Run all
+// four, one test at a time:
 //
-//   node --test world/tests/viewer/
+//   node --test --test-concurrency=1 world/tests/viewer/*.test.mjs
 //
-// Starts its own `python3 -m http.server` on a free port at the repo root, builds the
-// synthetic world first if it is missing, and fails if any request leaves localhost.
+// The shared harness, harness.mjs, starts its own `python3 -m http.server` on a free port at
+// the repo root, builds the synthetic world first if it is missing, and refuses any request
+// that leaves localhost; each file's localhost test then fails.
 // Environment:
-//   CW_PYTHON  a Python with numpy, for the decoder vectors (default: python3)
+//   CW_PYTHON  a Python with numpy, for the decoder vectors, and with pandas and pvlib too
+//              for sun.test.mjs (the pipeline's requirements.txt); default: python3
 //   PLAYWRIGHT_BROWSERS_PATH  where Playwright's Chromium lives, if not the default
 // Only the synthetic world (world/out/synthetic, id zz-synthetic) and the fixtures in
 // this folder are used: nothing here describes a real place.
 
-import { test, beforeEach } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,7 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { HERE, WORLD, REPO, SYN, PYTHON, READY_MS, offenders, origin, newContext, openWorld, mainPage,
-         MESH_HELPERS, reencodeChunk } from './harness.mjs';
+         reencodeChunk } from './harness.mjs';
 
 // ------------------------------------------------------------------------------------------
 test('the synthetic world loads with no console errors and becomes ready', { timeout: READY_MS + 30000 }, async () => {
@@ -94,15 +99,6 @@ test('the JavaScript CWH1 decoder matches commons_world.codec exactly', { timeou
     levels.add(c.level);
   }
   assert.deepEqual([...levels].sort(), ['h1', 'h20', 'h5']);
-});
-
-// The retired block-winding test (TT1 in terrain.test.mjs replaces it) used to put the mesh
-// helpers on the shared page; the smooth-grid test below still reads them. (A before() hook
-// would run ahead of the harness's, before there is a browser.)
-beforeEach(async (t) => {
-  if (!t.name.startsWith('smooth grid faces up')) return;
-  const { page } = await mainPage();
-  await page.addScriptTag({ content: MESH_HELPERS });
 });
 
 test('smooth grid faces up and its skirts face out of the chunk', { timeout: 60000 }, async () => {
@@ -429,7 +425,6 @@ test('the plot is marked on the ground: area within 1% and a boundary line', { t
     const was = hide.map((o) => o.visible);
     const g = I.manager.surfaceAt(cx, cz);
     cw.camera.set({ mode: 'fly', x: cx, z: cz, y: g + 160, yaw: 0, pitch: -Math.PI / 2 + 0.001 });
-    if (!String(cw.settle).includes('forceSnapshots')) I.manager.forceSnapshots(I.camera.position);   // SPEC 3.9
     await cw.settle();
     if (cw.sunIdle) await cw.sunIdle();
     hide.forEach((o) => { o.visible = false; });
@@ -786,10 +781,10 @@ test('the title never falls back to the world id; screen readers hear the end of
 });
 
 // ------------------------------------------------------------------------------------------
-// Grounding and seams, found on the first real world (integration, 25 Sept): trees stood on
-// their 1 m top over coarse blocks, walls stopped short of the ground downhill of a building,
-// and a border wall's depth came from one apron column, which cannot see a drop inside the
-// neighbour's 4 m block.
+// Grounding: everything stands on the ground as drawn. Trees read the drawn surface at every
+// level of detail, the near set included; walls reach the lowest drawn ground round each
+// footprint; the ground under the camera is the triangle on screen, h1 included; and flying
+// stays above the water.
 
 test('trees stand on the drawn surface at every detail, near set included', { timeout: 180000 }, async () => {
   const { page } = await mainPage();
@@ -972,8 +967,7 @@ test('the ground under the camera is the surface as drawn, h1 included', { timeo
     return out;
   });
   const settleHere = () => page.evaluate(async () => {
-    // SPEC 3.9: every h1 chunk re-meshed for this camera, by settle() itself once it does so
-    if (!String(window.__cw.settle).includes('forceSnapshots')) window.__cw.internals.manager.forceSnapshots(window.__cw.internals.camera.position);
+    // settle() brings every h1 chunk's mesh to this camera (SPEC 3.9)
     await window.__cw.settle();
   });
   await page.evaluate(() => window.__cw.camera.start());

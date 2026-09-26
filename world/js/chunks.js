@@ -1056,11 +1056,6 @@ export class ChunkManager {
     return out;
   }
 
-  // ------------------------------------------------------------ transition shims
-  drawnTopAt(x, z) { return this.surfaceAt(x, z); }                                     // SHIM(G2)
-  lowestTop(xa, za, xb, zb) { return this.lowestGround(xa, za, xb, zb); }               // SHIM(G2)
-  plotTint() { return {}; }                                                              // SHIM(G2)
-
   // ------------------------------------------------------------ views, stats and test hooks
   /* K = 2 tan(fov / 2) / cssHeight; every h1 chunk goes stale when it changes by more
    * than 2 %. */

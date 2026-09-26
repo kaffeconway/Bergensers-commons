@@ -127,12 +127,14 @@ after(async () => {
   if (server) server.kill();
 });
 
-// One page on the synthetic world, shared by the tests that only read it.
+// One page on the synthetic world, shared by the tests that only read it. It carries the mesh
+// helpers below.
 let main = null;
 export async function mainPage() {
   if (!main) {
     const ctx = await newContext();
     main = await openWorld(ctx);
+    await main.page.addScriptTag({ content: MESH_HELPERS });
     main.manifest = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
     main.plot = JSON.parse(fs.readFileSync(path.join(SYN, 'plot.json'), 'ascii'));
   }
@@ -141,15 +143,6 @@ export async function mainPage() {
 
 // Mesh analysis helpers, run inside the page on arrays the worker returned.
 export const MESH_HELPERS = `
-  window.__quads = function (m, ox, oz) {
-    const out = [];
-    for (let v = 0; v + 3 < m.vertices; v += 4) {
-      const p = [];
-      for (let k = 0; k < 4; k++) p.push([m.pos[(v + k) * 3] + ox, m.pos[(v + k) * 3 + 1], m.pos[(v + k) * 3 + 2] + oz]);
-      out.push({ p, n: [m.nor[v * 3], m.nor[v * 3 + 1], m.nor[v * 3 + 2]] });
-    }
-    return out;
-  };
   window.__triNormals = function (m) {
     const out = [];
     for (let t = 0; t < m.idx.length; t += 3) {

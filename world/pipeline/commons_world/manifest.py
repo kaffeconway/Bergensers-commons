@@ -344,13 +344,16 @@ def _check_buildings(folder, manifest, problems):
 def check_world(folder):
     """Problems with a built world folder, as strings (empty when sound).
 
-    Checks the manifest's shape; that every file it lists exists with the
-    stated size and sha256, and that every file in the folder is listed; that
-    every height chunk's header agrees with its key, its level, its file name
-    and its manifest entry; and that NOTICE.txt and the credits the sources
-    need are there; that facts.json, if listed, is version 1 with a
-    method and caveats on each block; and that listing.json, if listed,
-    still passes the listing leak check and schema.
+    Checks the manifest's shape; that crs.lat_deg, crs.lon_deg and
+    crs.time_zone, where present, are the origin's own and an allowed zone;
+    that every file it lists exists with the stated size and sha256, and that
+    every file in the folder is listed; that every height chunk's header
+    agrees with its key, its level, its file name and its manifest entry; that
+    every roof_shape in buildings.json, if listed, is absent or sound; and
+    that NOTICE.txt and the credits the sources need are there; that
+    facts.json, if listed, is version 1 with a method and caveats on each
+    block; and that listing.json, if listed, still passes the listing leak
+    check and schema.
     """
     folder = Path(folder)
     problems = []

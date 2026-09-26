@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { ChunkManager, PROFILES } from './chunks.js';
-import { fetchJSON, fetchBytes, parseTrees, TreeSet, buildBuildings, FootprintIndex, PlotFence,
+import { fetchJSON, fetchBytes, parseTrees, TreeSet, buildBuildings, buildingFeatures, FootprintIndex, PlotFence,
          plotRingsFlat, pointInRing, safeWorldPath } from './objects.js';
 import { Controls, EYE } from './controls.js';
 import { renderSpecs, renderCredits } from './panel.js';
@@ -249,7 +249,7 @@ async function main() {
   // Only approved text names the place on screen; the world's id is a property number.
   $('title').textContent = T.nickname || T.address || 'Commons World';
 
-  const features = (buildingsDoc && Array.isArray(buildingsDoc.features)) ? buildingsDoc.features : [];
+  const features = buildingFeatures(buildingsDoc, recordError);
   const buildings = buildBuildings(features);
   scene.add(buildings.group);
   const footprints = new FootprintIndex(features);
@@ -279,7 +279,6 @@ async function main() {
     scene, manifest, worldBase: base, profile, plotRings: plotRingsFlat(parcels),
     onChange: (c, kind) => {
       if (c.level.name === 'h1') {
-        if (c.mesh) c.mesh.receiveShadow = true;   // GLUE(G9): today's chunks.js sets no shadow flags
         if (plotBox && c.x0 <= plotBox[2] && c.x0 + c.level.side >= plotBox[0] &&
             c.z0 <= plotBox[3] && c.z0 + c.level.side >= plotBox[1]) fenceDirty = true;
         if (trees && trees.reground(c.key, (x, z) => manager.surfaceAt(x, z)) > 0 &&
@@ -287,7 +286,7 @@ async function main() {
         if (kind === 'load') {
           // walls down to the lowest ground drawable around each footprint this chunk touches
           const x0 = c.x0 - 4, z0 = c.z0 - 4, x1 = c.x0 + c.level.side + 4, z1 = c.z0 + c.level.side + 4;
-          const lowered = buildings.reground((a, b, e, f) => manager.lowestTop(a, b, e, f) /* G1: lowestGround */,
+          const lowered = buildings.reground((a, b, e, f) => manager.lowestGround(a, b, e, f),
                                              (bx) => bx[0] <= x1 && bx[2] >= x0 && bx[1] <= z1 && bx[3] >= z0);
           if (lowered > 0 && sun && meets(c, sun.casterRects().buildings)) sun.markShadowsDirty();
         }
@@ -307,10 +306,6 @@ async function main() {
       trees = new TreeSet(scene, parseTrees(treesBytes), [manifest.crs.origin_e, manifest.crs.origin_n], chunkSide, profile);
     } catch (err) { recordError(err); }
   }
-  // GLUE(G9): today's objects.js sets no shadow flags, so the near map would have nothing to
-  // draw. Buildings and trees cast and receive (SPEC 3.5); objects.js sets its own later.
-  for (const m of [buildings.othersMesh, buildings.houseMesh]) { m.castShadow = true; m.receiveShadow = true; }
-  if (trees) for (const g of trees.groups) for (const m of g.meshes) { m.castShadow = true; m.receiveShadow = true; }
 
   // ---------------------------------------------------------------- sun, shade and sky
   sun = createSun({ renderer, scene, camera, sky, lights: { hemi, fill, sunLight }, water, manifest, facts, listing,
@@ -562,7 +557,7 @@ async function main() {
     const across = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(27.5)) / camera.aspect);
     camera.fov = Math.min(90, Math.max(baseFov, THREE.MathUtils.radToDeg(across)));
     camera.updateProjectionMatrix();
-    manager.setView?.(camera.fov, h);   // GLUE(G5)
+    manager.setView(camera.fov, h);
     placeDock();
     requestFrame();
   }
@@ -575,13 +570,13 @@ async function main() {
     if (sun.rectsVersion !== rectsSeen) {
       rectsSeen = sun.rectsVersion;
       const rects = sun.casterRects();
-      const a = buildings.setShadowFocus?.(rects.buildings);   // GLUE(G5)
-      const b = trees ? trees.setShadowFocus?.(rects.trees) : false;   // GLUE(G5)
+      const a = buildings.setShadowFocus(rects.buildings);
+      const b = trees ? trees.setShadowFocus(rects.trees) : false;
       if (a || b) sun.markShadowsDirty({ inFrame: true });
     }
     if (sun.night !== nightSeen) {
       nightSeen = sun.night;
-      fence.setDim?.(sun.night ? 0.55 : 1);   // GLUE(G5)
+      fence.setDim(sun.night ? 0.55 : 1);
     }
   };
   function frame(now) {
@@ -615,8 +610,8 @@ async function main() {
     else last = 0;
   }
   // cw.ready also means every building is drawn (their meshing can run in slices)
-  let buildingsReady = !buildings.ready;
-  buildings.ready?.then(() => { buildingsReady = true; sun.markShadowsDirty(); requestFrame(); });   // GLUE(G5)
+  let buildingsReady = false;
+  buildings.ready.then(() => { buildingsReady = true; sun.markShadowsDirty(); requestFrame(); });
   function checkReady() {
     if (cw.ready || !manager.done || !buildingsReady) return;
     cw.ready = true;
@@ -635,8 +630,8 @@ async function main() {
   // has cleared its properties, a later dispose no longer lowers renderer.info.memory.
   window.addEventListener('pagehide', () => {
     sun.dispose();
-    buildings.dispose?.();   // GLUE(G5)
-    fence.dispose?.();   // GLUE(G5)
+    buildings.dispose();
+    fence.dispose();
     if (trees) trees.dispose();
     manager.dispose();
     water.geometry.dispose();
@@ -657,8 +652,8 @@ async function main() {
         geometries: renderer.info.memory.geometries, pixelRatio: renderer.getPixelRatio(),
         profile: profile.name, frames, workers: manager.workers.length,
         shadowRedrawn: sun.lastRedraw, sun: sun.bytes(),
-        terrain: manager.terrainInfo?.(),   // GLUE(G5)
-        objects: buildings.info?.()   // GLUE(G5)
+        terrain: manager.terrainInfo(),
+        objects: buildings.info()
       };
     },
     visible() {
@@ -690,11 +685,6 @@ async function main() {
       return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height,
                visible: p.z > -1 && p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1 };
     },
-    plotTintCells() {
-      let area = 0;
-      for (const p of parcels) if (isFinite(p.area_polygon_m2)) area += p.area_polygon_m2;
-      return { byCell: manager.plotTint(), polygonArea: area };
-    },
     camera: {
       get() {
         return { x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw: controls.yaw, pitch: controls.pitch,
@@ -724,7 +714,7 @@ async function main() {
       manager.update(camera.position);
       if (trees && trees.update(camera.position)) sun.markShadowsDirty();
       await drain();
-      manager.forceSnapshots?.(camera.position);   // GLUE(G5)
+      manager.forceSnapshots(camera.position);
       await drain();
       sun.update();
       let sunDone = false;
@@ -738,7 +728,6 @@ async function main() {
     decode: (url) => manager.decode(new URL(url, base).href),
     meshChunk: (level, key, detail) => manager.meshChunk(level, key, detail),
     meshRaw: (data, mode, opts) => manager.meshRaw(data, mode, opts),
-    blockTrianglesWith: (extra) => manager.blockTrianglesWith(extra),
     loadOrder: () => manager.dispatchLog.slice(),
     openSpecs, house: buildings.house ? { centroid: buildings.house.centroid, ground: buildings.house.ground, roof: buildings.house.roof } : null,
     // the sun: time, shade and light (SPEC 3.4)

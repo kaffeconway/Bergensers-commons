@@ -660,11 +660,12 @@ test('ST11 night is usable', { timeout: 300000 }, async () => {
   assert.ok(r.std > 6, 'luminance spread ' + r.std.toFixed(1));
 });
 
-test('ST13 shadow budget', { timeout: READY_MS + 120000 }, async (t) => {
+test('ST13 shadow budget', { timeout: READY_MS + 120000 }, async () => {
   const ctx = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
   const { page } = await openWorld(ctx);
-  const has = await page.evaluate(() => !!(window.__cw.internals.trees && window.__cw.internals.trees.setShadowFocus));
-  if (!has) { await page.close(); t.skip('integration-only: needs trees.setShadowFocus'); return; }
+  const has = await page.evaluate(() => !!(window.__cw.internals.trees && window.__cw.internals.trees.setShadowFocus &&
+                                           window.__cw.internals.buildings.setShadowFocus));
+  assert.ok(has, 'the trees and the buildings limit what they cast (setShadowFocus)');
   for (const time of ['2026-06-21T14:30Z', '2026-12-21T09:00Z']) {
     const c = await page.evaluate(async (time) => {
       const cw = window.__cw;
