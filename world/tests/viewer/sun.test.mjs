@@ -1362,6 +1362,161 @@ test('ST31 a sun upload leaves three\'s pixel-store cache true', { timeout: 3000
   assert.deepEqual(r.errors, []);
 });
 
+// ------------------------------------------------------------------------------------------
+// The sun on the ground, buildings and trees as drawn (SPEC 8.1): the patch on every material
+// by its kind, the shadow flags of SPEC 3.5, and the trees' shadows on the drawn ground.
+
+test('the sun patches every ground, building and tree material by its kind, and the shadow flags hold', { timeout: 300000 }, async () => {
+  const { page } = await mainPage();
+  await atStart(page);
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, I = cw.internals, shade = await import('/world/js/sunshade.js');
+    cw.setSunTime(I.sun.defaultUtc);
+    cw.camera.start();
+    await cw.settle();
+    await cw.frame();
+    const program = (m) => { const p = I.renderer.properties.get(m).currentProgram; return p ? p.cacheKey : null; };
+    const flags = (o) => [o.castShadow, o.receiveShadow];
+    const B = I.buildings, T = I.trees;
+    const buildings = [B.houseMesh, B.othersMesh].map((mesh) => {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const used = new Set(mesh.geometry.groups.filter((g) => g.count > 0).map((g) => g.materialIndex));
+      return { name: mesh.name, n: mats.length, kinds: mats.map((m) => shade.sunKindOf(m) || null),
+               ground: !!mesh.geometry.getAttribute('cwGround'), flags: flags(mesh),
+               drawn: mats.map((m, i) => (used.has(i) ? program(m) : 'unused')) };
+    });
+    const treeMeshes = T.groups.flatMap((g) => g.meshes).concat(T.nearMeshes);
+    const trees = treeMeshes.map((m) => ({ kind: shade.sunKindOf(m.material) || null, receive: m.receiveShadow,
+                                            far: m.geometry === T.geo[m.userData.kind + 'Far'] }));
+    const byLevel = {};
+    for (const c of I.manager.chunks) {
+      if (!c.mesh) continue;
+      const L = byLevel[c.level.name] || (byLevel[c.level.name] = { n: 0, kinds: new Set(), flags: new Set(), drawn: new Set() });
+      L.n++;
+      L.kinds.add(String(shade.sunKindOf(c.mesh.material) || null));
+      L.flags.add(flags(c.mesh).join());
+      const k = program(c.mesh.material);
+      if (k) L.drawn.add(k.includes('cwT1-' + cw.profile) && k.includes('|cwS1-zero') ? 'both patches' : k);
+    }
+    for (const L of Object.values(byLevel)) for (const f of ['kinds', 'flags', 'drawn']) L[f] = [...L[f]];
+    const sunLight = I.scene.children.find((o) => o.isDirectionalLight);
+    return { buildings, trees, byLevel, coverage: cw.sunCoverage(), profile: cw.profile,
+             water: { kind: shade.sunKindOf(I.water.material) || null, flags: flags(I.water) },
+             fence: I.fence.mesh ? flags(I.fence.mesh) : null, sky: flags(I.sky),
+             map: { enabled: I.renderer.shadowMap.enabled, cast: sunLight.castShadow, night: I.sun.night } };
+  });
+  assert.deepEqual(r.coverage, []);
+  assert.deepEqual(r.map, { enabled: true, cast: true, night: false }, 'the near shadow map is on at the default time');
+  for (const b of r.buildings) {
+    assert.equal(b.n, 3, b.name + ': walls, roofs and trim');
+    assert.deepEqual(b.kinds, ['attribute', 'attribute', 'attribute'], b.name + ': every element carries the sun patch');
+    assert.ok(b.ground, b.name + ': cwGround');
+    assert.deepEqual(b.flags, [true, true], b.name + ': casts and receives');
+    for (const k of b.drawn) assert.ok(k === null || k === 'unused' || k.includes('|cwS1-attribute'), b.name + ': ' + k);
+  }
+  assert.ok(r.buildings[0].drawn.some((k) => k && k !== 'unused'), 'the house was drawn: ' + JSON.stringify(r.buildings[0].drawn));
+  assert.ok(r.trees.length > 0);
+  for (const t of r.trees) {
+    assert.equal(t.kind, 'instance');
+    assert.equal(t.receive, !t.far, 'near and mid trees receive, far ones do not');
+  }
+  const h1 = r.byLevel.h1;
+  assert.ok(h1 && h1.n > 0);
+  assert.deepEqual(h1.kinds, ['zero']);
+  assert.deepEqual(h1.flags, ['false,true'], 'h1 receives and does not cast');
+  assert.deepEqual(h1.drawn, ['both patches'], 'the drawn h1 programs carry the terrain and the sun patch together');
+  for (const name of ['h5', 'h20']) if (r.byLevel[name]) assert.deepEqual(r.byLevel[name].flags, ['false,false'], name);
+  assert.deepEqual(r.water, { kind: 'zero', flags: [false, true] });
+  if (r.fence) assert.deepEqual(r.fence, [false, false]);
+  assert.deepEqual(r.sky, [false, false]);
+});
+
+/* At ST8's evening time, a ground point in a tree's shadow, found as ST7 finds the house's (a
+ * ray toward the sun from it, and from 8 points on a 1 m circle round it, all hit a tree), on
+ * open ground (no roof, nothing overhead) that the terrain leaves in full sun, draws near-map
+ * visibility G < 0.3 and terrain visibility R > 0.9; a point 3 m beyond the shadow's side,
+ * whose rays miss every tree and building, draws G > 0.9. */
+test('trees cast shadows on the drawn ground', { timeout: 600000 }, async (t) => {
+  const { page } = await mainPage();
+  await page.addScriptTag({ content: PICK });
+  await atStart(page);
+  const r = await page.evaluate(async (time) => {
+    const THREE = await import('three');
+    const cw = window.__cw, I = cw.internals, T = I.trees;
+    cw.setSunTime(time);
+    cw.camera.start();
+    await cw.settle();
+    const dir = new THREE.Vector3(...cw.sun.dir).normalize();
+    const rc = new THREE.Raycaster(), up = new THREE.Vector3(0, 1, 0);
+    const treeMeshes = () => T.groups.flatMap((g) => g.meshes).concat(T.nearMeshes);
+    const everything = () => treeMeshes().concat([I.buildings.othersMesh, I.buildings.houseMesh]);
+    const hits = (x, z, targets, d = dir) => {
+      const y = I.manager.surfaceAt(x, z);
+      if (y === null) return null;
+      rc.set(new THREE.Vector3(x, y + 0.1, z), d);
+      rc.far = 400;
+      return rc.intersectObjects(targets, false).length > 0;
+    };
+    // the point and 8 points on a 1 m circle round it all hit (or all miss) the targets
+    const ring = (x, z, targets, want) => {
+      if (hits(x, z, targets) !== want) return false;
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4;
+        if (hits(x + Math.cos(a), z + Math.sin(a), targets) !== want) return false;
+      }
+      return true;
+    };
+    // open ground the terrain leaves in sun, with nothing over it
+    const open = (x, z) => {
+      if (I.footprints.roofAt(x, z) !== null || hits(x, z, everything(), up)) return false;
+      const s = cw.sunShadeAt(x, z, 0);
+      return s.lit && s.vis > 0.99;
+    };
+    const pick = () => {
+      const pose = cw.camera.pose(), out = [];
+      for (let k = 0; k < T.count; k++) out.push(k);
+      out.sort((a, b) => Math.hypot(T.tx[a] - pose.x, T.tz[a] - pose.z) - Math.hypot(T.tx[b] - pose.x, T.tz[b] - pose.z));
+      return out;
+    };
+    const hx = -dir.x, hz = -dir.z, hl = Math.hypot(hx, hz), ux = hx / hl, uz = hz / hl;
+    let tries = 0;
+    for (const k of pick()) {
+      if (tries >= 12) break;
+      // the ground under the middle of the crown's shadow, as if the ground were level
+      const lift = 0.6 * T.scale[2 * k + 1];
+      const x = T.tx[k] - dir.x / dir.y * lift, z = T.tz[k] - dir.z / dir.y * lift;
+      if (!open(x, z) || !ring(x, z, treeMeshes(), true)) continue;
+      tries++;
+      await window.__lookDownAt(x, z, 40);     // the tree's level of detail follows the camera
+      if (!open(x, z) || !ring(x, z, treeMeshes(), true)) continue;
+      // a lit point 3 m beyond the shadow's side
+      let lit = null;
+      for (const sgn of [1, -1]) {
+        let s = 0;
+        while (s < 30 && hits(x - uz * s * sgn, z + ux * s * sgn, treeMeshes())) s += 0.25;
+        const lx = x - uz * (s + 3) * sgn, lz = z + ux * (s + 3) * sgn;
+        if (s < 30 && open(lx, lz) && ring(lx, lz, everything(), false)) { lit = { x: lx, z: lz }; break; }
+      }
+      if (!lit) continue;
+      await window.__lookDownAt((x + lit.x) / 2, (z + lit.z) / 2, 40);
+      if (!ring(x, z, treeMeshes(), true) || !ring(lit.x, lit.z, everything(), false)) continue;
+      const [a, b] = window.__patch([{ x, z }, lit], 3, true);
+      cw.camera.start();
+      await cw.settle();
+      return { tree: k, tries, shade: a, lit: b, el: cw.sun.elevation };
+    }
+    cw.camera.start();
+    await cw.settle();
+    return { tries };
+  }, '2026-06-21T19:00Z');
+  assert.ok(r.shade, 'found a point in a tree\'s shadow on open, sunlit ground: ' + JSON.stringify(r));
+  t.diagnostic('tree ' + r.tree + ' (' + r.tries + ' tried): shadow R ' + r.shade.R.toFixed(2) + ' G ' + r.shade.G.toFixed(2) +
+               ', beside it G ' + r.lit.G.toFixed(2));
+  assert.ok(r.shade.R > 0.9, 'the terrain leaves the point lit: R ' + r.shade.R);
+  assert.ok(r.shade.G < 0.3, 'in the tree\'s shadow: G ' + r.shade.G);
+  assert.ok(r.lit.G > 0.9, 'beside it: G ' + r.lit.G);
+});
+
 test('ST12 the console stays clean with shadows', async () => {
   const { page, log } = await mainPage();
   await page.evaluate(() => window.__cw.frame());

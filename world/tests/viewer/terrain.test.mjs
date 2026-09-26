@@ -1013,6 +1013,39 @@ test('the drawn horizon agrees with the world\'s own 1 m horizon', { timeout: RE
   }
 });
 
+// The drawn horizon against the measured one (SPEC 8.1). The facts' rays run far past the
+// world's edge, so only the rays the world itself decides are compared, masked as ST16 masks
+// them: where the horizon beyond the world lies more than 0.35 deg below the measured one.
+// The tolerance is ST16's 0.35 deg plus this file's own for the drawn surface.
+test('the drawn horizon agrees with the measured one where the world decides it', { timeout: READY_MS + 600000 }, async (t) => {
+  const facts = JSON.parse(fs.readFileSync(path.join(SYN, 'facts.json'), 'ascii'));
+  const gp = facts.sun.garden_point, measured = facts.sun.horizon.profile_deg;
+  const beyond = facts.sun.horizon.beyond_world.profile_deg, tol = 0.35 + HORIZON_TOL_DEG;
+  assert.equal(measured.length, 720);
+  assert.equal(beyond.length, 720);
+  for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
+    const { page } = await get();
+    await page.evaluate(({ x, z }) => {
+      const g = window.__cw.internals.manager.surfaceAt(x, z);
+      window.__cw.camera.set({ mode: 'walk', x, z, y: g + 1.7, yaw: Math.PI, pitch: 0 });
+    }, gp);
+    await settleHere(page);
+    const drawn = await page.evaluate(({ x, z }) => Array.from(window.__cw.internals.manager.drawnHorizon(x, z)), gp);
+    let n = 0, worst = 0, at = -1;
+    for (let k = 0; k < 720; k++) {
+      if (!(beyond[k] < measured[k] - 0.35)) continue;
+      n++;
+      const d = Math.abs(drawn[k] - measured[k]);
+      if (d > worst) { worst = d; at = k; }
+    }
+    t.diagnostic(name + ': ' + n + ' rays the world decides; largest difference ' + worst.toFixed(3) + ' deg at ' + at * 0.5 + ' deg true');
+    assert.ok(n > 100, name + ': ' + n + ' rays the world decides');
+    assert.ok(worst <= tol, name + ': ray ' + at * 0.5 + ' deg: drawn ' + drawn[at] + ', measured ' + measured[at]);
+    await page.evaluate(() => window.__cw.camera.start());
+    await settleHere(page);
+  }
+});
+
 test('installs are throttled', { timeout: READY_MS + 300000 }, async () => {
   const budget = { laptop: [8, 400000], phone: [4, 150000] };
   for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {

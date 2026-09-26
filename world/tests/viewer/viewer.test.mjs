@@ -998,6 +998,32 @@ test('flying never goes under the water, even beyond the edge of the world', { t
   assert.ok(out.cam.feet >= 0.3 - 1e-9, 'held above the water: feet at ' + out.cam.feet);
 });
 
+// ------------------------------------------------------------------------------------------
+// Leaving the page: the ground, the buildings, the trees, the fence, the water, the sky and
+// the sun's textures and shadow map are all disposed before the renderer (SPEC 3.9), so the
+// renderer's own counters fall to zero. On its own page, since it ends that page.
+
+test('leaving the page frees every geometry and texture before the renderer goes', { timeout: READY_MS + 120000 }, async () => {
+  const ctx = await newContext();
+  const { page, log } = await openWorld(ctx);
+  assert.deepEqual(log.errors, [], 'page errors before leaving');
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw, R = cw.internals.renderer;
+    await cw.settle();
+    await cw.sunIdle();
+    await cw.frame();
+    const before = { geometries: R.info.memory.geometries, textures: R.info.memory.textures };
+    const errors = cw.errors.length;
+    window.dispatchEvent(new Event('pagehide'));
+    return { before, after: { geometries: R.info.memory.geometries, textures: R.info.memory.textures },
+             errors: cw.errors.slice(errors) };
+  });
+  assert.ok(r.before.geometries > 0 && r.before.textures > 0, 'something was on the GPU: ' + JSON.stringify(r.before));
+  assert.deepEqual(r.after, { geometries: 0, textures: 0 }, 'left on the GPU: ' + JSON.stringify(r));
+  assert.deepEqual(r.errors, [], 'the handler recorded no error');
+  await page.close();
+});
+
 test('no request ever left localhost', () => {
   assert.deepEqual(offenders, []);
 });
