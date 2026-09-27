@@ -121,13 +121,19 @@ order, raw (gzip compresses them).
 | 5 | sea | 12 | building footprint (`h1` only) |
 | 6 | built-up area | 13 | sand, gravel, quarry |
 
+Codes stay below 14: the viewer draws 14 as slope rock, and keeps the phone's edge marks
+in the high four bits of its class texture, so a code of 16 or more would be drawn as
+another class.
+
 - **Sea is decided by height.** A sample at or below 0 m is class 5 unless it is a lake or
   river (class 4). Land cover, roads and building footprints are painted only on samples
   above 0 m; N50's generalised polygons overlap the shore, and without this rule a sea
   sample could carry "forest".
 - **Precedence when rasterising**, lowest first: sea, then
   land-cover polygons, then lakes and rivers, then roads and paths, then building
-  footprints, then (`h1` only) the forest correction below.
+  footprints (the ones drawn: a footprint left out as tree crowns is not painted, and
+  its samples keep the class beneath, `buildings.json.gz` below), then (`h1` only) the
+  forest correction below.
 - **Forest only where trees stand (`h1`).** N50 draws its forest for 1:50 000, so a lawn,
   a garden or a clearing inside a forest polygon would come out as forest. At `h1`, once
   the footprints are painted, a forest sample becomes open land (0) unless the 1 m surface

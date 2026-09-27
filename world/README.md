@@ -39,6 +39,19 @@ python -m commons_world check ../out/<id>             # check a built folder
 The listing file comes from the property tracker's exporter; `PLAN.md` section 8 says
 what it may contain. Python 3.11 and `pipeline/requirements.txt`.
 
+`build --observed PATH` gives one build a private observed input: a small JSON file with
+the house's roof colour (`#rrggbb`), how it was read, and a credit line
+(`pipeline/commons_world/observed.py` reads and checks it). Keep it in
+`world/out/_inputs/`, which git ignores; never commit it. The colour goes into the
+house's entry in `buildings.json` and the credit line into the world's credits and
+`NOTICE.txt`. A malformed file stops the build before anything is fetched.
+
+The pipeline's own tests run with `python -m pytest` in `world/pipeline` (the network
+tests are left out by default). Among them, `tests/test_forest.py` covers the forest
+correction, `tests/test_canopy.py` the footprints taken for tree crowns, and
+`tests/test_observed.py` the observed input, on invented data and a made-up fixture
+(`tests/fixtures/observed-synthetic.json`).
+
 ## Controls
 
 | | Desktop | Phone or tablet |
@@ -91,8 +104,16 @@ on the plot, just outside the house, facing it.
   forest, bog, farmland, lake, built-up, road, footway, path, rock, snow, sand; the
   ground under buildings is drawn as built-up), with borders between types blended
   rather than stepped in 1 m squares (up to four types on a laptop; two on a phone, the
-  second as a flat colour across a narrow band), light from the 1 m surface's own
-  slopes, and a wet band along the shore; lakes reflect a little of the sky. **Drawn,
+  second as a flat colour across a band about a quarter metre either side of the border,
+  taken from the nearest square of another type so the band follows corners without
+  creases), light from the 1 m surface's own slopes, and a wet band along the shore;
+  lakes reflect a little of the sky. Near you (the 1 m level) the map's forest is kept
+  only where Kartverket's 1 m surface model shows trees about 3 m or taller, with a 2 m
+  margin round them; elsewhere mapped forest is drawn as open land, since the national
+  map draws its forest for 1:50 000 and counts lawns, gardens and clearings inside it as
+  forest. Small gaps inside a stand stay forest. Nothing is ever turned into forest, and
+  the coarser levels keep the map's own classes, so from beyond 1.5 km mapped forest
+  still reads as forest. **Drawn,
   not measured:** bare rock where the ground is steep (from about 34 to 60 degrees,
   depending on the land type), and grain and bumps finer than a metre. The textures fade
   into the far colours between about 0.4 and 1.5 km (nearer on a phone), and the h5 and
@@ -104,28 +125,40 @@ on the plot, just outside the house, facing it.
   detail, each shaped so its width at half height is the measured crown; the nearest
   dozens are drawn in full. Each stands on the ground as drawn under it (re-set whenever
   its chunk is re-meshed). Whether a tree looks like a conifer or a broadleaf follows its
-  measured crown and height where they are clear, and is not its species.
-- **Buildings** from `buildings.json`, each drawn from its roof as fitted to the 1 m
+  measured crown and height where they are clear, and is not its species. A footprint
+  taken for tree crowns (below) does not hide the trees under it.
+- **Buildings** from `buildings.json`. Footprints come from the 1 m surface model,
+  anchored to the building register. Where a footprint's surface is rough like tree
+  crowns and no roof shape fits it, it is taken for trees, not a building, and not drawn;
+  where such a footprint holds a small flat or pitched roof at its register point, only
+  that roof is drawn. So a small shed under trees may be missing. Each building is drawn
+  from its roof as fitted to the 1 m
   surface model: flat, mono-pitch, gable, hipped or pyramid, or two or three parts where
   one shape does not explain it. Where no shape fits well, or the fitted one would come
   down to the ground, the building keeps a flat top at the height the model gives it,
   plain, so "shape not measured" shows. On other buildings the outline is straightened
   along the ridge when that stays close to the measured cells and clear of the
   neighbours' footprints, the walls stand 0.4 m (0.15 m on flat roofs) inside the roof
-  edge with a trim board, and the roofs have tile courses: all drawn. The listing house
+  edge with a trim board, and pitched roofs have tile courses: all drawn. Measured flat
+  roofs are drawn plain, with no tile courses. The listing house
   is drawn only as measured: its walls stand at the measured roof edge of its traced
   outline, with no trim and a plain roof, however uneven the fitted roof is; it is never
   cut into parts, so where no single roof shape fits it, it keeps the plain flat top.
   Walls have vertical boards everywhere; no building shows windows or doors, because
-  where they are is not known. The house is the warm one with a label; its ochre and red
-  are a highlight, not its real colours. `ground` in the file is the median under the
+  where they are is not known. The house is the warm one with a label. Its walls are in
+  a highlight colour, not their real colour. Its roof is in the highlight colour too,
+  unless the world was built with an observed roof colour (read from an aerial photo,
+  for example): then the roof is drawn plain in that colour, and the credits say where
+  the colour was read. `ground` in the file is the median under the
   footprint, so on a slope the walls are taken down to the lowest ground drawn anywhere
   in the 16 m tiles around the footprint, at any tolerance, once the 1 m heights there
   are loaded.
 - **The plot**: a warm wash over the parcel and a line along its boundary, drawn on the
   ground in the shader from a signed-distance map (never thinner than about 0.3 m or a
-  pixel), and a 0.4 m fence along it. It is the registered parcel, drawn as approximate,
-  and the specs panel says so with its accuracy class.
+  pixel), and a 0.4 m fence along it. The fence dims at night, once the sun is about a
+  degree below the horizon; not by day in the shade of a hill or of mountains beyond the
+  world. It is the registered parcel, drawn as approximate, and the specs panel says so
+  with its accuracy class.
 - **Sun and sky.** The sun is placed for a chosen date and time: the chip at the bottom
   of the screen shows them, and opens a panel with a date slider (one year, the year the
   measured figures are for), a time slider (the site's own clock and zone, the whole
@@ -170,8 +203,8 @@ phone):
 
 | Start view, synthetic world | h1 | h5 | h20 | Trees | Buildings | Main pass: triangles, draw calls | Shadow pass, 21 Jun 14:30 and 21 Dec 09:00 UTC | h1 held |
 |---|---|---|---|---|---|---|---|---|
-| Phone, 390 x 844 | 17,853 | 50,304 | 120,720 | 869 | 325 | 191,219 in 74 | 194 in 6; 212 in 6 | 69,380 |
-| Laptop, 1280 x 720 | 29,007 | 92,784 | 158,160 | 971 | 325 | 282,395 in 104 | 194 in 6; 230 in 6 | 70,292 |
+| Phone, 390 x 844 | 17,853 | 50,304 | 120,720 | 1,302 | 325 | 191,652 in 78 | 194 in 6; 212 in 6 | 69,380 |
+| Laptop, 1280 x 720 | 29,007 | 92,784 | 158,160 | 1,404 | 325 | 282,828 in 108 | 194 in 6; 230 in 6 | 70,292 |
 
 The first five columns count what is inside the view; the main pass is what the renderer
 drew. Before this change the same views drew about 0.40 M and 0.60 M triangles, nearly
@@ -183,20 +216,23 @@ pass and shadow pass together, where before this change it was well over. Its fi
 kept out of this file because it is public. No real phone has been tried.
 
 The same page over a scripted 600 m walk at 4.2 m/s, then a fly-up to 400 m and 1.5 km
-out (synthetic world): no frame installed more than 4 chunks (59,446 triangles) on a phone
-or 8 chunks (121,110 triangles) on a laptop; the h1 triangles held stayed near 70,000,
-against caps of 250,000 and 600,000; the walk asked for about 2 chunk jobs a second and
-the fly-up about 51; nothing went wrong, and no frame was drawn in the 3 s after either
-ended or after the page settled. The terrain's textures come to about 30 MB on both
-profiles, as the renderer counts them. The sun's memory (`stats().sun`) is 13.7 MB in the
-worker and 4.6 MB on the page on a phone, and 22.3 MB and 13.7 MB on a laptop.
+out (synthetic world): no frame installed more than 4 chunks (71,920 triangles) on a phone
+or 8 chunks (121,110 triangles) on a laptop, both on the fly-up; the h1 triangles held
+stayed near 70,000, against caps of 250,000 and 600,000; the walk asked for about 2 chunk
+jobs a second and the fly-up about 51; nothing went wrong, and no frame was drawn in the
+3 s after either ended or after the page settled. The terrain's textures come to about
+30 MB on both profiles, as the renderer counts them. The sun's memory (`stats().sun`) is
+13.7 MB in the worker and 4.6 MB on the page on a phone, and 22.3 MB and 13.7 MB on a
+laptop.
 
 The terrain shade, timed in Node on one core of a quiet 4-core machine over four runs
 (synthetic world): a full update takes 73-93 ms at phone quality and 208-222 ms at laptop
 quality, and 40-50 ms while the slider is dragged; moving the 1 m window with you takes
 11-15 ms on a phone and 44-45 ms on a laptop. The design allows 100 ms for a full update
 on a phone and 40 ms while dragging, so the dragging figure sits at or just over its
-allowance here.
+allowance here. Two further runs after the second round (27 Sept, nothing in the sweep
+changed) gave 71-76 ms, 208-215 ms and 37-39 ms while dragging, and 11 ms and 43-45 ms for
+the window.
 
 If a phone turns out too slow, these are cut in this order, one named constant at a time,
 re-measuring after each; the December shade, which comes from the terrain sweep, is kept
@@ -263,10 +299,13 @@ live elsewhere). They use the synthetic world and the fixtures in `tests/viewer/
 only. The whole run takes the best part of an hour on a busy four-core machine; the
 shade-agreement test (ST5) sweeps 442 times and is the slowest.
 
-`viewer.test.mjs` checks: no console or page errors or GL warnings; every chunk the
+`viewer.test.mjs` checks: no console or page errors or GL warnings (GL warnings are
+checked on every page a test opens, and on the shared page once every test has used it);
+every chunk the
 manifest lists is loaded; loading starts under the camera; the JavaScript decoder matches
 `commons_world.codec` sample for sample (`make_vectors.py` writes the vectors); smooth
-faces wind outward; h1 chunk seams are covered at every mix of tolerances; clicking the
+faces wind outward; h1 chunk seams are covered for neighbours meshed within the refresh
+rule (and, on gentle ground, at wider mixes); clicking the
 house, its walls or its roof opens the specs; a click where a hill hides the house does
 not (the synthetic hill, found by walking sight lines), and a mouse click shows no focus
 ring where Tab shows one inside the canvas edge; the plot mark matches the parcel's area
@@ -284,17 +323,25 @@ nothing; and these files are ASCII.
 
 `terrain.test.mjs` checks the ground: the TIN faces up and its skirts out; it stays
 within its tolerance with either error map and has no T-junctions; a cliff on a chunk
-edge is covered from both sides; land cover lands in the right place; the far palette is
+edge is covered from both sides; land cover lands in the right place (forest in the
+synthetic stand, open land in its clearing); the far palette is
 one table; one terrain program per tier, with lights and shadows intact; moving
 re-meshes only what it must; a stale reply never replaces a newer mesh; walls reach the
 lowest drawn ground; the triangle and draw-call budgets per profile; texture memory; no
 see-through cracks; h1 skirts hang below the h5 edge (also when that h5 chunk arrives late
-and lower); the drawn horizon agrees with the world's own 1 m horizon, and with the
-measured one where the world decides it; installs are throttled; terrain frees its GPU
-memory; trees follow a coarse re-mesh; the slope limit (jumping included); the
-held-triangle cap; installs while the tab is hidden; a chunk still loading when the view
-changes is meshed again for the new view; and the ground's noise read at its own
-footprint across land-type borders.
+and lower); the drawn horizon agrees with the world's own 1 m horizon within what the
+triangulation promises (px CSS pixels from the eye, or 5 cm for nearby ground: within
+about 30 m on a laptop and 10 m on a phone), and with the measured one, out to the
+world's farthest corner, where the world decides it, both at the profile's own pixel
+target, and, at two points on steeper synthetic ground, strictly enough that a
+triangulation four times looser fails; installs are throttled; terrain
+frees its GPU memory; trees follow a coarse re-mesh; the slope limit (jumping included);
+the held-triangle cap; installs while the tab is hidden; a chunk still loading when the
+view changes is meshed again for the new view; the phone's land-type borders blend
+without creases, and the page installs the edge marks that blend reads (on the phone
+only); the ground's noise read at its own footprint across land-type borders; and, once
+every test has used them, no page error, console error or GL warning on its two shared
+pages.
 
 `objects.test.mjs` checks buildings and trees: closed, outward buildings; invented split,
 stepped, traced, hipped, pyramid, shed, flat and unfitted roofs closed and meeting their
@@ -302,22 +349,27 @@ walls; the house drawn only as measured, and as the flat prism by one constant; 
 on the roof; the drawn roof is the measured roof; old and malformed files (a number that
 is not finite, parts that do not chain, a roof below the walls); no openings; neighbours
 after the house; walking on a roof; the ground each building carries for the sun; the
-neighbours' colours; the tree near set, crown tie, look rule, level-of-detail hysteresis
-and budget; shadow focus, its in-place partition and partial upload; the return values
-that ask for a redraw; material kinds; and the fence.
+neighbours' colours; the house roof in an observed colour, with the walls kept in the
+highlight colour; measured flat roofs plain and pitched roofs tiled; the neighbours'
+swap resuming where it stopped, building by building; the tree near set, crown tie, look
+rule, level-of-detail hysteresis and budget; shadow focus, its in-place partition and
+partial upload; the return values that ask for a redraw; material kinds; the fence; and
+no GL warning wherever a test reads its page's log, the shared page included.
 
-`sun.test.mjs` holds the sun tests ST1-ST32: the sun against pvlib and against the
+`sun.test.mjs` holds the sun tests ST1-ST33: the sun against pvlib and against the
 synthetic facts; the garden point's hours; the site's clock; the drawn terrain shade
 against the facts at the garden point and over the 21 December plot map; the GPU drawing
 what the CPU says; shadows visible; the slider by keyboard; the layout with the chip and
 panel; a usable night; a clean console; the shadow budget; `settle()` waiting for the sun;
-the far gate; the world-only horizon against the measured one; the start staying put;
+the far gate, under which the plot fence keeps its day colour; the world-only horizon
+against the measured one; the start staying put;
 every lit material shaded by the sun; no shadow work at night; late and failed chunks;
 `?t=` and ASCII labels; the facts year; and, added after the reviews, casters across the
 whole near shadow map, a far gate that only dims, a gate derived from the world, the near
 map's redraw, T and the address, a world with no latitude or longitude, the open panel
-following the sweep, the readout's lines, three's texture state after a sun upload, and
-the 1 m window following the camera. Beside them it checks that every ground, building and
+following the sweep, the readout's lines, three's texture state after a sun upload, the
+1 m window following the camera, and a caster 58 m above a receiver casting into the near
+map. Beside them it checks that every ground, building and
 tree material is patched by its kind with the shadow flags as specified, and that trees
 cast shadows on the drawn ground. Until the owner decides the evening light, the spec's
 own ST8 (a shadow at 21 June 19:00 UTC below 0.85 of the lit ground) runs as a TODO test
@@ -328,9 +380,15 @@ beside ST8; it fails and is reported as TODO, which does not fail the run.
 On screen, in a corner that folds to an (i) button but is never removed: every string in
 the world's `manifest.credits` (for Norway, Kartverket's data under CC BY 4.0, and the
 place-name credit), plus three.js (MIT). The world's `NOTICE.txt` is linked from there.
-No data source was added for the smooth ground, the roofs or the sun: the roof planes are
-fitted to Kartverket's surface model, already credited, and every texture is generated in
-code.
+No data source was added for the smooth ground, the roofs, the sun or the land types:
+the roof planes are fitted to Kartverket's surface model, already credited, the forest
+correction uses the same surface model, and every texture is generated in code. The
+Kartverket credit states what was modified, as CC BY asks: the land cover, water, roads
+and paths rasterised into classes, and the land cover corrected with the surface model
+(forest only where trees stand); building footprints and trees derived from the surface
+model. A world built with an observed input also shows that input's own credit line, on
+screen and in `NOTICE.txt`: for a roof colour read from an aerial photo, the photo's
+source.
 
 In the code: the h1 ground's RTIN triangle table is adapted from mapbox/martini, ISC
 licence (its notice is kept in `js/worker.js`). The sun's position uses NOAA's equations,

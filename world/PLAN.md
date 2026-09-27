@@ -5,7 +5,8 @@ on 24 Sept 2026 and reviewed by Joseph. This version, of 25 Sept, records what c
 once work began: robots.txt ruled out OpenStreetMap, the first prototype sold, and step 2
 (the pipeline) is built. The HD pass of 26 Sept (smooth textured ground, measured roofs,
 fuller trees, and the sun with a date and time slider) is recorded in D16, D17 and
-sections 4, 5, 10 and 11.
+sections 4, 5, 10 and 11; its second round (land types from the surface model, tree crowns
+no longer drawn as buildings, the house roof in an observed colour) in D19 to D28.
 
 Figures are marked as one of:
 - **measured:** fetched, run or read at the source;
@@ -38,7 +39,29 @@ listing, and nothing that places a listing on the map. Those go to Joseph direct
 | # | What was done | Why |
 |---|---|---|
 | D16 | **Built-in materials, patched.** The world keeps three.js's built-in Lambert and Phong materials, but the h1 ground's textures and the sun's terrain shade are `onBeforeCompile` patches on them (`js/terrainmat.js`, `js/sunshade.js`). Replaces D9. A later move to WebGPU would need these patches ported | Joseph chose smooth ground textured by land type, and real shadows with a date and time slider. Neither can be built with vertex colours or unpatched materials. Asked first (A1); he said proceed |
-| D17 | **The listing house is drawn only as measured.** Its roof is drawn as fitted to the surface model (an off-centre ridge stays off-centre); its walls stand at the measured roof edge (no overhang), on its traced outline; no trim board; a plain roof in the highlight colour. Each is one constant. (Other buildings get a drawn overhang, trim, tile courses and straightened outlines; those are built as defaults and wait for his look, D18) | Joseph's choice of "nothing on the listing house is made up", asked part by part (A2); he took the conservative answer for all five |
+| D17 | **The listing house is drawn only as measured.** Its roof is drawn as fitted to the surface model (an off-centre ridge stays off-centre); its walls stand at the measured roof edge (no overhang), on its traced outline; no trim board; a plain roof in the highlight colour (since D21, in an observed colour when the world's build is given one). Each is one constant. (Other buildings get a drawn overhang, trim, tile courses and straightened outlines; those are built as defaults and wait for his look, D18) | Joseph's choice of "nothing on the listing house is made up", asked part by part (A2); he took the conservative answer for all five |
+
+### Taken on 25 Sept 2026, after the aerial-photo prints (asked, and answered by Joseph)
+
+Joseph supplied aerial-photo prints of the prototype (from norgeskart.no, credited). They were
+compared with the world privately; what they showed is not recorded here, because it
+places the prototype.
+
+| # | What was done | Why |
+|---|---|---|
+| D19 | **Land types corrected from the surface model.** Within 1.5 km (the 1 m level) the map's forest is kept only where Kartverket's 1 m surface model shows a tree about 3 m or taller within 2 m; elsewhere it is drawn as open land. A treeless patch under 25 m2 inside a stand stays forest; one beside other land opens. Nothing is ever turned into forest, and the 5 m and 20 m levels keep the map's classes. For every world, from Kartverket's open data only (`FORMAT.md` section 3) | Joseph's answer (P1): "Forest only where the 1 m surface model shows trees (about 3 m or taller); open grass elsewhere. Measured from Kartverket's open data, for every world." The national map draws its forest for 1:50 000, so lawns, gardens and clearings inside a forest polygon came out as forest |
+| D20 | **Tree crowns taken for a roof are not drawn.** A footprint no roof shape fits, with fewer than a quarter of its cells on a plane, is taken for tree crowns: it is not drawn, or is cut down to the planar roof at its register point when one fits. Its trees are found again, and its ground keeps the map's class. The listing house is never dropped | Joseph's answer (P2): "Where the surface is rough like tree crowns with no roof planes, draw no building. A small shed hidden under trees may go undrawn" |
+| D21 | **The house roof in an observed colour.** A world's build may be given a private observed input (`build --observed`): the listing house's roof colour read from an aerial photo, how it was read, and a credit line, which is shown on screen and in `NOTICE.txt`. The roof is then drawn plain in that colour; the walls keep the highlight colour. The input is per world and is never committed, and no real colour appears in the code. Without it, nothing changes (D17) | Joseph's answer (P3), "Real roof, highlight walls": the roof in the colour read from the prints, and "Walls keep the highlight colour, since they can't be seen from above; the HOUSE label still marks it." The colour is a reading of one photo, so it is private to that world |
+
+### Taken on 26 Sept 2026 by the orchestrator (technical; Joseph not asked)
+
+| # | What was done | Why |
+|---|---|---|
+| D22 | The test that compares the drawn horizon with the world's own 1 m horizon (TT14) now allows, per ray, what the ground's triangulation promises (its pixel tolerance at that distance, or 5 cm for nearby ground), instead of a figure measured on the synthetic world. It checks the ground at the profile's own pixel target, and a second test on steeper synthetic ground shows that a triangulation four times looser fails the same check | A tolerance set on one world's ground does not carry to another; the triangulation's own promise does |
+| D23 | The check of the drawn horizon against the measured one marches to the world's farthest corner, read from the manifest, instead of a fixed 11 km | A world's squares reach past 11 km toward its corners, so a fixed 11 km could stop short of ground inside the world that decides the horizon |
+| D24 | The plot fence dims only at night (the sun about a degree below the horizon), not by day when mountains beyond the world or a hill hide the sun. The sun chip's crescent switches at 0 degrees, so the two differ by a degree; one constant aligns them | A shaded midday is still day |
+| D25 | Measured flat roofs are drawn plain in their roof colour, with no tile courses (the stretched tile texture drew seams that are not there). A roof no shape fits keeps its darker plain top, with no eave or trim | The tile map belongs to pitched roofs |
+| D26 | The near shadow map's near plane stands `60 / sin e` back along the sun's ray (was `60 / tan e`), so a caster up to 60 m above ground it shades in the map still lies behind the near plane, as the design intended. Which casters are drawn at all is still decided by the caster rectangles, which reach `35 / tan e` toward the sun, so near the map's sunward edge a caster more than about 35 m up is left out as before | The orchestrator's rule for this item was to change it if a test showed a defect; a synthetic test showed a caster 58 m above its receiver casting nothing under the old rule |
 
 ### Still open
 
@@ -52,9 +75,11 @@ listing, and nothing that places a listing on the map. Those go to Joseph direct
 | D11 | **Which sun figure the panel leads with**: plot median or a garden point; terrain only or with trees and buildings | 4 | Lead with the plot median, terrain only, with the with-trees figure beside it |
 | D12 | **Italy terrain.** The brief named Copernicus DEM, a 30 m *surface* model that reads 3.5–7.9 m above the ground on average at the sites tested | 5 | Regione Piemonte's 5 m ground model where it covers, TINITALY 10 m elsewhere, and Copernicus only as a last resort, with its required notice |
 | D13 | The link from `index.html`, and the hub map's base layer | 5 | Decide then. A world cannot open from a saved copy the way `index.html` can |
-| D14 | **Phone triangle budget.** Before the HD pass the real prototype's phone start view drew well over the ~0.4 M rule of thumb. The HD pass replaced the blocks with smooth ground: on the synthetic world the phone start view now draws about 191 k triangles in 74 draw calls, plus about 0.2 k in the shadow pass (laptop: about 282 k in 104 calls), and the real prototype's phone start view is under the rule, main and shadow pass together. These are counts from a headless browser; no phone has been tried | before approval | Try it on a real phone first. If it stutters, apply the cut order in README (Performance) one step at a time, re-measuring after each; the step that turns off the phone's blended borders needs Joseph's say |
+| D14 | **Phone triangle budget.** Before the HD pass the real prototype's phone start view drew well over the ~0.4 M rule of thumb. The HD pass replaced the blocks with smooth ground: on the synthetic world the phone start view now draws about 192 k triangles in 78 draw calls, plus about 0.2 k in the shadow pass (laptop: about 283 k in 108 calls), and the real prototype's phone start view is under the rule, main and shadow pass together. These are counts from a headless browser; no phone has been tried | before approval | Try it on a real phone first. If it stutters, apply the cut order in README (Performance) one step at a time, re-measuring after each; the step that turns off the phone's blended borders needs Joseph's say |
 | D15 | **Small visible choices made in steps 3-4**: the house label shows through hills as a locator; a peak whose named point has no distinct top is reported as "short of the named point"; a summit found more than 50 m from its named point is flagged on the panel | before approval | Keep; each is one line to change |
-| D18 | **Visible choices built with a default in the HD pass**, each one named constant. Ground: the colours per land type; bare rock drawn by slope (34 to 60 degrees by type); sub-metre bumps, grain and a wet shore band; lakes reflecting a little sky; textures stopping at 1.5 km; the distant-ground tolerance (2 px phone, 1 px laptop); the plot's 35% wash and 80% line; the 50 degree walking limit; two-type borders on a phone; the ground under buildings drawn as built-up. Buildings: neutral neighbours with a small lightness jitter; a 0.4 m overhang (0.15 m on flat roofs) and a trim board; board cladding and tile courses; straightened outlines, kept clear of neighbours (round buildings become polygons); a plain flat top where no roof fits; a 1.5 m plausibility clearance; an L- or T-shaped listing house kept whole. Trees: the conifer or broadleaf look from the measured shape. Light and time: opening at 21 June mid-afternoon; the local clock and one facts year; the chip and panel; the time keys; the shadow map on phones; the softer daylight, under which low evening sun leaves faint object shadows; untoned colours; what the panel calls measured and drawn | before approval | Joseph to look at each in the screenshots; each is one line to change |
+| D18 | **Visible choices built with a default in the HD pass**, each one named constant. Ground: the colours per land type; bare rock drawn by slope (34 to 60 degrees by type); sub-metre bumps, grain and a wet shore band; lakes reflecting a little sky; textures stopping at 1.5 km; the distant-ground tolerance (2 px phone, 1 px laptop); the plot's 35% wash and 80% line; the 50 degree walking limit; two-type borders on a phone; the ground under buildings drawn as built-up. Buildings: neutral neighbours with a small lightness jitter; a 0.4 m overhang (0.15 m on flat roofs) and a trim board; board cladding, and tile courses on pitched roofs (flat roofs plain, D25); straightened outlines, kept clear of neighbours (round buildings become polygons); a plain flat top where no roof fits; a 1.5 m plausibility clearance; an L- or T-shaped listing house kept whole. Trees: the conifer or broadleaf look from the measured shape. Light and time: opening at 21 June mid-afternoon; the local clock and one facts year; the chip and panel; the time keys; the shadow map on phones; the softer daylight, under which low evening sun leaves faint object shadows; untoned colours; what the panel calls measured and drawn | before approval | Joseph to look at each in the screenshots; each is one line to change |
+| D27 | **Evening light (visible choice 23).** Under the softer daylight a low evening sun leaves object shadows only a little darker than lit ground. The spec's check (on the synthetic world at 21 June 19:00 UTC, a shadow below 0.85 of the lit ground) runs as a TODO test and reads 0.928 as built. The options are rows of `LIGHT_KEYS` in `js/sunshade.js`, the sky and ambient fill together unless said: **A**, the 5 and 12 degree rows x 0.46, the smallest that passes (0.849, by less than a thousandth, so it holds only while the synthetic ground near the house stays as it is), which lets the shade brighten again while the sun sets from 5 to 1 degree, because the 1 degree row keeps its fill; **A'**, the same at x 0.44 (0.844), a little margin (x 0.40 gives 0.830); **H**, the sky fill alone x 0.35 (0.845); **M** or **M'**, A or A' with the 1 degree row lowered too (x 0.65 or x 0.62), which never brightens through sunset but holds the scene nearly level from about 5 to -2 degrees, and reaches one row beyond the 5 and 12 degree rows. Every option also darkens the light between 12 and 25 degrees, and sunrise the same way; midday is unchanged | before approval | Joseph to choose from the side-by-side pictures; none is recommended here. Once chosen, the spec's check becomes a plain test |
+| D28 | **Questions left by D19 and D20**, each one constant or a few lines. (a) The forest correction's tree height: 3 m as Joseph said, or lower (2.5 or 2 m), since dense growth under 3 m opens as grass and no tree is drawn there either. (b) Steep ground that opens now shows drawn rock from the open-land onset (34 degrees) rather than the forest's (40); keeping the forest's onset there needs a new class code or a palette change. (c) A lone tree in opened land keeps a small disk of forest round it; dropping small islands of forest inside opened land would remove forest where a tree does stand. (d) A clump of crowns crossed by a thin planar seam in the surface model can still pass for a roof and be drawn (pinned on the synthetic world by a strict expected-failure test); a height cue for cabins and small outbuildings would catch it. (e) A cut-down footprint keeps its roof part only from 12 m2, so a small building whose footprint also takes in crowns can be lost wherever it stands, in the open as well as under trees; a lower minimum would keep more. (f) Whether the help text should say that some footprints taken for tree crowns are not drawn | before approval | Joseph to decide each; the private report shows what each option does on the prototype |
 
 ---
 
@@ -103,6 +128,10 @@ at run time. Everything below is CC BY 4.0, credited "© Kartverket".
   only tint the distance; whether to do that is a look decision not yet asked, and it
   would be a new source. For step 5, France's IGN BD ORTHO (20 cm, Licence Ouverte) is
   usable; Italy's orthophotos are unverified.
+  Since 25 Sept, aerial-photo prints from norgeskart.no that Joseph supplied (credited)
+  are used in one place only, and privately: a world's build may take an observed input,
+  such as the house's roof colour read from such a print (D21). It is never committed,
+  and the world that uses it shows its credit line.
 - **FKB building footprints:** restricted. Footprints are segmented from the surface
   model instead (section 4).
 - **DTM10 in UTM 32:** its licence is CC BY-NC; the resampled 1 m model replaces it.
@@ -177,12 +206,16 @@ fog.
 
 **On the terrain** (all from Kartverket data):
 - **Trees within 1.5 km.** Real positions and heights, from local peaks in surface height
-  minus ground height, with building footprints masked out.
+  minus ground height, with building footprints masked out (not the footprints taken for
+  tree crowns, D20).
 - **Buildings.** Roof areas are segmented from the surface model and anchored to register
   points, with heights measured. One is marked as the house. Since the HD pass, roof
   planes (flat, mono-pitch, gable, hipped, or split into parts) are fitted to the same
-  surface model; where none fits, the roof is drawn flat and plain.
-- **Roads, paths, water, land cover.** From the class band.
+  surface model; where none fits, the roof is drawn flat and plain. Since the second
+  round, a footprint no roof fits whose surface is rough like tree crowns is not drawn,
+  or only its roof part is (D20).
+- **Roads, paths, water, land cover.** From the class band; within 1.5 km the map's
+  forest is kept only where the surface model shows trees (D19).
 - **Plot boundary.** The registered parcel, drawn as approximate: its accuracy class is
   published with it.
 
@@ -338,7 +371,7 @@ replaces it.
 |---|---|
 | 1. Plan | Done, 24 Sept |
 | 2. Pipeline for one listing | **Built 25 Sept.** 409 tests (network tests separate). The first real build is described in 6.1. Committed to the working branch, not `main` |
-| 3. Viewer | **Built 25 Sept.** Walk and fly, blocks near and smooth far with no cracks at any level boundary, plot line, house and specs panel, facts, credits, phone controls. 30 headless Playwright tests on the synthetic world (decoder parity with the pipeline, winding, seams, picking, plot tint, phone layout, no request leaving the page's own server). **HD pass built 26 Sept:** smooth textured ground, measured roofs, fuller trees, sun slider and shade; 111 viewer tests in four files (one of them a TODO test that waits on Joseph's choice of evening light), and 521 pipeline tests. Not yet tried on a real phone, Safari or iOS |
+| 3. Viewer | **Built 25 Sept.** Walk and fly, blocks near and smooth far with no cracks at any level boundary, plot line, house and specs panel, facts, credits, phone controls. 30 headless Playwright tests on the synthetic world (decoder parity with the pipeline, winding, seams, picking, plot tint, phone layout, no request leaving the page's own server). **HD pass built 26 Sept:** smooth textured ground, measured roofs, fuller trees, sun slider and shade. **Second round built 27 Sept:** land types corrected from the surface model, tree crowns no longer drawn as buildings, the house roof in an observed colour (D19-D26); 121 viewer tests in four files (one of them a TODO test that waits on Joseph's choice of evening light, D27), and 604 pipeline tests plus 2 expected failures that record an open question (D28 d). Not yet tried on a real phone, Safari or iOS |
 | 4. Measured facts | **Built 25 Sept.** Slope and flat ground, clear-sky sun hours from a horizon cast to ~160 km, peaks and trailheads by walking route. Every figure independently recomputed by a reviewer. 459 pipeline tests in all |
 | 5. Hub map, other listings, France, Italy | **Only after Joseph approves the prototype** |
 
@@ -378,4 +411,12 @@ this repo is public on GitHub, so the public-safety rules apply from the first p
   the ground's meshing take on a phone's CPU. The first follow-up is Joseph opening a
   local build on his own phone, served from his own machine, since worlds are never
   published.
+- **The second round was checked by eye against aerial-photo prints near the house only.**
+  Further out, which footprints are crowns and which are roofs, and which opened forest
+  is lawn and which is low growth, was not checked in either direction. The surface
+  model and the prints are of unknown dates: where trees were felled or grew since the
+  survey, the land type and the buildings follow the surface model, not today.
+- **An observed roof colour is a print colour,** balanced against road surfaces on the
+  same print and then lit by the viewer's sun like every other colour. The print's
+  exposure is not calibrated, so it is not a measured albedo.
 - **Legal reading.** The CC BY 4.0 reading is careful, but it is not legal advice.
