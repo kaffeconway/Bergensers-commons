@@ -80,6 +80,22 @@ export function defaultK(profile) {
   return 2 * Math.tan(fov * Math.PI / 360) / h;
 }
 
+/* An h1 chunk's class texture from its levels as a load job returns them: level 0 (242 x
+ * 242, the apron included), then the majority mips, each floor(previous / 2) wide. Read
+ * with texelFetch, so nearest filtering and no mip generation. */
+export function classTexture(levels) {
+  const t = new THREE.DataTexture(levels[0], 242, 242, THREE.RedFormat, THREE.UnsignedByteType);
+  let w = 242;
+  t.mipmaps = levels.map((data) => { const mm = { data, width: w, height: w }; w = Math.max(1, w >> 1); return mm; });
+  t.generateMipmaps = false;
+  t.minFilter = THREE.NearestFilter;
+  t.magFilter = THREE.NearestFilter;
+  t.unpackAlignment = 1;
+  t.colorSpace = THREE.NoColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
 // ------------------------------------------------------------------ the TIN, page side
 /* Corner (a, b) of a decoded h1 chunk, row a from the north: the mean of its four samples
  * in metres, at most -3 m when two or more are sea, rounded to float32. The worker's rule
@@ -555,6 +571,7 @@ export class ChunkManager {
       const opts = Object.assign({}, tol, { borders });
       if (job.kind === 'load') {
         opts.errors = this.tin.errors;
+        opts.edges = this.tin.tier === 'phone';     // the class texture's edge bits, for the phone's blend
         msg = { type: 'load', url: c.url, useCache: this.useCache, expect: this.expectedHeader(c), mode: 'tin', opts };
       } else {
         c.forceStale = false;
@@ -665,16 +682,9 @@ export class ChunkManager {
     if (e.kind === 'load') c.data = { header: res.header, v: res.v, classes: res.classes };
     if (isH1 && e.kind === 'load') {
       c.E = res.E; c.tileMin = res.tileMin; c.tileMax = res.tileMax; c.loadMs = res.ms;
-      const levels = [res.classes || new Uint8Array(242 * 242)].concat(res.tex.classMips);
-      const classTex = new THREE.DataTexture(levels[0], 242, 242, THREE.RedFormat, THREE.UnsignedByteType);
-      let w = 242;
-      classTex.mipmaps = levels.map((data) => { const mm = { data, width: w, height: w }; w = Math.max(1, w >> 1); return mm; });
-      classTex.generateMipmaps = false;
-      classTex.minFilter = THREE.NearestFilter;
-      classTex.magFilter = THREE.NearestFilter;
-      classTex.unpackAlignment = 1;
-      classTex.colorSpace = THREE.NoColorSpace;
-      classTex.needsUpdate = true;
+      // level 0 is the class band itself, or (phone) its copy carrying the edge bits
+      const levels = [res.tex.class0 || res.classes || new Uint8Array(242 * 242)].concat(res.tex.classMips);
+      const classTex = classTexture(levels);
       const normalTex = new THREE.DataTexture(res.tex.normal, NV, NV, THREE.RGFormat, THREE.UnsignedByteType);
       normalTex.generateMipmaps = true;
       normalTex.minFilter = THREE.LinearMipmapLinearFilter;
@@ -1028,30 +1038,33 @@ export class ChunkManager {
   }
 
   /* The horizon as drawn (or, with surface 'reference', over the tau = 0 surface) from
-   * (x, z), eye metres above that ground: index k is true bearing k x 0.5 degrees, the
-   * value the highest angle in degrees, marching 1 m in h1, 5 m in h5 and 20 m in h20 out
-   * to maxM, with the earth's curvature and refraction as facts/horizon.py (a drop of
-   * d^2 (1 - 0.13) / 2R); a ray that finds no ground reads 0. */
-  drawnHorizon(x, z, { eye = 1.5, maxM = 11000, surface = 'drawn' } = {}) {
+   * (x, z), eye metres above that ground (or at the absolute height eyeY, so two surfaces
+   * can be compared from one eye): index k is true bearing k x 0.5 degrees, the value the
+   * highest angle in degrees, marching 1 m in h1, 5 m in h5 and 20 m in h20 out to maxM,
+   * with the earth's curvature and refraction as facts/horizon.py (a drop of
+   * d^2 (1 - 0.13) / 2R); a ray that finds no ground reads 0. If dist (720 long) is given,
+   * dist[k] is set to the horizontal distance of ray k's highest point (0 when none). */
+  drawnHorizon(x, z, { eye = 1.5, eyeY = null, maxM = 11000, surface = 'drawn', dist = null } = {}) {
     const surf = surface === 'reference' ? (a, b) => this.refSurfaceAt(a, b) : (a, b) => this.surfaceAt(a, b);
     const g0 = surf(x, z);
     const out = new Float64Array(720);
     if (g0 === null) return out;
-    const eyeY = g0 + eye, R = 6371000;
+    const y0 = eyeY !== null && Number.isFinite(eyeY) ? eyeY : g0 + eye, R = 6371000;
     const step = (px, pz) => (this.chunkAt('h1', px, pz) || this.isSeaSquare('h1', px, pz) ? 1
       : this.chunkAt('h5', px, pz) || this.isSeaSquare('h5', px, pz) ? 5 : 20);
     for (let k = 0; k < 720; k++) {
       const g = (k * 0.5 + this.offset) * Math.PI / 180, dx = Math.sin(g), dz = -Math.cos(g);
-      let best = -Infinity;
+      let best = -Infinity, bestD = 0;
       for (let d = 1; d <= maxM;) {
         const px = x + dx * d, pz = z + dz * d, y = surf(px, pz);
         if (y !== null) {
-          const a = Math.atan((y - d * d * (1 - 0.13) / (2 * R) - eyeY) / d);
-          if (a > best) best = a;
+          const a = Math.atan((y - d * d * (1 - 0.13) / (2 * R) - y0) / d);
+          if (a > best) { best = a; bestD = d; }
         }
         d += step(px, pz);
       }
       out[k] = Number.isFinite(best) ? best * 180 / Math.PI : 0;
+      if (dist) dist[k] = bestD;
     }
     return out;
   }

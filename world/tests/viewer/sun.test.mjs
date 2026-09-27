@@ -722,7 +722,8 @@ test('ST15 the far gate', { timeout: READY_MS + 120000 }, async () => {
     const light = I.scene.children.find((o) => o.isDirectionalLight);
     return { intensity: light.intensity, disc: I.sky.material.uniforms.showSunDisc.value, far: cw.sun.behindFar,
              lines: cw.sunReadout().lines, az: cw.sun.trueAzimuth, el: cw.sun.elevation, night: I.sun.night,
-             crescent: document.getElementById('btn-sun').classList.contains('night') };
+             crescent: document.getElementById('btn-sun').classList.contains('night'),
+             fence: I.fence.material.color.r / I.fence.colour.r };
   }, t);
   const dec = await at('2026-12-21T11:40Z');
   assert.ok(dec.az > 150 && dec.az < 210 && dec.el < 10, 'the sun is in the gated sector, below 10 deg');
@@ -733,13 +734,18 @@ test('ST15 the far gate', { timeout: READY_MS + 120000 }, async () => {
   // the gate closes the light by day, but the chip still shows the sun's disc, not the night
   assert.ok(dec.el > 0 && dec.night === true);
   assert.equal(dec.crescent, false, 'no night crescent on the chip while the sun is up behind the gate');
+  // and the fence keeps its day colour: it dims only when the sun itself is down (S2-8)
+  assert.ok(Math.abs(dec.fence - 1) < 1e-6, 'the fence is not dimmed by day behind the gate: ' + dec.fence);
   const jun = await at('2026-06-21T12:00Z');
   assert.ok(jun.intensity > 0);
   assert.equal(jun.disc, 1);
   assert.equal(jun.far, false);
   assert.equal(jun.crescent, false);
+  assert.ok(Math.abs(jun.fence - 1) < 1e-6, 'the fence by day: ' + jun.fence);
   const night = await at('2026-12-21T20:00Z');
   assert.equal(night.crescent, true, 'the crescent at night');
+  assert.ok(night.el < -1, 'the sun is down: ' + night.el);
+  assert.ok(Math.abs(night.fence - 0.55) < 1e-6, 'the fence dims at night: ' + night.fence);
   await page.close();
 });
 
@@ -978,7 +984,7 @@ test('ST23 the date slider is the facts year', { timeout: READY_MS * 2 + 60000 }
 // ------------------------------------------------------------------------------------------
 // Added after the independent review (review ids S-R3, S-R5, S-R7, S-R10 and the idle wake-up)
 
-test('ST24 casters across the whole receiver disc cast', { timeout: 300000 }, async () => {
+test('ST24 casters across the whole receiver disc cast', { timeout: READY_MS + 300000 }, async () => {
   const { page } = await mainPage();
   await atStart(page);
   const r = await page.evaluate(async () => {
@@ -1052,6 +1058,136 @@ test('ST24 casters across the whole receiver disc cast', { timeout: 300000 }, as
     assert.ok(p.found, 'found a clear spot for the pillar at ' + p.k + ' Rn');
     assert.ok(p.after < 0.3, 'the pillar ' + p.k + ' Rn toward the sun casts no shadow: G ' + p.before.toFixed(2) + ' then ' + p.after.toFixed(2));
   }
+});
+
+// ST33 (S2-10): the near map's depth range keeps its design's promise, that objects up to
+// about 60 m above the receivers still cast. A caster is drawn into the map only if it lies
+// behind the near plane; seen from a receiver, a point H metres above it along the sun's ray
+// is H / sin e nearer the light. At the highest June sun, the receiver inside the unfaded map
+// with the least room is found (clear ground, as the shader reads it), and a pillar whose top
+// stands 58 m above it on its sun ray must shade it. With the near plane 60 / tan e toward the
+// sun that point fell in front of it (it allows 60 cos e along the ray), so a caster standing
+// more than 60 cos e above its receiver, such as a tall tree on ground rising toward the sun,
+// cast nothing.
+test('ST33 a caster 58 m above a receiver in the near map casts', { timeout: READY_MS + 300000 }, async (t) => {
+  const { page } = await mainPage();
+  await atStart(page);
+  const r = await page.evaluate(async () => {
+    const THREE = await import('three');
+    const SUN = await import('/world/js/sun.js');
+    const cw = window.__cw, I = cw.internals, S = I.sun, M = I.manager, crs = cw.manifest.crs;
+    let best = null;                                  // the highest 10-minute tick on 21 June
+    for (let t = Date.UTC(2026, 5, 21); t < Date.UTC(2026, 5, 22); t += 600000) {
+      const e = SUN.sunPosition(t, crs.lat_deg, crs.lon_deg, 0).elevation;
+      if (!best || e > best.e) best = { t, e };
+    }
+    cw.setSunTime(best.t);
+    cw.camera.start();
+    await cw.settle();
+    // the near map over the flattest land (as fitBox measures relief), where the relief term
+    // adds no room: move the camera so the map's focus lands there
+    const Rn = S.box.Rn;
+    const relief = (fx, fz) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let a = -4; a <= 4; a++) for (let b = -4; b <= 4; b++) {
+        if (a * a + b * b > 16) continue;
+        const y = M.surfaceAt(fx + a * Rn / 4, fz + b * Rn / 4);
+        if (y === null || y <= 0.5) return Infinity;
+        lo = Math.min(lo, y); hi = Math.max(hi, y);
+      }
+      return hi - lo;
+    };
+    let flat = null;
+    for (let x = -1300; x <= 1300; x += 50) for (let z = -1300; z <= 1300; z += 50) {
+      const dh = relief(x, z);
+      if (!flat || dh < flat.dh) flat = { x, z, dh };
+    }
+    const fwd = new THREE.Vector3();
+    cw.camera.set({ mode: 'walk', x: flat.x, z: flat.z, y: M.surfaceAt(flat.x, flat.z) + 1.7, yaw: 0, pitch: 0 });
+    I.camera.getWorldDirection(fwd);
+    const cx = flat.x - fwd.x * 0.35 * Rn, cz = flat.z - fwd.z * 0.35 * Rn;
+    cw.camera.set({ mode: 'walk', x: cx, z: cz, y: M.surfaceAt(cx, cz) + 1.7, yaw: 0, pitch: 0 });
+    await cw.settle();
+    await cw.frame();
+    const box = S.box, f = new THREE.Vector3(...box.focus), d = cw.sun.dir;
+    const L = new THREE.Vector3(d[0], d[1], d[2]).normalize();
+    const X = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), L).normalize();
+    const Y = new THREE.Vector3().crossVectors(L, X).normalize();
+    const sinE = L.y, hl = Math.hypot(L.x, L.z), sx = L.x / hl, sz = L.z / hl, tanE = sinE / hl;
+    const lim = box.back + box.edge - box.near;       // (p - focus).L beyond this: in front of the near plane
+    const room = (q) => sinE * (lim - q.clone().sub(f).dot(L));
+    // receivers on the drawn ground inside the unfaded map (the shader fades the outer 15 %)
+    const cands = [];
+    for (let a = -box.Rn; a <= box.Rn; a += 4) for (let b = -box.Rn; b <= box.Rn; b += 4) {
+      const x = f.x + a, z = f.z + b, y = M.surfaceAt(x, z);
+      if (y === null || y <= 0.5) continue;
+      const q = new THREE.Vector3(x, y, z), v = q.clone().sub(f);
+      if (Math.abs(v.dot(X)) > 0.8 * box.Rn || Math.abs(v.dot(Y)) > 0.8 * box.half) continue;
+      cands.push({ q, room: room(q) });
+    }
+    cands.sort((u, w) => u.room - w.room);
+    const ortho = new THREE.OrthographicCamera(-220, 220, 220, -220, 1, 5000);
+    ortho.position.set(f.x, f.y + 1000, f.z);
+    ortho.up.set(0, 0, -1);
+    ortho.lookAt(f.x, f.y, f.z);
+    ortho.updateMatrixWorld();
+    const R = I.renderer, gl = R.getContext(), buf = new Uint8Array(4);
+    const objects = [];
+    I.scene.traverseVisible((o) => { if (o.isMesh && o !== I.sky && o !== I.water && !/^h(1|5|20):/.test(o.name)) objects.push(o); });
+    const groundG = (list) => {
+      for (const o of objects) o.visible = false;
+      cw.sunDebug('split');
+      R.render(I.scene, ortho);
+      const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+      const out = list.map((p) => {
+        const v = new THREE.Vector3(p.x, M.surfaceAt(p.x, p.z), p.z).project(ortho);
+        gl.readPixels(Math.round((v.x + 1) / 2 * W), Math.round((v.y + 1) / 2 * H), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        return buf[1] / 255;
+      });
+      cw.sunDebug(null);
+      for (const o of objects) o.visible = true;
+      return out;
+    };
+    // the 30 tightest receivers; the pillar's top 58 m above one on its sun ray, and the point
+    // read the shadow of the pillar 1 m below its top (a metre toward the pillar's foot)
+    const H = 58, tries = [];
+    for (const c of cands.slice(0, 30)) {
+      const top = c.q.clone().addScaledVector(L, H / sinE);
+      const foot = M.surfaceAt(top.x, top.z);
+      if (foot === null || foot > top.y - 20) continue;
+      const read = { x: c.q.x + sx / tanE, z: c.q.z + sz / tanE };
+      tries.push({ c, top, foot, read });
+    }
+    const before = groundG(tries.map((p) => p.read));
+    const pick = tries.find((p, j) => before[j] > 0.9);
+    if (!pick) { cw.camera.start(); await cw.settle(); return { found: false, candidates: cands.length, tries: tries.length, flat }; }
+    const mat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    const height = pick.top.y - pick.foot;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(2, height, 2), mat);
+    m.name = 'test-pillar';
+    m.position.set(pick.top.x, pick.foot + height / 2, pick.top.z);
+    m.castShadow = true;
+    m.updateMatrixWorld();
+    I.scene.add(m);
+    S.markShadowsDirty();
+    await cw.frame();
+    m.visible = false;
+    const after = groundG([pick.read])[0];
+    I.scene.remove(m); m.geometry.dispose(); mat.dispose();
+    S.markShadowsDirty();
+    await cw.frame();
+    cw.camera.start();
+    await cw.settle();
+    return { found: true, el: cw.sun.elevation, room: pick.c.room, tightest: cands[0].room, before: before[tries.indexOf(pick)], after,
+             back: box.back, height, candidates: cands.length, flat, focus: box.focus, dh: box.dh };
+  });
+  t.diagnostic('sun ' + (r.el || 0).toFixed(1) + ' deg; back ' + (r.back || 0).toFixed(1) + ' m; the tightest receiver has room for ' +
+               (r.room || 0).toFixed(1) + ' m; G ' + (r.before || 0).toFixed(2) + ' then ' + (r.after || 0).toFixed(2));
+  assert.ok(r.found, 'found clear ground for the test: ' + JSON.stringify(r));
+  assert.ok(Math.hypot(r.focus[0] - r.flat.x, r.focus[2] - r.flat.z) < 5 && r.dh < 5, 'the map sits on flat land: ' + JSON.stringify(r));
+  assert.ok(r.el > 45, 'the June sun is high: ' + r.el);
+  assert.ok(r.after < 0.3, 'the pillar 58 m above its receiver casts no shadow there (room ' + r.room.toFixed(1) +
+            ' m; G ' + r.before.toFixed(2) + ' then ' + r.after.toFixed(2) + '): ' + JSON.stringify(r));
 });
 
 test('ST25 a far gate that only dims still enters the sweep', { timeout: READY_MS + 180000 }, async () => {

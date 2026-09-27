@@ -16,10 +16,51 @@ import zlib from 'node:zlib';
 import { SYN, READY_MS, offenders, newContext, openWorld, mainPage, reencodeChunk, watch, origin } from './harness.mjs';
 
 const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 };
-// TT14: the largest difference between the drawn horizon and the 1 m reference, measured on
-// the synthetic world at the live tolerance, was 0.0373 deg on the laptop page and in the phone
-// context alike; the tolerance is max(0.05, 1.5 x that).
-const HORIZON_TOL_DEG = 0.056;
+// Console warnings that mean GL refused what it was asked (as sun.test.mjs): SPEC 6.3 names
+// PCFSoftShadowMap and GL_INVALID, and Chromium words a refused call "WebGL: INVALID_...".
+const GL_WARNING = /PCFSoftShadowMap|INVALID|WebGL:/i;
+const glWarnings = (log) => log.warnings.filter((w) => GL_WARNING.test(w));
+// TT14's tolerance is the TIN's own promise, not a figure measured on one world. A point at
+// distance r from the camera is drawn within tau = max(tmin, px K r) of the 1 m surface, and a
+// height error tau at horizontal distance d moves its angle from the eye by at most tau / d. So
+// a point at least tmin / (px K) away is off by at most px K (px CSS pixels: 0.096 deg on the
+// laptop page, 0.27 deg in the phone context), and a nearer one by at most tmin / d. A ray's
+// highest point may move to another sample, so each ray is bounded by the worse of the two
+// maxima, the drawn one and the reference one, both marched from one eye. When that eye is dy
+// metres from the camera the meshes were made for, px K grows by at most a factor 1 + dy / d.
+function horizonBound(r, k) {
+  const e = (d) => (d > 0 ? Math.max(r.px * r.K * (1 + Math.abs(r.dy) / d), r.tmin / d) : Infinity) * 180 / Math.PI;
+  return Math.max(e(r.distDrawn[k]), e(r.distRef[k]));
+}
+// The drawn and the reference horizon at (x, z), marched out to maxM from one eye: the camera
+// the h1 meshes there were made for, or (eye given) that many metres above the drawn ground, as
+// the facts' horizon is measured; with the tolerance settings of those meshes.
+function horizonsAt(page, x, z, maxM, eye = null) {
+  return page.evaluate(({ x, z, maxM, eye }) => {
+    const M = window.__cw.internals.manager, t = M.chunkAt('h1', x, z).tolInfo;
+    const eyeY = eye === null ? t.cam[1] : M.surfaceAt(x, z) + eye;
+    const distDrawn = new Float64Array(720), distRef = new Float64Array(720);
+    const drawn = M.drawnHorizon(x, z, { surface: 'drawn', eyeY, maxM, dist: distDrawn });
+    const ref = M.drawnHorizon(x, z, { surface: 'reference', eyeY, maxM, dist: distRef });
+    return { drawn: Array.from(drawn), ref: Array.from(ref), distDrawn: Array.from(distDrawn), distRef: Array.from(distRef),
+             cam: t.cam, dy: t.cam[1] - eyeY, px: t.px, K: t.K, tmin: t.tmin, live: { px: M.px(), K: M.K, tmin: M.tin.tmin } };
+  }, { x, z, maxM, eye });
+}
+// The distance from (x, z) to the world's farthest corner, from the manifest's squares (land
+// chunks and sea squares of every level).
+function farCorner(manifest, x, z) {
+  const { origin_e: oe, origin_n: on } = manifest.crs;
+  let far = 0;
+  for (const lv of manifest.levels) {
+    const side = lv.cell * lv.chunk_samples;
+    for (const key of Object.keys(lv.chunks).concat(lv.sea || [])) {
+      const [i, j] = key.split('_').map(Number);
+      const x0 = i * side - oe, z0 = -((j + 1) * side - on);
+      for (const [cx, cz] of [[x0, z0], [x0 + side, z0], [x0, z0 + side], [x0 + side, z0 + side]]) far = Math.max(far, Math.hypot(cx - x, cz - z));
+    }
+  }
+  return far;
+}
 
 // One phone-context page on the synthetic world, shared by the phone halves of the tests.
 let phone = null;
@@ -439,6 +480,7 @@ test('a cliff on a chunk edge is covered from both sides', { timeout: 2 * READY_
       results.push({ late, where, served: served.slice(), checked: r.checked, gaps: r.gaps.slice(0, 3), n: r.gaps.length });
     }
     assert.deepEqual(log.errors, []);
+    assert.deepEqual(glWarnings(log), [], 'GL warnings');
     assert.deepEqual(log.console, []);
     await page.close();
   }
@@ -986,6 +1028,7 @@ test('h1 sides facing an h5 chunk that arrives late and lower are re-meshed belo
   assert.ok(r.remeshes > 0, 'its arrival re-meshed the h1 chunks facing it: ' + JSON.stringify(r));
   assert.equal(r.n, 0, 'skirt bottoms above the h5 floor: ' + JSON.stringify(r.above));
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   await page.close();
 });
 
@@ -999,16 +1042,23 @@ test('the drawn horizon agrees with the world\'s own 1 m horizon', { timeout: RE
       window.__cw.camera.set({ mode: 'walk', x, z, y: g + 1.7, yaw: Math.PI, pitch: 0 });
     }, gp);
     await settleHere(page);
-    const r = await page.evaluate(({ x, z }) => {
-      const M = window.__cw.internals.manager;
-      const drawn = M.drawnHorizon(x, z, { surface: 'drawn' }), ref = M.drawnHorizon(x, z, { surface: 'reference' });
-      let worst = 0, at = -1;
-      for (let k = 0; k < 720; k++) { const d = Math.abs(drawn[k] - ref[k]); if (d > worst) { worst = d; at = k; } }
-      return { worst, at, n: drawn.length, maxDrawn: Math.max(...drawn), px: M.px() };
-    }, gp);
-    t.diagnostic(name + ': largest difference ' + r.worst.toFixed(5) + ' deg at ray ' + r.at + ' (px ' + r.px + ')');
-    assert.equal(r.n, 720);
-    assert.ok(r.worst <= HORIZON_TOL_DEG, name + ': ' + JSON.stringify(r));
+    const r = await horizonsAt(page, gp.x, gp.z, 11000);
+    assert.equal(r.drawn.length, 720);
+    assert.ok(Math.abs(r.cam[0] - gp.x) < 1e-6 && Math.abs(r.cam[2] - gp.z) < 1e-6, name + ': meshed for this eye: ' + JSON.stringify(r.cam));
+    assert.deepEqual({ px: r.px, K: r.K, tmin: r.tmin }, r.live, name + ': meshed at the live tolerance settings');
+    const near = r.tmin / (r.px * r.K);
+    let worst = 0, at = -1, share = 0, atShare = -1, nNear = 0;
+    for (let k = 0; k < 720; k++) {
+      const d = Math.abs(r.drawn[k] - r.ref[k]), b = horizonBound(r, k);
+      if (Math.min(r.distDrawn[k], r.distRef[k]) < near) nNear++;
+      if (d > worst) { worst = d; at = k; }
+      if (d / b > share) { share = d / b; atShare = k; }
+    }
+    t.diagnostic(name + ': px K ' + (r.px * r.K * 180 / Math.PI).toFixed(4) + ' deg; largest difference ' + worst.toFixed(5) +
+                 ' deg at ray ' + at + ' (highest point ' + r.distDrawn[at] + ' m out); worst share of its bound ' + share.toFixed(3) +
+                 ' at ray ' + atShare + '; rays decided nearer than ' + near.toFixed(1) + ' m: ' + nNear);
+    assert.ok(share <= 1, name + ': ray ' + atShare + ': drawn ' + r.drawn[atShare] + ', reference ' + r.ref[atShare] +
+              ', bound ' + horizonBound(r, atShare) + ' (' + r.distDrawn[atShare] + ' m, ' + r.distRef[atShare] + ' m)');
     await page.evaluate(() => window.__cw.camera.start());
     await settleHere(page);
   }
@@ -1017,11 +1067,15 @@ test('the drawn horizon agrees with the world\'s own 1 m horizon', { timeout: RE
 // The drawn horizon against the measured one (SPEC 8.1). The facts' rays run far past the
 // world's edge, so only the rays the world itself decides are compared, masked as ST16 masks
 // them: where the horizon beyond the world lies more than 0.35 deg below the measured one.
-// The tolerance is ST16's 0.35 deg plus this file's own for the drawn surface.
+// The tolerance is ST16's 0.35 deg plus the ray's own drawing bound (TT14's), and the march
+// runs to the world's farthest corner (from the manifest): a ray the world decides may be
+// decided anywhere out to its edge, and the square h20 cover reaches past 11 km toward its
+// corners.
 test('the drawn horizon agrees with the measured one where the world decides it', { timeout: READY_MS + 600000 }, async (t) => {
   const facts = JSON.parse(fs.readFileSync(path.join(SYN, 'facts.json'), 'ascii'));
   const gp = facts.sun.garden_point, measured = facts.sun.horizon.profile_deg;
-  const beyond = facts.sun.horizon.beyond_world.profile_deg, tol = 0.35 + HORIZON_TOL_DEG;
+  const beyond = facts.sun.horizon.beyond_world.profile_deg;
+  const maxM = Math.ceil(farCorner(manifestOf(), gp.x, gp.z));
   assert.equal(measured.length, 720);
   assert.equal(beyond.length, 720);
   for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
@@ -1031,17 +1085,20 @@ test('the drawn horizon agrees with the measured one where the world decides it'
       window.__cw.camera.set({ mode: 'walk', x, z, y: g + 1.7, yaw: Math.PI, pitch: 0 });
     }, gp);
     await settleHere(page);
-    const drawn = await page.evaluate(({ x, z }) => Array.from(window.__cw.internals.manager.drawnHorizon(x, z)), gp);
-    let n = 0, worst = 0, at = -1;
+    const r = await horizonsAt(page, gp.x, gp.z, maxM, 1.5);
+    let n = 0, worst = 0, at = -1, excess = -Infinity, atExcess = -1;
     for (let k = 0; k < 720; k++) {
       if (!(beyond[k] < measured[k] - 0.35)) continue;
       n++;
-      const d = Math.abs(drawn[k] - measured[k]);
+      const d = Math.abs(r.drawn[k] - measured[k]), over = d - (0.35 + horizonBound(r, k));
       if (d > worst) { worst = d; at = k; }
+      if (over > excess) { excess = over; atExcess = k; }
     }
-    t.diagnostic(name + ': ' + n + ' rays the world decides; largest difference ' + worst.toFixed(3) + ' deg at ' + at * 0.5 + ' deg true');
+    t.diagnostic(name + ': marched to ' + maxM + ' m; ' + n + ' rays the world decides; largest difference ' + worst.toFixed(3) +
+                 ' deg at ' + at * 0.5 + ' deg true; closest to its tolerance by ' + (-excess).toFixed(3) + ' deg');
     assert.ok(n > 100, name + ': ' + n + ' rays the world decides');
-    assert.ok(worst <= tol, name + ': ray ' + at * 0.5 + ' deg: drawn ' + drawn[at] + ', measured ' + measured[at]);
+    assert.ok(excess <= 0, name + ': ray ' + atExcess * 0.5 + ' deg: drawn ' + r.drawn[atExcess] + ', measured ' + measured[atExcess] +
+              ', tolerance ' + (0.35 + horizonBound(r, atExcess)));
     await page.evaluate(() => window.__cw.camera.start());
     await settleHere(page);
   }
@@ -1102,6 +1159,7 @@ test('terrain frees its GPU memory', { timeout: READY_MS + 60000 }, async () => 
   assert.equal(r.after.materials, 0);
   assert.equal(r.shared, 0, 'no shared texture is left');
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   await page.close();
 });
 
@@ -1238,6 +1296,7 @@ test('the slope limit refuses steep ground, and roofs keep the step', { timeout:
   assert.ok(up(rises[55].jumped) < 0.3, 'nor up it by jumping: ' + JSON.stringify(rises[55]));
   assert.ok(up(rises[40].jumped) > 1, 'jumping up the 40 degree ramp still climbs it: ' + JSON.stringify(rises[40]));
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(log.console, []);
   await page.close();
 });
@@ -1380,6 +1439,7 @@ test('a chunk still loading when the view changes is meshed again for the new vi
     assert.ok(r.ready && r.idle, 'the world finished loading: ' + at);
     assert.deepEqual(r.wrong, [], 'every h1 chunk is meshed for the new view: ' + at);
     assert.deepEqual(log.errors, []);
+    assert.deepEqual(glWarnings(log), [], 'GL warnings');
     assert.deepEqual(log.console, []);
   } finally {
     release();
@@ -1458,6 +1518,196 @@ test('the ground\'s noise is read at its own footprint across class borders, on 
     assert.equal(r.road, 7, name + ': the road point is road: ' + JSON.stringify(r));
     assert.ok(r.other !== 7 && r.seen.length >= 2, name + ': a border in view: ' + JSON.stringify(r));
     assert.equal(r.differ, 0, name + ': pixels that read a noise mip coarser than their footprint: ' + JSON.stringify(r));
+  }
+});
+
+// The phone tier's two-class border blend (visible choice 10.2 #9): the second class, as a
+// flat colour, meets the first at 50 % on a texel border and fades out a quarter metre inside,
+// with no crease where the border turns a corner. A 1 m chunk whose class band holds a 45 deg
+// staircase of road in open land is loaded by the page's own worker (a data: URL, so the edge
+// bits come from worker.js) and drawn by the phone shader, 0.02 m a pixel, straight down, with
+// the noise flat and ambient light only. Each pixel's colour is placed on the line from open
+// land to road (t); t must change smoothly (no step between neighbouring pixels larger than
+// the fade itself allows), be 0 or 1 more than 0.3 m from the other class, and be blended
+// within 0.1 m of it. The blend it replaced, which fetched across the nearest texel border
+// whatever class lay there, left saw-tooth creases at every step.
+test('the phone\'s class borders are blended without creases', { timeout: READY_MS + 120000 }, async (t) => {
+  const man = manifestOf();
+  const h1 = man.levels.find((l) => l.name === 'h1');
+  const key = Object.keys(h1.chunks)[0];
+  const raw = zlib.gunzipSync(fs.readFileSync(path.join(SYN, h1.chunks[key].file)));
+  const W = raw.readUInt16LE(6), n = W * raw.readUInt16LE(8);
+  assert.ok(raw.readUInt8(5) & 4, 'the chunk carries a class band');
+  const off = 32 + 2 * n, STEP = 40;          // texel (q, r) is road when q >= r + STEP
+  for (let r = 0; r < W; r++) for (let q = 0; q < W; q++) raw.writeUInt8(q >= r + STEP ? 7 : 0, off + r * W + q);
+  const url = 'data:application/octet-stream;base64,' + zlib.gzipSync(raw).toString('base64');
+  const { page } = await mainPage();
+  const r = await page.evaluate(async ({ url, STEP }) => {
+    const M = window.__cw.internals.manager;
+    const THREE = await import('three');
+    const { patchTerrain } = await import('/world/js/terrainmat.js');
+    const { classTexture } = await import('/world/js/chunks.js');
+    const res = await M._post({ type: 'load', url, mode: 'tin', opts: { tau: 1, errors: 'exact', edges: true } }, false);
+    const classTex = classTexture([res.tex.class0].concat(res.tex.classMips));
+    const flat = (w, bytes, format) => {
+      const tx = new THREE.DataTexture(new Uint8Array(w * w * bytes).fill(128), w, w, format, THREE.UnsignedByteType);
+      tx.generateMipmaps = false; tx.minFilter = tx.magFilter = THREE.NearestFilter;
+      tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.unpackAlignment = 1; tx.needsUpdate = true;
+      return tx;
+    };
+    const normalTex = flat(241, 2, THREE.RGFormat), noise = flat(16, 4, THREE.RGBAFormat);
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    mat.toneMapped = false;
+    mat.onBeforeCompile = (sh) => patchTerrain(sh, { cwTClass: { value: classTex }, cwTNormal: { value: normalTex },
+                                                     cwTNoise: { value: noise } }, 'phone');
+    mat.customProgramCacheKey = () => 'cwT-crease-test';
+    // chunk-local metres x0..x0+S, z0..z0+S, on a flat quad at y = 0 (position.xz is the cell)
+    const x0 = 96, z0 = 56, S = 8, N = 400;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([x0, 0, z0, x0, 0, z0 + S, x0 + S, 0, z0 + S, x0 + S, 0, z0], 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(g, mat));
+    scene.add(new THREE.AmbientLight(0xffffff, Math.PI));
+    const cam = new THREE.OrthographicCamera(-S / 2, S / 2, S / 2, -S / 2, 1, 100);
+    cam.position.set(x0 + S / 2, 50, z0 + S / 2);
+    cam.up.set(0, 0, -1);                          // screen up is -z, screen right is +x
+    cam.lookAt(x0 + S / 2, 0, z0 + S / 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = N;
+    const rr = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+    rr.setPixelRatio(1);
+    rr.setSize(N, N, false);
+    rr.render(scene, cam);
+    const gl = rr.getContext(), px = new Uint8Array(N * N * 4);
+    gl.readPixels(0, 0, N, N, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const glError = gl.getError();
+    rr.dispose(); g.dispose(); mat.dispose(); classTex.dispose(); normalTex.dispose(); noise.dispose();
+    // pixel (i, j), j counted from the bottom row, is the point below
+    const at = (i, j) => [x0 + (i + 0.5) * S / N, z0 + S - (j + 0.5) * S / N];
+    const cls = (x, z) => (Math.floor(x) + 1 >= Math.floor(z) + 1 + STEP ? 7 : 0);
+    const col = (i, j) => [px[(j * N + i) * 4], px[(j * N + i) * 4 + 1], px[(j * N + i) * 4 + 2]];
+    // the metres from (x, z) to the nearest texel of the other class
+    const other = (x, z) => {
+      const c = cls(x, z), q = Math.floor(x), rw = Math.floor(z);
+      let best = Infinity;
+      for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) {
+        if (cls(q + b + 0.5, rw + a + 0.5) === c) continue;
+        const dx = Math.max(q + b - x, 0, x - (q + b + 1)), dz = Math.max(rw + a - z, 0, z - (rw + a + 1));
+        best = Math.min(best, Math.hypot(dx, dz));
+      }
+      return best;
+    };
+    // the two pure colours, as the mean over pixels a metre or more from the border
+    const sum = { 0: [0, 0, 0, 0], 7: [0, 0, 0, 0] };
+    for (let j = 0; j < N; j += 2) for (let i = 0; i < N; i += 2) {
+      const [x, z] = at(i, j);
+      if (other(x, z) < 1) continue;
+      const c = col(i, j), s = sum[cls(x, z)];
+      s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; s[3]++;
+    }
+    const A = sum[0].slice(0, 3).map((v) => v / sum[0][3]), B = sum[7].slice(0, 3).map((v) => v / sum[7][3]);
+    const AB = B.map((v, k) => v - A[k]), L2 = AB.reduce((a, v) => a + v * v, 0);
+    const T = new Float32Array(N * N);
+    let offLine = 0;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = col(i, j), d = c.map((v, k) => v - A[k]);
+      const tt = d.reduce((a, v, k) => a + v * AB[k], 0) / L2;
+      T[j * N + i] = tt;
+      offLine = Math.max(offLine, Math.hypot(...d.map((v, k) => v - tt * AB[k])));
+    }
+    let step = 0, stepAt = null, notPure = 0, notBlended = 0, firstBad = null;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const tt = T[j * N + i];
+      if (i + 1 < N && Math.abs(T[j * N + i + 1] - tt) > step) { step = Math.abs(T[j * N + i + 1] - tt); stepAt = at(i, j); }
+      if (j + 1 < N && Math.abs(T[(j + 1) * N + i] - tt) > step) { step = Math.abs(T[(j + 1) * N + i] - tt); stepAt = at(i, j); }
+      const [x, z] = at(i, j), d = other(x, z), own = cls(x, z) === 7 ? 1 : 0;
+      if (d > 0.3 && Math.abs(tt - own) > 0.05) { notPure++; firstBad = firstBad || { x, z, d, t: tt }; }
+      if (d < 0.1 && (tt < 0.2 || tt > 0.8)) { notBlended++; firstBad = firstBad || { x, z, d, t: tt }; }
+    }
+    return { A, B, contrast: Math.sqrt(L2), offLine, step, stepAt, notPure, notBlended, firstBad, glError, edges: !!res.tex.class0 };
+  }, { url, STEP });
+  t.diagnostic('open land ' + r.A.map((v) => v.toFixed(0)) + ', road ' + r.B.map((v) => v.toFixed(0)) +
+               '; largest step between neighbouring pixels ' + r.step.toFixed(3) + ' of the way; off the line ' + r.offLine.toFixed(1));
+  assert.equal(r.glError, 0);
+  assert.ok(r.edges, 'the load job returned level 0 with edge bits');
+  assert.ok(r.contrast > 40, 'the two classes differ on screen: ' + JSON.stringify(r));
+  assert.ok(r.offLine < 12, 'every pixel is a mix of the two colours (flat noise): ' + JSON.stringify(r));
+  assert.equal(r.notPure, 0, 'pixels blended more than 0.3 m from the other class: ' + JSON.stringify(r));
+  assert.equal(r.notBlended, 0, 'pixels within 0.1 m of the other class left unblended: ' + JSON.stringify(r));
+  assert.ok(r.step < 0.15, 'a crease: neighbouring pixels differ by ' + r.step.toFixed(3) + ' of the way at ' + JSON.stringify(r.stepAt));
+});
+
+// What the page itself installs for that blend (the crease test above posts its own job and
+// builds its own texture, so it cannot see this). On the phone every installed h1 chunk's class
+// texture must carry, on every mip level, the class in the low nibble and in the high nibble
+// which edge neighbours hold another class (worker.js classEdges; the reference here is the
+// test's own): level 0 over the decoded class band, the levels below over the plain majority
+// mips, which a load job without edge bits returns for comparison. On the laptop the texture
+// is the class band as decoded, with no high bits on any level.
+test('the page installs the phone\'s class edge bits on every level, and none on the laptop', { timeout: READY_MS + 180000 }, async (t) => {
+  for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
+    const { page } = await get();
+    await settleHere(page);
+    const r = await page.evaluate(async (name) => {
+      const M = window.__cw.internals.manager;
+      const edges = (a, w) => {       // bit 4 column - 1, 5 column + 1, 6 row - 1, 7 row + 1
+        const out = new Uint8Array(w * w);
+        for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) {
+          const t = y * w + x, c = a[t] & 15;
+          out[t] = c | (x > 0 && (a[t - 1] & 15) !== c ? 16 : 0) | (x < w - 1 && (a[t + 1] & 15) !== c ? 32 : 0) |
+                   (y > 0 && (a[t - w] & 15) !== c ? 64 : 0) | (y < w - 1 && (a[t + w] & 15) !== c ? 128 : 0);
+        }
+        return out;
+      };
+      const firstDiff = (a, b) => { for (let k = 0; k < Math.max(a.length, b.length); k++) if (a[k] !== b[k]) return { k, got: a[k], want: b[k] }; return null; };
+      const out = { tier: M.tin.tier, chunks: 0, bordered: 0, highBits: [0, 0], bad: [], compared: 0 };
+      const h1 = M.chunks.filter((c) => c.level.name === 'h1' && c.tex && c.data && c.data.classes);
+      for (const c of h1) {
+        const mm = c.tex.classTex.mipmaps, cls = c.data.classes, W = mm[0].width;
+        out.chunks++;
+        if (cls.some((v) => v !== cls[0])) out.bordered++;
+        if (mm[0].data.length !== cls.length) { out.bad.push({ key: c.key, level: 0, length: mm[0].data.length }); continue; }
+        for (let k = 0; k < mm.length; k++) {
+          const d = mm[k].data, w = mm[k].width;
+          let high = 0;
+          for (let i = 0; i < d.length; i++) if (d[i] > 15) high++;
+          if (k < 2 && high) out.highBits[k]++;
+          const low = d.map((v) => v & 15);
+          // level 0's class is the decoded band's; every level's high nibble is its own edges
+          const want = name === 'phone' ? edges(low, w) : low;
+          const diff = (k === 0 ? firstDiff(low, cls) : null) || firstDiff(d, want);
+          if (diff) { out.bad.push({ key: c.key, level: k, w, ...diff }); break; }
+        }
+        if (W !== 242) out.bad.push({ key: c.key, width: W });
+      }
+      // the levels below 0 are the plain majority mips: compare two bordered chunks with a job
+      // that returns them without edge bits
+      for (const c of h1.filter((c) => c.data.classes.some((v) => v !== c.data.classes[0])).slice(0, 2)) {
+        const res = await M._post({ type: 'load', url: c.url, mode: 'tin', opts: { tau: 1, errors: 'exact', edges: false } }, false);
+        const mm = c.tex.classTex.mipmaps;
+        if (res.tex.class0 || res.tex.classMips.length !== mm.length - 1) { out.bad.push({ key: c.key, plain: res.tex.classMips.length, class0: !!res.tex.class0 }); continue; }
+        res.tex.classMips.forEach((plain, k) => {
+          const diff = firstDiff(mm[k + 1].data.map((v) => v & 15), plain);
+          if (diff) out.bad.push({ key: c.key, level: k + 1, plain: true, ...diff });
+        });
+        out.compared++;
+      }
+      return out;
+    }, name);
+    t.diagnostic(name + ': ' + r.chunks + ' h1 chunks, ' + r.bordered + ' with a class border; edge bits on level 0 in ' +
+                 r.highBits[0] + ', on level 1 in ' + r.highBits[1]);
+    assert.equal(r.tier, name, 'the page is on the ' + name + ' tier');
+    assert.ok(r.chunks > 0 && r.bordered > 0, name + ': installed h1 chunks with a class border: ' + JSON.stringify(r));
+    assert.deepEqual(r.bad, [], name + ': class texture levels that are not as the tier draws them');
+    assert.equal(r.compared, 2, name + ': two bordered chunks compared with the plain majority mips');
+    if (name === 'phone') {
+      assert.equal(r.highBits[0], r.bordered, 'phone: every bordered chunk has edge bits on level 0: ' + JSON.stringify(r));
+      assert.ok(r.highBits[1] > 0, 'phone: level 1 carries edge bits: ' + JSON.stringify(r));
+    } else {
+      assert.deepEqual(r.highBits, [0, 0], 'laptop: no edge bits');
+    }
   }
 });
 

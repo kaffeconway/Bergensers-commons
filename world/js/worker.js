@@ -275,6 +275,27 @@ function classMips(classes, W) {
   return levels;
 }
 
+/* One level of the class texture with, in each texel's high nibble, which of its four edge
+ * neighbours on that level holds another class: bit 4 column - 1, bit 5 column + 1, bit 6
+ * row - 1, bit 7 row + 1 (a neighbour off the texture counts as the same class). The low
+ * nibble is the class. The phone's border blend reads both from the one texel it already
+ * fetches, so its one extra fetch can go to the nearest texel of another class
+ * (terrainmat.js). A new array: the class band itself stays as decoded. */
+function classEdges(a, w) {
+  var out = new Uint8Array(w * w);
+  for (var y = 0; y < w; y++) {
+    for (var x = 0; x < w; x++) {
+      var t = y * w + x, c = a[t] & 15, b = c;
+      if (x > 0 && (a[t - 1] & 15) !== c) b |= 16;
+      if (x < w - 1 && (a[t + 1] & 15) !== c) b |= 32;
+      if (y > 0 && (a[t - w] & 15) !== c) b |= 64;
+      if (y < w - 1 && (a[t + w] & 15) !== c) b |= 128;
+      out[t] = b;
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- h1: the RTIN
 /* The triangle table and the tile id scheme below are adapted from mapbox/martini
  * (https://github.com/mapbox/martini), which carries this notice:
@@ -609,14 +630,20 @@ function extractTin(C, E16, nor, tol, borders, keepDropped) {
   return out;
 }
 
-// Everything an h1 load computes once from the decoded chunk.
-function prepareTin(d, errors) {
+// Everything an h1 load computes once from the decoded chunk. With edges (the phone tier), the
+// class texture's levels carry their edge bits (classEdges), level 0 as its own array.
+function prepareTin(d, errors, edges) {
   var C = tinCorners(d);
   var E = errors === 'bound' ? errorsBound(C) : errorsExact(C);
   var n = tinNormals(d), r = tileRange(C);
   var cls = d.classes || new Uint8Array(d.header.width * d.header.height);
+  var mips = classMips(cls, d.header.width), level0 = null;
+  if (edges) {
+    level0 = classEdges(cls, d.header.width);
+    for (var i = 0, w = d.header.width; i < mips.length; i++) { w = Math.max(1, w >> 1); mips[i] = classEdges(mips[i], w); }
+  }
   return { C: C, E16: errorsCm(E), nor: n.nor, normalTex: n.tex, tileMin: r.tileMin, tileMax: r.tileMax,
-           mips: classMips(cls, d.header.width) };
+           mips: mips, level0: level0 };
 }
 
 // ---------------------------------------------------------------- smooth grid (h5, h20)
@@ -748,7 +775,7 @@ function transferables(out) {
   function add(a) { if (a && a.buffer && list.indexOf(a.buffer) < 0) list.push(a.buffer); }
   add(out.v); add(out.classes); add(out.E); add(out.tileMin); add(out.tileMax); add(out.split); add(out.sdf);
   add(out.dropped); add(out.corner);
-  if (out.tex) { add(out.tex.normal); (out.tex.classMips || []).forEach(add); }
+  if (out.tex) { add(out.tex.normal); add(out.tex.class0); (out.tex.classMips || []).forEach(add); }
   if (out.mesh) {
     add(out.mesh.pos); add(out.mesh.nor); add(out.mesh.col); add(out.mesh.idx);
     (out.mesh.bottoms || []).forEach(add);
@@ -796,11 +823,11 @@ async function handle(msg) {
     if (msg.type === 'decode') return out;
     if (msg.mode === 'tin') {
       var o = msg.opts || {};
-      var P = prepareTin(d, o.errors);
+      var P = prepareTin(d, o.errors, !!o.edges);
       var tol = o.tau !== undefined && o.tau !== null ? { tau: o.tau } : { px: o.px, K: o.K, tmin: o.tmin, cam: o.cam };
       var r = extractTin(P.C, P.E16, P.nor, tol, o.borders, false);
       out.E = P.E16; out.tileMin = P.tileMin; out.tileMax = P.tileMax;
-      out.tex = { normal: P.normalTex, classMips: P.mips };
+      out.tex = { normal: P.normalTex, classMips: P.mips, class0: P.level0 };
       out.mesh = r.mesh; out.split = r.split;
       out.ms = performance.now() - t0;
       return out;

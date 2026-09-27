@@ -540,7 +540,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
 
   // ---------------------------------------------------------------- state
   const state = { utc: null, trueAzimuth: DEFAULT_AZ, elevation: 38, geometric: 38, gridBearing: DEFAULT_AZ + offset,
-                  gate: null, gateF: 1, night: false, behindFar: false, lastMs: null, dir: [0, 1, 0] };
+                  gate: null, gateF: 1, night: false, sunDown: false, behindFar: false, lastMs: null, dir: [0, 1, 0] };
   const defaultUtc = (() => {
     if (!site) return null;
     let best = null;
@@ -595,7 +595,9 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     Object.assign(state, { utc, trueAzimuth: az, elevation: el, geometric: s.geometric, gridBearing: az + offset,
                            gate: gate ? { tanG: gate.tanG, dG: gate.dG } : null, gateF, dir,
                            // behind the far terrain: the sun is up, but not above the horizon beyond the world
-                           behindFar: !!gate && el > 0 && el <= gate.G, night: el < NIGHT_EL || gateF <= 0, source });
+                           behindFar: !!gate && el > 0 && el <= gate.G, night: el < NIGHT_EL || gateF <= 0,
+                           // the sun itself below the night rule's -1 deg: the gate and the terrain do not count
+                           sunDown: el < NIGHT_EL, source });
     // lights
     const k = lightAt(el);
     sunLight.intensity = k.sunI * gateF;
@@ -675,7 +677,9 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     const sinE = Math.sin(el), cosE = Math.cos(el), tanE = Math.tan(el);
     const dh = relief(fx, fz, Rn);
     const half = Rn * sinE + 0.5 * dh * cosE + 5;
-    const back = Math.min(base.back, 60 / tanE);
+    // 60 m / sin e along the sun's ray: a caster up to 60 m above a receiver still lies behind
+    // the near plane (the design's aim; its 60 / tan e allowed only 60 cos e, ST33)
+    const back = Math.min(base.back, 60 / sinE);
     L.set(state.dir[0], state.dir[1], state.dir[2]).normalize();
     if (L.y < Math.sin(1 * Math.PI / 180)) { L.y = Math.sin(1 * Math.PI / 180); L.normalize(); }
     X.crossVectors(up, L).normalize();
@@ -855,6 +859,7 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
   // ---------------------------------------------------------------- the object
   const sun = {
     get night() { return state.night; },
+    get sunDown() { return state.sunDown; },
     get rectsVersion() { return rectsVersion; },
     get enabled() { return !!site; },
     get zone() { return zone; },

@@ -25,6 +25,11 @@ import zlib from 'node:zlib';
 import { HERE, WORLD, REPO, SYN, PYTHON, READY_MS, offenders, origin, newContext, openWorld, mainPage,
          reencodeChunk } from './harness.mjs';
 
+// Console warnings that mean GL refused what it was asked (as sun.test.mjs): SPEC 6.3 names
+// PCFSoftShadowMap and GL_INVALID, and Chromium words a refused call "WebGL: INVALID_...".
+const GL_WARNING = /PCFSoftShadowMap|INVALID|WebGL:/i;
+const glWarnings = (log) => log.warnings.filter((w) => GL_WARNING.test(w));
+
 // ------------------------------------------------------------------------------------------
 test('the synthetic world loads with no console errors and becomes ready', { timeout: READY_MS + 30000 }, async () => {
   const { page, log } = await mainPage();
@@ -32,9 +37,7 @@ test('the synthetic world loads with no console errors and becomes ready', { tim
   const errors = await page.evaluate(() => window.__cw.errors);
   assert.deepEqual(log.errors, [], 'page errors');
   assert.deepEqual(log.console, [], 'console errors');
-  // SPEC 6.3 names PCFSoftShadowMap and GL_INVALID; Chromium words a refused call
-  // "WebGL: INVALID_OPERATION: ...", so any INVALID and any "WebGL:" message counts too
-  assert.deepEqual(log.warnings.filter((w) => /PCFSoftShadowMap|INVALID|WebGL:/i.test(w)), [], 'GL warnings');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(errors, [], '__cw.errors');
   assert.equal(await page.locator('#error').isVisible(), false);
 });
@@ -132,7 +135,14 @@ test('smooth grid faces up and its skirts face out of the chunk', { timeout: 600
   assert.equal(r.skirtsOut, r.skirts, 'every skirt faces out of the drawn surface (chunk edge or hole edge)');
 });
 
-test('h1 chunk seams are covered at every mix of tolerances', { timeout: 240000 }, async () => {
+// The skirt rule (0.5 + 3 tau deep) is sufficient for neighbours meshed within the refresh
+// rule, whose tolerances stay close; it is not a guarantee for any mix. On steep ground a
+// finer side meshed from a far camera can stand above a coarser neighbour by more than its
+// skirt (a narrow slot until the re-mesh lands), so this name claims only the rule's case.
+// Of the nine camera mixes below, the three with the same camera on both sides are within the
+// refresh rule; the six wider ones pass on the synthetic world's gentle ground and are kept
+// as an extra check, not a promise.
+test('h1 chunk seams are covered for neighbours meshed within the refresh rule (and at wider mixes on gentle ground)', { timeout: 240000 }, async () => {
   const { page, manifest } = await mainPage();
   const { origin_e: oe, origin_n: on } = manifest.crs;
   const i = Math.floor(oe / 240), j = Math.floor(on / 240);
@@ -354,6 +364,7 @@ test('a click where a hill hides the house does not open the specs', { timeout: 
   await page.locator('#specs').waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await page.evaluate(() => window.__cw.lastPick), 'house');
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(log.console, []);
   await page.close();
 });
@@ -648,6 +659,7 @@ test('measured facts render from facts.json, with methods as tooltips and detail
   assert.ok(lines.length >= 2, lines.join(' | '));
   for (const l of lines) assert.doesNotMatch(l, /undefined|NaN|null/);
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(log.console, []);
   await page.close();
 });
@@ -721,6 +733,7 @@ test('phone viewport, 390 x 844: no sideways scroll, touch controls, pixel ratio
     return !e.hidden && b.width > 0 && b.left >= 0 && b.right <= innerWidth + 0.5 && b.top >= 0 && b.bottom <= innerHeight + 0.5;
   }), 'the sun chip is inside the viewport in landscape');
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(log.console, []);
   await page.close();
 });
@@ -777,6 +790,7 @@ test('the title never falls back to the world id; screen readers hear the end of
   await page.evaluate(() => window.__cw.frame());
   assert.equal(await page.evaluate(() => document.getElementById('announce').textContent), 'The world has loaded.');
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   await page.close();
 });
 
@@ -909,6 +923,7 @@ test('building walls reach the drawn ground all round, even where the recorded g
   assert.ok(rg.walls, 'the walls went down, boards and all');
   assert.ok(rg.up > 0 && rg.down === rg.up && rg.still === 0, 'trees.reground: ' + JSON.stringify(rg));
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   assert.deepEqual(log.console, []);
   await page.close();
 });
@@ -1007,6 +1022,7 @@ test('leaving the page frees every geometry and texture before the renderer goes
   const ctx = await newContext();
   const { page, log } = await openWorld(ctx);
   assert.deepEqual(log.errors, [], 'page errors before leaving');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   const r = await page.evaluate(async () => {
     const cw = window.__cw, R = cw.internals.renderer;
     await cw.settle();
@@ -1021,6 +1037,7 @@ test('leaving the page frees every geometry and texture before the renderer goes
   assert.ok(r.before.geometries > 0 && r.before.textures > 0, 'something was on the GPU: ' + JSON.stringify(r.before));
   assert.deepEqual(r.after, { geometries: 0, textures: 0 }, 'left on the GPU: ' + JSON.stringify(r));
   assert.deepEqual(r.errors, [], 'the handler recorded no error');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings while leaving');
   await page.close();
 });
 

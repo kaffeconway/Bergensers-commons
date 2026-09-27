@@ -10,8 +10,10 @@
  * What the patch draws, from data the chunk already carries:
  *   - the land-cover class of the 1 m band, as a procedural material per class (two
  *     colours and noise; nothing depicts an object that was not measured), with borders
- *     blended: a soft-max over up to four classes on a laptop, a two-class blend at the
- *     nearest texel border on a phone; a 0.45 m domain warp breaks the 1 m staircase;
+ *     blended: a soft-max over up to four classes on a laptop, a two-class blend toward the
+ *     nearest texel of another class on a phone (the class texture's edge bits say where it
+ *     is, so the phone still reads one extra texel); a 0.45 m domain warp breaks the 1 m
+ *     staircase;
  *   - light from the 1 m corner normals, so relief shows however coarse the triangles;
  *   - bare rock on steep ground by slope, per class (drawn, not measured);
  *   - bump and grain below 1 m (drawn), faded out before they could shimmer;
@@ -233,11 +235,14 @@ vec4 cwTOct4(vec2 cwTP, float cwTFreq, float cwTMpp) {
          clamp(1.5 - 2.0 * cwTMpp * cwTFreq, 0.0, 1.0);
 }
 float cwTOct(vec2 cwTP, float cwTFreq, float cwTMpp) { return cwTOct4(cwTP, cwTFreq, cwTMpp).r; }
-// The class code at texel cwTT of mip level cwTL (texel q + 1 is cell q; 0 and 241 are the apron).
-int cwTClassAt(ivec2 cwTT, int cwTL) {
+// The texel code at texel cwTT of mip level cwTL (texel q + 1 is cell q; 0 and 241 are the
+// apron): the class in the low nibble and, on the phone tier, the edge bits in the high one
+// (worker.js classEdges); cwTClassAt keeps the class alone.
+int cwTCodeAt(ivec2 cwTT, int cwTL) {
   int cwTS = max(1, 242 >> cwTL);
   return int(texelFetch(cwTClass, clamp(cwTT, ivec2(0), ivec2(cwTS - 1)), cwTL).r * 255.0 + 0.5);
 }
+int cwTClassAt(ivec2 cwTT, int cwTL) { return cwTCodeAt(cwTT, cwTL) & 15; }
 float cwTRock(int cwTC, float cwTNy) {
   float cwTOn = cwTMatB[cwTC].x;
   return 1.0 - smoothstep(cwTOn - 0.06, cwTOn, cwTNy);
@@ -307,17 +312,28 @@ const CLASS_PAIR_LAPTOP = `
 
 const CLASS_PAIR_PHONE = `
   {
-    // the warped nearest texel (class A), and the one across its nearest border (class B),
-    // which meets A at 50 % on the border and fades out a quarter texel inside A
+    // the warped nearest texel (class A), and the nearest texel of another class on this
+    // corner's side (class B): an edge neighbour that differs (A's edge bits say which), else
+    // the diagonal one; one extra fetch either way. B meets A at 50 % on the border and fades
+    // out a quarter texel inside A with the distance to that texel, so the blend has no
+    // crease where the nearest border turns a corner; B changes only where two other classes
+    // are equally near.
     float cwTS = exp2(float(cwTLod));
     vec2 cwTU = (cwTQ + 1.0) / cwTS;
     ivec2 cwTTA = ivec2(floor(cwTU));
     vec2 cwTF = fract(cwTU);
+    int cwTCode = cwTCodeAt(cwTTA, cwTLod);
+    cwTA = cwTCode & 15;
+    ivec2 cwTSide = ivec2(cwTF.x < 0.5 ? -1 : 1, cwTF.y < 0.5 ? -1 : 1);
     float cwTEx = min(cwTF.x, 1.0 - cwTF.x), cwTEz = min(cwTF.y, 1.0 - cwTF.y);
-    ivec2 cwTDir = cwTEx < cwTEz ? ivec2(cwTF.x < 0.5 ? -1 : 1, 0) : ivec2(0, cwTF.y < 0.5 ? -1 : 1);
-    cwTA = cwTClassAt(cwTTA, cwTLod);
+    bool cwTOx = ((cwTCode >> (cwTSide.x < 0 ? 4 : 5)) & 1) == 1;
+    bool cwTOz = ((cwTCode >> (cwTSide.y < 0 ? 6 : 7)) & 1) == 1;
+    ivec2 cwTDir = cwTSide;
+    float cwTD = length(vec2(cwTEx, cwTEz));
+    if (cwTOx && (!cwTOz || cwTEx <= cwTEz)) { cwTDir = ivec2(cwTSide.x, 0); cwTD = cwTEx; }
+    else if (cwTOz) { cwTDir = ivec2(0, cwTSide.y); cwTD = cwTEz; }
     cwTB = cwTClassAt(cwTTA + cwTDir, cwTLod);
-    cwTTB = cwTA == cwTB ? 0.0 : 0.5 * (1.0 - smoothstep(0.0, 0.25, min(cwTEx, cwTEz)));
+    cwTTB = cwTA == cwTB ? 0.0 : 0.5 * (1.0 - smoothstep(0.0, 0.25, cwTD));
   }
 `;
 

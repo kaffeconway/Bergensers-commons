@@ -562,7 +562,8 @@ async function main() {
     requestFrame();
   }
   // Before three's shadow pass: the sun moves the near box and says which casters it needs;
-  // the objects then limit what goes into the map, and the fence dims at night.
+  // the objects then limit what goes into the map, and the fence dims at night: only when the
+  // sun itself is down (sun.sunDown), not by day with the sun behind the far gate or a hill.
   let rectsSeen = -1, nightSeen = null;
   scene.onBeforeRender = (r, sc, cam) => {
     if (cam !== camera) return;
@@ -574,9 +575,9 @@ async function main() {
       const b = trees ? trees.setShadowFocus(rects.trees) : false;
       if (a || b) sun.markShadowsDirty({ inFrame: true });
     }
-    if (sun.night !== nightSeen) {
-      nightSeen = sun.night;
-      fence.setDim(sun.night ? 0.55 : 1);
+    if (sun.sunDown !== nightSeen) {
+      nightSeen = sun.sunDown;
+      fence.setDim(sun.sunDown ? 0.55 : 1);
     }
   };
   function frame(now) {
