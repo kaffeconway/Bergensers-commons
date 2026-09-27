@@ -94,7 +94,10 @@ def step_buildings(ctx):
     m = inputs(ctx)
     h1 = level_named(ctx, "h1")
     if h1 is None or not ctx.chunks.get("h1") or m.surface is None:
-        m.stats["buildings"] = {"skipped": "no h1 level or no surface model"}
+        stats = {"skipped": "no h1 level or no surface model"}
+        observedlib.not_used(ctx, stats, "the buildings step was skipped (no h1 level or no "
+                             "surface model)")
+        m.stats["buildings"] = stats
         return
     grid = LevelGrid(h1, list(ctx.chunks["h1"]))
     dtm = grid.assemble(ctx.chunks["h1"])

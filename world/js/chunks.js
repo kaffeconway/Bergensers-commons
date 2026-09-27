@@ -52,6 +52,7 @@ const TILE = 16, TILES = 15, NV = 241;
 const RK = 1 / (2 * Math.SQRT2 - 2);   // 1.2071: the nested bounding radius per metre of hypotenuse
 const SIDES = [[0, 1], [1, 0], [0, -1], [-1, 0]];   // N, E, S, W as (di, dj); j counts northward
 const H5_STRIDES = [1, 2, 4, 8];
+export const CHUNK_CACHE = 'commons-world-chunks-v1';   // worker.js CACHE_NAME: the same cache
 
 function parseKey(key) {
   const m = /^(-?\d+)_(-?\d+)$/.exec(key);
@@ -117,7 +118,8 @@ export function cornerHeight(data, a, b) {
 /* The leaf triangle of a TIN tile holding tile-local point (u, v), both in [0, 16], by
  * walking the split bits worker.js set (at most 9 steps): root id 3 (u > v) or 2, then
  * child (c, a, m) = id + 2^(k+1) or (b, c, m) = id + 2^k, whichever side of c-m the point
- * is on. Returns [ax, ay, bx, by, cx, cy, id] in tile-local (x, row). */
+ * is on. Returns [ax, ay, bx, by, cx, cy, id] in tile-local (x, row). The tile id scheme is
+ * adapted from mapbox/martini (ISC licence; its notice is kept in worker.js). */
 export function tinLeaf(split, tile, u, v) {
   let ax, ay, bx, by, cx, cy, id;
   if (u > v) { ax = 0; ay = 0; bx = TILE; by = TILE; cx = TILE; cy = 0; id = 3; }
@@ -1176,6 +1178,32 @@ export class ChunkManager {
   // mode 'tin': opts {tau | px, K, tmin, cam, borders, keepDropped, errors}, returning {mesh,
   // split} and, with keepDropped, {dropped, corner} beside them; 'smooth' as meshSmooth.
   meshRaw(data, mode, opts) { return this._post({ type: 'mesh', data, mode, opts }, false); }
+
+  /* The Cache API keeps chunk files, and a rebuild of the world names its files afresh (the
+   * name carries a content hash), so an earlier build's files would stay cached for good. Once
+   * the manifest is known, delete every cached chunk file directly under this world's level
+   * folders that the manifest no longer lists; another world's files, and anything else, are
+   * left alone. Resolves to the number deleted (0 where the cache cannot be used). */
+  async pruneCache() {
+    if (!this.useCache || this.disposed || typeof caches === 'undefined') return 0;
+    const keep = new Set(this.chunks.map((c) => c.url));
+    const base = this.worldBase, levels = Object.keys(this.levels);
+    const ours = (url) => {
+      if (!url.startsWith(base)) return false;
+      const rel = url.slice(base.length), slash = rel.indexOf('/');
+      return slash > 0 && levels.includes(rel.slice(0, slash)) && /^[^/?#]+\.cwh\.gz$/.test(rel.slice(slash + 1));
+    };
+    try {
+      const cache = await caches.open(CHUNK_CACHE);
+      let n = 0;
+      for (const req of await cache.keys()) {
+        if (ours(req.url) && !keep.has(req.url) && await cache.delete(req)) n++;
+      }
+      return n;
+    } catch (e) {
+      return 0;                   // storage refused: nothing to tidy
+    }
+  }
 
   dispose() {
     this.disposed = true;

@@ -617,6 +617,7 @@ async function main() {
     if (cw.ready || !manager.done || !buildingsReady) return;
     cw.ready = true;
     cw.readyAt = performance.now();
+    cw.cachePrune = manager.pruneCache();       // an earlier build's chunk files, once loaded
     setStatus();
     sunUi.showChip(true);
     sun.onWorldLoaded().catch((err) => recordError(err));
@@ -641,6 +642,9 @@ async function main() {
     sky.material.dispose();
     renderer.dispose();
   });
+  // A page the browser kept in its back/forward cache comes back after the handler above has
+  // freed everything and ended the workers, so it is loaded afresh rather than shown empty.
+  window.addEventListener('pageshow', (ev) => { if (ev.persisted) location.reload(); });
 
   // ---------------------------------------------------------------- test and debug hooks
   Object.assign(cw, {

@@ -107,14 +107,45 @@ def apply(ctx, record, stats):
     if observed is None:
         return
     house = next((f for f in record["features"] if f.get("house")), None)
-    stats["observed_roof_colour"] = house is not None
     if house is None:
-        ctx.warnings.append("The observed house roof colour was not used: no listing house "
-                            "was identified.")
+        not_used(ctx, stats, "no listing house was identified")
         return
+    stats["observed_roof_colour"] = True
+    stats["observed_credit"] = observed["credit"]
     house["roof_colour"] = observed["house_roof_colour"]
     house["roof_colour_source"] = observed["source"]
     ctx.add_credit(observed["credit"])
+
+
+def not_used(ctx, stats, why):
+    """Record that ctx.observed (if any) could not be used, and why: `stats` (manifest
+    stats.map.buildings) gets observed_roof_colour false and the build a warning. Nothing
+    is credited, since nothing observed is drawn."""
+    if getattr(ctx, "observed", None) is None:
+        return
+    stats["observed_roof_colour"] = False
+    ctx.warnings.append("The observed house roof colour was not used: {}.".format(why))
+
+
+def check_credit(manifest):
+    """Problems with the credit of an observed roof colour that buildings.json carries (for
+    manifest.check_world): the colour is drawn on screen, so its credit line must be one of
+    the manifest's credits, as stats.map.buildings.observed_credit records it."""
+    stats = manifest.get("stats") if isinstance(manifest, dict) else None
+    stats = stats.get("map") if isinstance(stats, dict) else None
+    stats = stats.get("buildings") if isinstance(stats, dict) else None
+    stats = stats if isinstance(stats, dict) else {}
+    credits = manifest.get("credits") if isinstance(manifest, dict) else None
+    credit = stats.get("observed_credit")
+    problems = []
+    if stats.get("observed_roof_colour") is not True:
+        problems.append("an observed roof colour is drawn but stats.map.buildings."
+                        "observed_roof_colour is not true")
+    if not (isinstance(credit, str) and credit.strip() and isinstance(credits, list)
+            and credit in credits):
+        problems.append("an observed roof colour is drawn but its credit line "
+                        "(stats.map.buildings.observed_credit) is not among the credits")
+    return problems
 
 
 def check_feature(feature):

@@ -418,8 +418,12 @@ Notes:
   `min_open_m2`; or `{"skipped": "no surface model"}`.
 - `credits` also holds the credit line of an observed input, when a build was given one
   and used it (`buildings.json.gz`, `roof_colour`); `stats.map.buildings.observed_roof_colour`
-  is then true, and false if the input was given but no house was identified to take it.
-  Without an observed input, neither is there.
+  is then true, and false if the input was given but not used, because no house was
+  identified to take it or the buildings step was skipped (`stats.warnings` says which).
+  When it is true, `stats.map.buildings.observed_credit` repeats the credit line, and
+  `check` fails a world whose buildings carry an observed colour unless that line is one
+  of its `credits`. Without an observed input, none of these is there. A build with no
+  buildings step at all (`build --no-plugins`) refuses an observed input.
 - `stats.map.buildings.canopy` lists the footprints left out as tree crowns
   (`dropped`) and those cut down to their roof part (`trimmed`), each as `{"id", "reason"}`
   and never with a position, and `house_canopy_like`, true when the listing house looked

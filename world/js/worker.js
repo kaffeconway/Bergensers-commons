@@ -23,7 +23,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'commons-world-chunks-v1';
+var CACHE_NAME = 'commons-world-chunks-v1';   // chunks.js CHUNK_CACHE, which prunes it
 // When a coarse cell's samples tie, the more specific class wins; sea is last, so coasts
 // keep their land.
 var CLASS_PRIORITY = [12, 7, 8, 9, 4, 6, 13, 3, 1, 2, 10, 11, 0, 5];
@@ -300,8 +300,10 @@ function classEdges(a, w) {
 }
 
 // ---------------------------------------------------------------- h1: the RTIN
-/* The triangle table and the tile id scheme below are adapted from mapbox/martini
- * (https://github.com/mapbox/martini), which carries this notice:
+/* The triangle table and the tile id scheme below, the error pass's accumulation of each
+ * triangle's midpoint error with its children's (errorsExact, errorsBound) and the split
+ * recursion in extractTin are adapted from mapbox/martini (https://github.com/mapbox/martini:
+ * its constructor, Tile.update and Tile.getMesh), which carries this notice:
  *
  *   ISC License
  *

@@ -1044,6 +1044,71 @@ test('leaving the page frees every geometry and texture before the renderer goes
   await page.close();
 });
 
+// A page the browser kept in its back/forward cache is restored after that handler has freed
+// everything, so the viewer must load its world afresh rather than show an empty one. Headless
+// Chromium does not restore pages from that cache, so the two events are dispatched as a restore
+// delivers them (pagehide, then pageshow, both with persisted set).
+test('a page restored from the back/forward cache loads its world again', { timeout: 2 * READY_MS + 120000 }, async () => {
+  const ctx = await newContext();
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => { window.__cwLeft = true; });
+  const reloaded = page.waitForEvent('load', { timeout: 60000 });
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  }).catch(() => {});                 // the reload may end this evaluation's page
+  await reloaded;
+  await page.waitForFunction(() => window.__cw && window.__cw.ready, null, { timeout: READY_MS });
+  const r = await page.evaluate(async () => {
+    const cw = window.__cw;
+    await cw.settle();
+    return { left: window.__cwLeft === true, stats: cw.stats(), errors: cw.errors };
+  });
+  assert.equal(r.left, false, 'a fresh page, not the one that was left');
+  assert.ok(r.stats.terrainTriangles.h1 > 0 && r.stats.geometries > 0 && r.stats.workers > 0,
+            'the world is drawn again: ' + JSON.stringify({ tris: r.stats.terrainTriangles, geometries: r.stats.geometries, workers: r.stats.workers }));
+  assert.equal(r.stats.buildings, 8);
+  assert.deepEqual(r.errors, [], '__cw.errors');
+  assert.deepEqual(log.errors, [], 'page errors');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
+  await page.close();
+});
+
+// Chunk files are cached under names that carry a content hash, so a rebuilt world leaves its
+// earlier files behind. Once loaded, the page deletes the cached chunk files under its own level
+// folders that its manifest no longer lists, and nothing else (made-up names here).
+test('a world\'s earlier chunk files are deleted from the cache, and nothing else', { timeout: 2 * READY_MS + 60000 }, async () => {
+  const ctx = await newContext();
+  const { page, log } = await openWorld(ctx);
+  const names = await page.evaluate(async () => {
+    const cw = window.__cw, M = cw.internals.manager, base = M.worldBase;
+    const other = new URL('../zz-another-world/h1/0_0.00000000.cwh.gz', base).href;
+    const n = {
+      stale: [base + 'h1/0_0.00000000.cwh.gz', base + 'h20/1_1.11111111.cwh.gz'],
+      kept: [other, base + 'h1/notes.txt', base + 'h9/0_0.00000000.cwh.gz', base + 'deeper/h1/0_0.00000000.cwh.gz'],
+      listed: M.chunks.map((c) => c.url)
+    };
+    await cw.cachePrune;
+    const cache = await caches.open('commons-world-chunks-v1');
+    for (const u of n.stale.concat(n.kept)) await cache.put(u, new Response('made up'));
+    return n;
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.__cw && window.__cw.ready, null, { timeout: READY_MS });
+  const r = await page.evaluate(async (n) => {
+    const deleted = await window.__cw.cachePrune;
+    const cached = new Set((await (await caches.open('commons-world-chunks-v1')).keys()).map((q) => q.url));
+    return { deleted, stale: n.stale.filter((u) => cached.has(u)), kept: n.kept.filter((u) => cached.has(u)),
+             listed: n.listed.filter((u) => cached.has(u)).length, of: n.listed.length };
+  }, names);
+  assert.deepEqual(r.stale, [], 'stale chunk files still cached: ' + JSON.stringify(r));
+  assert.equal(r.deleted, 2, 'deleted exactly the two stale files: ' + JSON.stringify(r));
+  assert.deepEqual(r.kept, names.kept, 'files that are not this world\'s chunk files were kept');
+  assert.equal(r.listed, r.of, 'every listed chunk file is still cached');
+  assert.deepEqual(log.errors, [], 'page errors');
+  await page.close();
+});
+
 // The shared page once every test has used it (test 1 checks it first).
 test('the shared page logged no page errors, console errors or GL warnings', { timeout: READY_MS + 60000 }, async () => {
   const { page, log } = await mainPage();

@@ -44,7 +44,10 @@ the house's roof colour (`#rrggbb`), how it was read, and a credit line
 (`pipeline/commons_world/observed.py` reads and checks it). Keep it in
 `world/out/_inputs/`, which git ignores; never commit it. The colour goes into the
 house's entry in `buildings.json` and the credit line into the world's credits and
-`NOTICE.txt`. A malformed file stops the build before anything is fetched.
+`NOTICE.txt`. A malformed file stops the build before anything is fetched, and so does
+`--no-plugins`, which leaves out the buildings step that uses the input. When the input
+cannot be used (no house identified, or no surface model), the build says so in its
+warnings and credits nothing.
 
 The pipeline's own tests run with `python -m pytest` in `world/pipeline` (the network
 tests are left out by default). Among them, `tests/test_forest.py` covers the forest
@@ -193,9 +196,11 @@ loads, nothing is drawn while the tab is hidden, and geometry is disposed when a
 re-meshed or the page closes. Chunks are decoded and meshed in a pool of
 `min(4, cores - 1)` module workers, nearest first; the workers hold nothing between jobs.
 Finished meshes are installed at most 4 chunks or 150,000 triangles per frame on a phone
-(8 or 400,000 on a laptop). The Cache API keeps chunk files (their names carry a content
-hash). The terrain shade is swept in its own worker, and the object shadow map is redrawn
-only when the sun, the objects near you or the place you stand change.
+(8 or 400,000 on a laptop). The Cache API keeps chunk files (their names carry a content hash); once a
+world has loaded, the cached chunk files of an earlier build of it, which its manifest no
+longer lists, are deleted. The terrain shade is swept in its own worker, and the object
+shadow map is redrawn only when the sun, the objects near you or the place you stand
+change.
 
 Measured in headless Chromium on the synthetic world, from the start pose at the opening
 time (triangles counted, not timed; software rendering says nothing about speed on a
@@ -215,15 +220,20 @@ phone is about 0.4 M triangles; the real prototype's start view is now under it,
 pass and shadow pass together, where before this change it was well over. Its figures are
 kept out of this file because it is public. No real phone has been tried.
 
-The same page over a scripted 600 m walk at 4.2 m/s, then a fly-up to 400 m and 1.5 km
-out (synthetic world): no frame installed more than 4 chunks (71,920 triangles) on a phone
-or 8 chunks (121,110 triangles) on a laptop, both on the fly-up; the h1 triangles held
-stayed near 70,000, against caps of 250,000 and 600,000; the walk asked for about 2 chunk
-jobs a second and the fly-up about 51; nothing went wrong, and no frame was drawn in the
-3 s after either ended or after the page settled. The terrain's textures come to about
-30 MB on both profiles, as the renderer counts them. The sun's memory (`stats().sun`) is
-13.7 MB in the worker and 4.6 MB on the page on a phone, and 22.3 MB and 13.7 MB on a
-laptop.
+The same page over a scripted 600 m walk at 4.2 m/s, then a fly-up to 400 m and 1.5 km out
+(synthetic world): no frame installed more than 4 chunks (71,920 triangles) on a phone or
+8 chunks (121,110 triangles) on a laptop, both on the fly-up; the h1 triangles held stayed
+near 70,000, against caps of 250,000 and 600,000; the walk asked for about 2 chunk jobs a
+second and the fly-up about 51; nothing went wrong, and no frame was drawn in the 3 s
+after either ended or after the page settled. The terrain's textures come to about 30 MB
+on both profiles, as the chunk manager counts them (`stats().terrain`). They are uploaded
+as chunks come into view, so at the start view only part of them is on the GPU (64 and 100
+of the 252 chunk textures, phone and laptop), and what has been uploaded stays until the
+page closes, so after a long walk it nears the full figure. On a phone each 1 m chunk also
+keeps, on the page, a second copy of its land types carrying the border bits for the
+two-type blend: about 58 KB a chunk, 7.4 MB on the synthetic world. The sun's memory
+(`stats().sun`) is 13.7 MB in the worker and 4.6 MB on the page on a phone, and 22.3 MB
+and 13.7 MB on a laptop.
 
 The terrain shade, timed in Node on one core of a quiet 4-core machine over four runs
 (synthetic world): a full update takes 73-93 ms at phone quality and 208-222 ms at laptop
@@ -318,8 +328,10 @@ world's id, and only the end of loading is announced; trees stand on the drawn s
 every detail, the near set included; every building wall reaches the drawn ground (with
 one building's recorded ground raised 4 m); the ground under the camera is the surface as
 drawn, h1 included; flying stays above the water beyond the world's edge; leaving the page
-frees every geometry and texture; no request leaves localhost; the chunk worker imports
-nothing; and these files are ASCII.
+frees every geometry and texture, and a page restored from the browser's back/forward
+cache loads its world again; a world's earlier chunk files are deleted from the cache, and
+nothing else; no request leaves localhost; the chunk worker imports nothing; and these
+files are ASCII.
 
 `terrain.test.mjs` checks the ground: the TIN faces up and its skirts out; it stays
 within its tolerance with either error map and has no T-junctions; a cliff on a chunk
@@ -390,10 +402,10 @@ model. A world built with an observed input also shows that input's own credit l
 screen and in `NOTICE.txt`: for a roof colour read from an aerial photo, the photo's
 source.
 
-In the code: the h1 ground's RTIN triangle table is adapted from mapbox/martini, ISC
-licence (its notice is kept in `js/worker.js`). The sun's position uses NOAA's equations,
-with the refraction of NREL's SPA as pvlib applies it; the formulas were re-expressed, no
-code was copied.
+In the code: the h1 ground's RTIN (its triangle table and tile ids, the error pass and
+the extraction) is adapted from mapbox/martini, ISC licence (its notice is kept in
+`js/worker.js`). The sun's position uses NOAA's equations, with the refraction of NREL's
+SPA as pvlib applies it; the formulas were re-expressed, no code was copied.
 
 ## Publishing
 

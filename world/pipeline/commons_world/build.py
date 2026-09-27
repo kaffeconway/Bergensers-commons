@@ -569,10 +569,17 @@ def build(listing_path, out_dir=None, *, cache_dir=DEFAULT_CACHE, offline=False,
 
     `out_dir` is the world folder itself; by default world/out/<id>. `observed` is the
     path of an observed-input file (commons_world.observed), read and checked before
-    anything else happens.
+    anything else happens. It is refused when the pipeline has no buildings step (the
+    map features are plugins, so `build --no-plugins` has none), which is the only step
+    that can use it.
     """
+    pipeline = pipeline or BUILD
     if observed is not None:
         observed = observedlib.load_observed(observed)
+        if "buildings" not in pipeline.names():
+            raise observedlib.ObservedInvalid(
+                "an observed input is used by the buildings step, which this build does not "
+                "run (the map features are plugins: was --no-plugins given?)")
     if client is None:
         if cache_dir is not None:
             gitguard.check_destination(cache_dir, "the response cache")
@@ -587,7 +594,7 @@ def build(listing_path, out_dir=None, *, cache_dir=DEFAULT_CACHE, offline=False,
                        commit=commit if commit is not None else manifestlib.pipeline_commit(),
                        log=log)
     ctx.observed = observed
-    return run_pipeline(pipeline or BUILD, ctx)
+    return run_pipeline(pipeline, ctx)
 
 
 def default_log(message):

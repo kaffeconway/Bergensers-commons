@@ -16,7 +16,7 @@ from commons_world import build, manifest, observed, synthetic
 from commons_world.__main__ import main
 
 from conftest import FakeTransport
-from test_features_build import fake_everything, run
+from test_features_build import LEVELS, fake_everything, run
 
 FIXTURE = Path(__file__).parent / "fixtures" / "observed-synthetic.json"
 GOOD = {"version": 1, "house_roof_colour": "#A1B2C3", "source": "made up",
@@ -64,6 +64,7 @@ def test_the_house_carries_the_observed_roof_colour_and_the_credit_is_given(worl
     notice = (worlds.seen / "NOTICE.txt").read_text(encoding="ascii")
     assert manifest.ascii_fold(fixture["credit"]) in notice
     assert m["stats"]["map"]["buildings"]["observed_roof_colour"] is True
+    assert m["stats"]["map"]["buildings"]["observed_credit"] == fixture["credit"]
     assert manifest.check_world(worlds.seen) == []
 
 
@@ -78,6 +79,7 @@ def test_nothing_else_changes_and_without_the_input_nothing_does(worlds):
     m = manifest_of(worlds.plain)
     assert fixture["credit"] not in m["credits"]
     assert "observed_roof_colour" not in m["stats"]["map"]["buildings"]
+    assert "observed_credit" not in m["stats"]["map"]["buildings"]
     assert manifest.ascii_fold(fixture["credit"]) not in \
         (worlds.plain / "NOTICE.txt").read_text(encoding="ascii")
     assert manifest_of(worlds.seen)["credits"] == m["credits"] + [fixture["credit"]]
@@ -172,6 +174,55 @@ def test_with_no_house_the_colour_is_not_used_and_the_build_says_so():
     assert stats == {"observed_roof_colour": False}
 
 
+def test_when_the_buildings_step_skips_the_colour_is_not_used_and_the_build_says_so():
+    """No h1 level or no surface model: the step skips, and a given observed input is
+    recorded as not used, with a warning and no credit (FORMAT.md)."""
+    from commons_world import mapsteps
+    for observed_input in (observed.validate(GOOD), None):
+        ctx = SimpleNamespace(observed=observed_input, warnings=[], credits=[], levels=[],
+                              chunks={}, map=None, add_credit=lambda text: ctx.credits.append(text))
+        mapsteps.step_buildings(ctx)
+        stats = ctx.map.stats["buildings"]
+        assert stats["skipped"] == "no h1 level or no surface model"
+        assert ctx.credits == []
+        if observed_input is None:
+            assert "observed_roof_colour" not in stats and ctx.warnings == []
+        else:
+            assert stats["observed_roof_colour"] is False
+            assert len(ctx.warnings) == 1 and "not used" in ctx.warnings[0]
+            assert "skipped" in ctx.warnings[0]
+
+
+def test_a_build_without_a_surface_model_records_the_input_as_not_used(worlds, tmp_path):
+    """The same end to end: the surface model step does nothing, so the buildings step
+    skips; the finished world says the input was not used and passes its check."""
+    from commons_world import features
+    pipeline = features.install(build.core_build_pipeline())
+    pipeline.register("surface", lambda ctx: None, replace=True)
+    folder = build.build(worlds.listing, tmp_path / "w", cache_dir=worlds.tmp / "cache",
+                         transport=FakeTransport(), offline=True, levels=LEVELS,
+                         commit="test", generated_at="2026-01-01T00:00:00Z", min_interval=0.0,
+                         pipeline=pipeline, observed=FIXTURE)
+    m = manifest_of(folder)
+    stats = m["stats"]["map"]["buildings"]
+    assert "skipped" in stats and stats["observed_roof_colour"] is False
+    assert any("observed house roof colour was not used" in w for w in m["stats"]["warnings"])
+    assert worlds.fixture["credit"] not in m["credits"]
+    assert manifest.check_world(folder) == []
+
+
+def test_a_build_that_cannot_use_the_input_refuses_it_before_anything_happens(worlds, tmp_path):
+    """A pipeline with no buildings step (build --no-plugins) cannot use an observed
+    input; it is refused up front rather than validated and silently ignored."""
+    silent = FakeTransport()
+    with pytest.raises(observed.ObservedInvalid, match="buildings step"):
+        build.build(worlds.listing, tmp_path / "w", cache_dir=tmp_path / "cache",
+                    transport=silent, offline=True, pipeline=build.core_build_pipeline(),
+                    observed=FIXTURE)
+    assert silent.calls == []
+    assert list(tmp_path.iterdir()) == []
+
+
 def rewrite(folder, edit):
     """Edit buildings.json.gz in place and put its new size and hash into the manifest."""
     path = folder / "buildings.json.gz"
@@ -214,3 +265,41 @@ def test_ids_may_skip_a_dropped_building(worlds, tmp_path):
     rewrite(folder, lambda fs: fs.pop(0))
     assert manifest.check_world(folder) == []
     assert build.BuildContext(work_dir=tmp_path).observed is None
+
+
+def edit_manifest(folder, edit):
+    m = manifest_of(folder)
+    edit(m)
+    (folder / "manifest.json").write_text(json.dumps(m), encoding="ascii")
+
+
+@pytest.mark.parametrize("world,edit_buildings,edit,messages", [
+    ("seen", None, lambda m: m["credits"].remove(m["stats"]["map"]["buildings"]["observed_credit"]),
+     ["not among the credits"]),
+    ("seen", None, lambda m: m["stats"]["map"]["buildings"].update(observed_credit="made up too"),
+     ["not among the credits"]),
+    ("seen", None, lambda m: m["stats"]["map"]["buildings"].pop("observed_credit"),
+     ["not among the credits"]),
+    ("seen", None, lambda m: m["stats"]["map"]["buildings"].update(observed_roof_colour=False),
+     ["observed_roof_colour is not true"]),
+    ("plain", lambda fs: next(f for f in fs if f["house"]).update(roof_colour="#a1b2c3",
+                                                                   roof_colour_source="x"),
+     None, ["observed_roof_colour is not true", "not among the credits"]),
+], ids=["credit removed", "another credit named", "no credit named", "not marked used",
+        "colour added by hand"])
+def test_check_world_refuses_an_observed_colour_drawn_without_its_credit(worlds, tmp_path, world,
+                                                                          edit_buildings, edit,
+                                                                          messages):
+    """The colour is drawn on screen, so a world whose credits lack its credit line fails its
+    check, however it came to lack it (PRIV-5 of the final review)."""
+    import shutil
+
+    folder = tmp_path / "copy"
+    shutil.copytree(getattr(worlds, world), folder)
+    if edit_buildings is not None:
+        rewrite(folder, edit_buildings)
+    if edit is not None:
+        edit_manifest(folder, edit)
+    problems = manifest.check_world(folder)
+    for message in messages:
+        assert any(message in p for p in problems), problems
