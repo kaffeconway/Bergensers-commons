@@ -236,6 +236,8 @@ def test_buildings_file(world, world_manifest):
     assert roofs["by_model"] == {"flat": 3, "gable": 5} and roofs["fallback_reasons"] == {}
     # a synthetic build promises the same bytes every time, so it records no fitting time
     assert "fit_seconds" in roofs and roofs["fit_seconds"] is None
+    # every synthetic roof is a roof: nothing is taken for canopy, and no id is skipped
+    assert stats["canopy"] == {"dropped": [], "trimmed": [], "house_canopy_like": False}
 
 
 def test_trees_file(world):

@@ -9,7 +9,8 @@ inputs from ctx.map (a MapInputs):
   sets ctx.class_source, so "terrain" writes each chunk with band 2;
 - buildings: footprints from the h1 surface model, anchored to register
   points, with roof planes fitted to the same model (commons_world.roofs),
-  written to buildings.json.gz and painted into the h1 class band;
+  written to buildings.json.gz and painted into the h1 class band; canopy
+  taken for a roof is dropped or cut down to its roof part first;
 - forest: in the h1 class band, a forest cell with no tree near it in the
   surface model becomes open land (commons_world.classes.forest_correction);
 - trees: canopy tops within the h1 radius, written to trees.bin.gz. Building
@@ -31,6 +32,7 @@ from scipy import ndimage
 
 from . import buildings as buildingslib
 from . import classes as classeslib
+from . import observed as observedlib
 from . import places as placeslib
 from . import roofs as roofslib
 from . import trees as treeslib
@@ -103,17 +105,29 @@ def step_buildings(ctx):
                                                 within=(oe, on, h1.radius), return_labels=True)
     stats["house"] = buildingslib.choose_house(found, [p.polygon for p in ctx.parcels],
                                                address_point(ctx))
-    shapes = None
+    shapes = canopy = None
     if roofslib.FIT:
         shapes, stats["roofs"] = roofslib.fit_all(found, dom, dtm, grid, labels, ctx.origin)
+        if roofslib.DROP_CANOPY:
+            labels, stats["roofs"], canopy = roofslib.drop_canopy(
+                found, shapes, dom, dtm, grid, labels, ctx.origin, stats["roofs"]["fit_seconds"])
         ctx.log("buildings: roofs fitted in {:.1f} s".format(stats["roofs"]["fit_seconds"]))
         if reproducible(ctx):
             stats["roofs"]["fit_seconds"] = None
     record = buildingslib.buildings_record(found, ctx.origin, shapes)
+    # "buildings" and "register_points_matched" count the footprints as segmented; a
+    # footprint taken for tree crowns is then left out of the file
+    stats["drawn"] = len(record["features"])
     ids = [f["id"] for f in record["features"] if f["house"]]
     stats["house"]["id"] = ids[0] if ids else None
+    observedlib.apply(ctx, record, stats)
+    if canopy is not None:
+        stats["canopy"] = roofslib.canopy_stats(found, canopy)
+        if canopy["house_canopy_like"]:
+            ctx.warnings.append("The house's surface looks like tree crowns and no roof fits it; "
+                                "it is drawn anyway.")
     ctx.write_json("buildings", "buildings.json.gz", record, gz=True)
-    footprints = [b.polygon for b in found]
+    footprints = [b.polygon for b in found if not b.dropped]
     band = getattr(ctx, "class_band", None)
     if band is not None:
         stats["footprint_cells"] = band.add_buildings("h1", footprints)

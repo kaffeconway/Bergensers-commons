@@ -163,6 +163,18 @@ with its byte size and sha256.
 Buildings within `h1` radius.
 - **Footprints** are segmented from the 1 m surface model minus the terrain model, and
   anchored to building points from the Matrikkel building register.
+- **Tree crowns taken for a roof are not drawn.** A footprint is left out when no roof
+  shape fits it (`roof_shape` would be `none`, for `"no model fits"` or `"implausible"`)
+  and fewer than a quarter of its cells lie on a plane (some 3 x 3 m window holding the
+  cell fits a plane to within 0.10 m): its surface is rough like tree crowns. Where such a
+  footprint holds a planar part of at least 12 m2 at its register point (inside it, or
+  within 6 m), only that part is kept, grown by one cell for its eaves and fitted again;
+  if no roof fits the part either, the footprint is left out. A kept part's `ring`,
+  `ground`, `roof` and `roof_shape` are the part's own. The listing house is never left
+  out or cut down; if it looks like tree crowns, the manifest says so.
+- `id` numbers every footprint as segmented, north to south and then west to east, before
+  any is left out or cut down. So a footprint that is left out leaves its id unused, and
+  no other building's id depends on it. Features are in id order.
 
 ```json
 {"version": 1,
@@ -226,6 +238,13 @@ Buildings within `h1` radius.
     plus 0.5 m, or rose more than 1 m above the highest surface-model cell).
 - `type` is the register's building-type code, or 0 if none was matched.
 - `house: true` marks exactly one building: the listing's house, if identified.
+- `roof_colour` and `roof_colour_source` (optional, on the listing house only, always
+  together): the house's roof colour as `#rrggbb` in lower case, and free text saying how
+  it was read. They come from an observed input given privately to that world's build
+  (`build --observed`, `commons_world/observed.py`), such as a colour read from an aerial
+  photo; that input's credit line is then one of the manifest's `credits`. The viewer
+  draws the house roof plain in that colour and keeps the walls in the highlight colour.
+  Without them the house roof is in the highlight colour.
 - **Optional:** buildings beyond `h1` come from register points only. They have
   `source: "register"` and a default square `ring`.
 - Readers ignore keys they do not know. The viewer refuses a file whose `version` is not
@@ -249,7 +268,8 @@ Gzip of:
   | u8 | crown radius in units of 0.1 m |
 
 Records are sorted by (z, x). Trees come from local maxima of canopy height (surface
-minus terrain) above 3 m, outside building footprints, within `h1` radius.
+minus terrain) above 3 m, outside building footprints, within `h1` radius. A footprint
+left out as tree crowns (`buildings.json.gz`) does not hide the trees under it.
 The file says nothing about species: the viewer's conifer or broadleaf look follows each
 tree's measured proportions (crown radius against height), and is not its species.
 
@@ -390,8 +410,20 @@ Notes:
   25 m2 but touched other land), `small_patches_kept` and `small_patch_cells_kept`,
   `surface_hole_cells`, and the three constants `canopy_min_m`, `fringe_m` and
   `min_open_m2`; or `{"skipped": "no surface model"}`.
-- `stats.map.buildings.roofs` summarises the roof fitting: `by_model`, `by_quality`,
-  `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
-  synthetic world and in a build under `SOURCE_DATE_EPOCH`, where a build promises the
-  same bytes every time; the build log records the time in every build.
+- `credits` also holds the credit line of an observed input, when a build was given one
+  and used it (`buildings.json.gz`, `roof_colour`); `stats.map.buildings.observed_roof_colour`
+  is then true, and false if the input was given but no house was identified to take it.
+  Without an observed input, neither is there.
+- `stats.map.buildings.canopy` lists the footprints left out as tree crowns
+  (`dropped`) and those cut down to their roof part (`trimmed`), each as `{"id", "reason"}`
+  and never with a position, and `house_canopy_like`, true when the listing house looked
+  like tree crowns and was drawn anyway.
+- `stats.map.buildings.buildings` and `register_points_matched` count the footprints as
+  segmented, before any is left out as tree crowns; `drawn` is the number of features in
+  `buildings.json.gz`.
+- `stats.map.buildings.roofs` summarises the roof fitting over the buildings drawn:
+  `by_model`, `by_quality`, `fallback_reasons`, `median_rms` and `fit_seconds`.
+  `fit_seconds` is `null` in the synthetic world and in a build under `SOURCE_DATE_EPOCH`,
+  where a build promises the same bytes every time; the build log records the time in
+  every build.
 - The viewer ignores unknown keys, and refuses a `version` it does not know.

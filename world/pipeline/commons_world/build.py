@@ -65,6 +65,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import codec, geo, gitguard, grid, listing as listinglib, manifest as manifestlib
+from . import observed as observedlib
 from . import parcel as parcellib
 from . import terrain as terrainlib
 from .http import Client
@@ -164,6 +165,7 @@ class BuildContext:
         self.warnings = []
         self.stats = {}
         self.timings = {}
+        self.observed = None       # commons_world.observed: a private, per-world input
 
     # -- writing ------------------------------------------------------------
 
@@ -562,11 +564,15 @@ def run_pipeline(pipeline, ctx):
 
 def build(listing_path, out_dir=None, *, cache_dir=DEFAULT_CACHE, offline=False,
           transport=None, client=None, levels=grid.LEVELS, generated_at=None, commit=None,
-          pipeline=None, log=None, min_interval=1.0):
+          pipeline=None, log=None, min_interval=1.0, observed=None):
     """Build the world for one listing; return the finished world folder.
 
-    `out_dir` is the world folder itself; by default world/out/<id>.
+    `out_dir` is the world folder itself; by default world/out/<id>. `observed` is the
+    path of an observed-input file (commons_world.observed), read and checked before
+    anything else happens.
     """
+    if observed is not None:
+        observed = observedlib.load_observed(observed)
     if client is None:
         if cache_dir is not None:
             gitguard.check_destination(cache_dir, "the response cache")
@@ -580,6 +586,7 @@ def build(listing_path, out_dir=None, *, cache_dir=DEFAULT_CACHE, offline=False,
                        client=client, levels=levels, generated_at=generated_at,
                        commit=commit if commit is not None else manifestlib.pipeline_commit(),
                        log=log)
+    ctx.observed = observed
     return run_pipeline(pipeline or BUILD, ctx)
 
 

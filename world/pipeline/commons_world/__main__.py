@@ -1,6 +1,7 @@
 """Command line: python -m commons_world {build,synthetic,check,facts} ...
 
     build      --listing PATH [--out DIR] [--offline] [--cache DIR] [--no-plugins]
+               [--observed PATH]
     synthetic  [--out DIR]
     check      DIR
     facts      --world DIR [--offline] [--cache DIR] [--compare-pvgis CSV]
@@ -22,13 +23,14 @@ from .http import (HostNotAllowed, HTTPError, OfflineCacheMiss, RobotsDisallowed
                    TooManyRedirects, TransportError)
 from .listing import LeakError, ListingInvalid
 from .manifest import check_world, pipeline_commit
+from .observed import ObservedInvalid
 from .parcel import GeocodeError, ParcelError
 from .terrain import TerrainError
 
 EXPECTED_ERRORS = (BuildError, GeocodeError, ParcelError, LeakError, ListingInvalid,
                    HostNotAllowed, RobotsDisallowed, OfflineCacheMiss, TooManyRedirects,
                    TransportError, HTTPError, TerrainError, NotImplementedError,
-                   UnsafeDestination)
+                   UnsafeDestination, ObservedInvalid)
 
 
 def _summary(folder):
@@ -52,6 +54,9 @@ def main(argv=None):
                          help="response cache folder (default world/pipeline/.cache)")
     p_build.add_argument("--no-plugins", action="store_true",
                          help="run the core steps only, without commons_world.features")
+    p_build.add_argument("--observed", type=Path, default=None,
+                         help="observed-input JSON for this world (the house roof colour and "
+                              "its credit); private, keep it in world/out/_inputs/")
 
     p_syn = sub.add_parser("synthetic", help="write the synthetic test world (no network)")
     p_syn.add_argument("--out", type=Path, default=DEFAULT_OUT_ROOT / "synthetic",
@@ -76,7 +81,7 @@ def main(argv=None):
                 for name in load_plugins():
                     default_log("loaded plugin {}".format(name))
             folder = build(args.listing, args.out, cache_dir=args.cache, offline=args.offline,
-                           log=default_log)
+                           log=default_log, observed=args.observed)
         elif args.command == "synthetic":
             from .facts import synthetic_pipeline
             from .synthetic import build_synthetic

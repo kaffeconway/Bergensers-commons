@@ -14,6 +14,12 @@ import zlib from 'node:zlib';
 import { SYN, WORLD, READY_MS, offenders, newContext, openWorld, mainPage } from './harness.mjs';
 
 const manifest = () => JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'ascii'));
+// Console warnings that mean GL refused what it was asked (as sun.test.mjs reads them, S2-2):
+// SPEC 6.3's PCFSoftShadowMap and GL_INVALID, and Chromium's "WebGL: INVALID_OPERATION: ...".
+const GL_WARNING = /PCFSoftShadowMap|INVALID|WebGL:/i;
+const glWarnings = (log) => log.warnings.filter((w) => GL_WARNING.test(w));
+// The made-up observed input the pipeline's tests build with (Joseph's answer P3).
+const OBSERVED = JSON.parse(fs.readFileSync(path.join(WORLD, 'pipeline', 'tests', 'fixtures', 'observed-synthetic.json'), 'utf8'));
 const buildingsDoc = () => JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(SYN, manifest().files.buildings.file))).toString('utf8'));
 
 async function shared() {
@@ -244,7 +250,7 @@ test('split, stepped, hipped and unfitted roofs are closed and meet their walls'
           for (const v of vs) {
             const x = P[3 * v], y = P[3 * v + 1], z = P[3 * v + 2], ys = roofs(f, x, z);
             if (g === 0 && !bottoms.has(v)) { tops++; if (!ys.some((h) => Math.abs(h - y) <= 1e-4)) topsOff++; }
-            if (g === 1 && !ys.some((h) => Math.abs(h - y) <= 1e-6)) roofOff++;
+            if (mm.tones[t] === 1 && !ys.some((h) => Math.abs(h - y) <= 1e-6)) roofOff++;
           }
         }
         res[name] = { tops, topsOff, roofOff, steps };
@@ -346,7 +352,88 @@ test('the house roof can be drawn as the flat prism instead, in one line', { tim
   assert.ok(r.tops > 0, 'a plain top, as every unmeasured roof');
   assert.deepEqual(r.errors, []);
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
   await page.close();
+});
+
+test('the house roof is drawn in its observed colour, the walls keep the highlight', { timeout: READY_MS + 60000 }, async () => {
+  // P3: a world whose buildings.json carries the house's observed roof colour (the pipeline
+  // writes it from a private per-world input, with a credit line); the committed input is
+  // made up, and served here as the pipeline writes it
+  const doc = buildingsDoc(), man = manifest();
+  const house = doc.features.find((f) => f.house);
+  house.roof_colour = OBSERVED.house_roof_colour.toLowerCase();
+  house.roof_colour_source = OBSERVED.source;
+  man.credits = man.credits.concat([OBSERVED.credit]);
+  const ctx = await newContext();
+  await ctx.route('**/out/synthetic/' + man.files.buildings.file, (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(doc), contentType: 'application/json' }));
+  await ctx.route('**/out/synthetic/manifest.json', (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify(man), contentType: 'application/json' }));
+  const { page, log } = await openWorld(ctx);
+  await page.evaluate(() => window.__cw.internals.buildings.ready);
+  const drawn = async (pg) => pg.evaluate(async () => {
+    const B = window.__cw.internals.buildings, geo = B.houseMesh.geometry, k = geo.attributes.color;
+    const at = (g) => { const v = geo.index.getX(geo.groups[g].start); return [k.getX(v), k.getY(v), k.getZ(v)]; };
+    const every = (g) => {
+      const c0 = at(g), grp = geo.groups[g];
+      for (let i = grp.start; i < grp.start + grp.count; i++) {
+        const v = geo.index.getX(i);
+        if ([k.getX(v), k.getY(v), k.getZ(v)].some((c, j) => Math.abs(c - c0[j]) > 1e-9)) return false;
+      }
+      return true;
+    };
+    return { walls: at(0), roof: at(1), roofEven: every(1), roofs: geo.groups[1].count, roofMap: B.houseMesh.material[1].map,
+             wallMap: !!B.houseMesh.material[0].map, observed: B.house.roofColour,
+             credits: document.getElementById('credits-body').textContent, errors: window.__cw.errors };
+  });
+  const colour = async (pg, hex) => pg.evaluate(async (h) => new (await import('three')).Color(h).toArray(), hex);
+  const r = await drawn(page);
+  const want = await colour(page, parseInt(OBSERVED.house_roof_colour.slice(1), 16));
+  assert.ok(r.roofs > 0, 'the house has a fitted roof');
+  assert.equal(r.observed, parseInt(OBSERVED.house_roof_colour.slice(1), 16));
+  r.roof.forEach((c, i) => assert.ok(Math.abs(c - want[i]) < 1e-6, 'the roof is the observed colour: ' + r.roof));
+  assert.ok(r.roofEven, 'every roof vertex is');
+  assert.equal(r.roofMap, null, 'and plain');
+  const walls = await colour(page, 0xc98e5c);
+  r.walls.forEach((c, i) => assert.ok(Math.abs(c - walls[i]) < 1e-6, 'the walls keep the highlight colour: ' + r.walls));
+  assert.ok(r.wallMap, 'and the cladding');
+  assert.ok(r.credits.includes(OBSERVED.credit), 'the credit is shown with the others');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
+  await page.close();
+  // without it (the synthetic world as built): the highlight roof, and no such credit
+  const plain = await drawn((await shared()).page);
+  const madder = await colour((await shared()).page, 0x7c2e3e);
+  plain.roof.forEach((c, i) => assert.ok(Math.abs(c - madder[i]) < 1e-6, 'the highlight roof: ' + plain.roof));
+  plain.walls.forEach((c, i) => assert.ok(Math.abs(c - walls[i]) < 1e-6));
+  assert.equal(plain.observed, null);
+  assert.ok(!plain.credits.includes(OBSERVED.credit));
+  // a colour the viewer cannot read, or one on another building, is not drawn
+  const odd = await (await shared()).page.evaluate(async (fs) => {
+    const m = await import('./js/objects.js');
+    const out = {};
+    for (const [name, edit] of [['unreadable', (f) => { if (f.house) f.roof_colour = 'grey'; }],
+                                ['neighbour', (f) => { if (!f.house) f.roof_colour = '#2e8b57'; }]]) {
+      const copy = JSON.parse(JSON.stringify(fs));
+      copy.forEach(edit);
+      const b = m.buildBuildings(copy);
+      await b.ready;
+      const geo = b.othersMesh.geometry, k = geo.attributes.color;
+      const roofs = new Set();
+      for (let i = geo.groups[1].start; i < geo.groups[1].start + geo.groups[1].count; i++) {
+        const v = geo.index.getX(i);
+        roofs.add([k.getX(v), k.getY(v), k.getZ(v)].map((c) => c.toFixed(6)).join());
+      }
+      out[name] = { house: b.house.roofColour, neighbourRoofs: [...roofs] };
+      b.dispose();
+    }
+    return out;
+  }, buildingsDoc().features);
+  assert.equal(odd.unreadable.house, null);
+  assert.equal(odd.neighbour.house, null);
+  assert.deepEqual(odd.neighbour.neighbourRoofs.sort(), odd.unreadable.neighbourRoofs.sort(), 'neighbours never take it');
 });
 
 test('wall tops meet the roof', { timeout: 60000 }, async () => {
@@ -365,7 +452,7 @@ test('wall tops meet the roof', { timeout: 60000 }, async () => {
         for (let k = 0; k < 3; k++) {
           const v = m.idx[3 * t + k], y = window.__roofOf(f.roof_shape, P[3 * v], P[3 * v + 2]);
           if (m.groups[t] === 0 && !bottoms.has(v)) { walls++; if (Math.abs(P[3 * v + 1] - y) > 1e-4) wallOff++; }
-          if (m.groups[t] === 1 && Math.abs(P[3 * v + 1] - y) > 1e-6) roofOff++;
+          if (m.tones[t] === 1 && Math.abs(P[3 * v + 1] - y) > 1e-6) roofOff++;
         }
       }
       out.push({ id: f.id, walls, wallOff, roofOff });
@@ -451,6 +538,7 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   assert.deepEqual(prisms.errors, []);
   assert.deepEqual(log.errors, []);
   assert.deepEqual(log.console, []);
+  assert.deepEqual(glWarnings(log), []);
   await page.close();
   // malformed shapes, one of each kind the viewer refuses: those buildings flat, the others
   // as measured
@@ -480,7 +568,11 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   await page.evaluate(() => window.__cw.internals.buildings.ready);
   const r = await page.evaluate((ids) => {
     const B = window.__cw.internals.buildings;
-    const flatTop = (i) => { const m = B.meshFor(i); return m.groups.filter((g) => g === 1).length === 0 && m.groups.filter((g) => g === 2).length > 0; };
+    // a prism: drawn from the fallback plan, with no roof-coloured face, only its plain top
+    const flatTop = (i) => {
+      const m = B.meshFor(i), it = B.items.find((x) => x.id === i);
+      return it.plan.fallback && m.tones.every((k) => k !== 1) && m.groups.filter((g) => g === 2).length > 0;
+    };
     return { info: B.info(), victimsFlat: ids.map(flatTop), othersFlat: B.items.filter((it) => !ids.includes(it.id) && flatTop(it.id)).length,
              errors: window.__cw.errors };
   }, victims);
@@ -489,6 +581,7 @@ test('old and malformed files still draw', { timeout: READY_MS + 120000 }, async
   assert.equal(r.othersFlat, 0, 'no other building is');
   assert.deepEqual(r.errors, []);
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), []);
   // a version the viewer does not read
   const v2 = await page.evaluate(async () => {
     const m = await import('./js/objects.js');
@@ -548,6 +641,54 @@ test('neighbours arrive after the house', { timeout: 60000 }, async () => {
   assert.ok(r.after.houseSame, 'and the house is untouched');
 });
 
+test('the swap resumes where it stopped, building by building', { timeout: 120000 }, async () => {
+  // B-11 cut the swap into short steps that stop when their time is up and resume on the
+  // next. A negative SLICE.ms stops every slice and step after one building, so every
+  // resume path runs (mid-copy, mid-group, between groups); the geometry must come out
+  // exactly as from the uninterrupted steps.
+  const { page } = await shared();
+  const r = await page.evaluate(async () => {
+    const m = await import('./js/objects.js');
+    const { manifest } = window.__cw;
+    const doc = await m.fetchJSON('out/synthetic/' + manifest.files.buildings.file);
+    const snap = (b) => {
+      const g = b.othersMesh.geometry, a = g.attributes;
+      const out = { index: Array.from(g.index.array) };
+      for (const k of ['position', 'normal', 'uv', 'color', 'cwGround']) out[k] = Array.from(a[k].array);
+      out.groups = g.groups.map((x) => [x.start, x.count, x.materialIndex]);
+      out.items = b.items.map((it) => [it.id, it.verts, it.span]);
+      out.focus = b.shadowFocus();
+      return out;
+    };
+    const one = async (ms) => {
+      const keep = m.SLICE.ms;
+      m.SLICE.ms = ms;
+      let b;
+      try {
+        b = m.buildBuildings(m.buildingFeatures(doc));
+        await b.ready;
+      } finally {
+        m.SLICE.ms = keep;
+      }
+      const s = { slices: b.timing.slices, neighbours: b.items.filter((it) => !it.house).length, whole: snap(b) };
+      b.setShadowFocus({ x0: -30, z0: -30, x1: 30, z1: 30 });
+      s.focused = snap(b);
+      b.dispose();
+      return s;
+    };
+    const normal = await one(4), forced = await one(-1);
+    const differ = (x, y) => Object.keys(x).filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+    return { normal: normal.slices, forced: forced.slices, neighbours: forced.neighbours,
+             whole: differ(normal.whole, forced.whole), focused: differ(normal.focused, forced.focused),
+             drawn: normal.whole.index.length, moved: JSON.stringify(normal.whole.focus) !== JSON.stringify(normal.focused.focus) };
+  });
+  assert.ok(r.neighbours >= 5 && r.drawn > 0);
+  assert.ok(r.forced >= 5 * r.neighbours && r.forced > r.normal, `every step stopped after one building: ${JSON.stringify(r)}`);
+  assert.deepEqual(r.whole, [], 'index, attributes, groups, vertices and focus as the uninterrupted swap');
+  assert.ok(r.moved, 'the small shadow focus takes some buildings out');
+  assert.deepEqual(r.focused, [], 'and the same after a shadow focus');
+});
+
 test('walking on a sloped roof', { timeout: 60000 }, async () => {
   const { page } = await shared();
   await page.addScriptTag({ content: PLANES_JS });
@@ -599,32 +740,73 @@ test('the neighbours\' colours change in lightness only, as seen on screen', { t
     const out = [];
     for (const it of B.items) {
       const geo = (it.house ? B.houseMesh : B.othersMesh).geometry, col = geo.attributes.color, index = geo.index;
-      // the colour of the building's first triangle in each group, as sRGB on screen
-      const seen = geo.groups.map((gr) => {
+      const P = geo.attributes.position;
+      // the colours of the building's triangles in each group, as sRGB on screen; in the trim
+      // group, those facing up (a plain top) apart from the others (the fascia)
+      const seen = { walls: new Set(), roofs: new Set(), up: new Set(), side: new Set() };
+      geo.groups.forEach((gr, g) => {
         for (let t = gr.start; t < gr.start + gr.count; t += 3) {
           const v = index.getX(t);
           if (v < it.span[0] || v >= it.span[0] + it.span[1]) continue;
           const c = new THREE.Color(col.getX(v), col.getY(v), col.getZ(v)).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
-          return [c.r, c.g, c.b];
+          const key = [c.r, c.g, c.b].map((x) => x.toFixed(6)).join();
+          const [a, b2, d] = [0, 1, 2].map((k) => index.getX(t + k));
+          const e1 = [P.getX(b2) - P.getX(a), P.getY(b2) - P.getY(a), P.getZ(b2) - P.getZ(a)];
+          const e2 = [P.getX(d) - P.getX(a), P.getY(d) - P.getY(a), P.getZ(d) - P.getZ(a)];
+          const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+          const up = n[1] / Math.hypot(...n) > 0.5;
+          seen[g === 0 ? 'walls' : g === 1 ? 'roofs' : up ? 'up' : 'side'].add(key);
         }
-        return null;
       });
-      out.push({ id: it.id, house: it.house, j: it.house ? 1 : buildingJitter(it.id), seen,
-                 walls: srgb(it.house ? 0xc98e5c : 0xcfc9bd), roof: srgb(it.house ? 0x7c2e3e : 0x5f6664) });
+      const list = (k) => [...seen[k]].map((s) => s.split(',').map(Number));
+      out.push({ id: it.id, house: it.house, fallback: it.plan.fallback, j: it.house ? 1 : buildingJitter(it.id),
+                 walls: list('walls'), roofs: list('roofs'), up: list('up'), side: list('side'),
+                 wallHex: srgb(it.house ? 0xc98e5c : 0xcfc9bd), roofHex: srgb(it.house ? 0x7c2e3e : 0x5f6664) });
     }
     return out;
   });
   const ratio = (a, b) => a.map((x, i) => x / b[i]);
   const near = (xs, want) => xs.every((x) => Math.abs(x - want) < 2e-3);
+  const one = (cs, want, hex, say) => { assert.equal(cs.length, 1, say); assert.ok(near(ratio(cs[0], hex), want), say); };
+  let plainFlat = 0;
   for (const b of r) {
-    const [walls, roof, trim] = b.seen;
-    assert.ok(b.j >= 0.95 && b.j <= 1.05, JSON.stringify(b));
+    const say = JSON.stringify(b);
+    assert.ok(b.j >= 0.95 && b.j <= 1.05, say);
     // every channel scaled by the same factor: lightness, no hue change
-    assert.ok(near(ratio(walls, b.walls), (b.house ? 1 : 1.08) * b.j), 'walls: ' + JSON.stringify(b));
-    assert.ok(near(ratio(roof, b.roof), b.j), 'roof: ' + JSON.stringify(b));
-    if (trim) assert.ok(near(ratio(trim, b.roof), 0.8 * b.j), 'trim: ' + JSON.stringify(b));
+    one(b.walls, (b.house ? 1 : 1.08) * b.j, b.wallHex, 'walls: ' + say);
+    if (b.roofs.length) one(b.roofs, b.j, b.roofHex, 'roof: ' + say);
+    if (b.side.length) one(b.side, 0.8 * b.j, b.roofHex, 'trim: ' + say);
+    // a plain top: a prism's in the trim colour, a measured flat roof's in the roof colour
+    if (b.up.length) {
+      one(b.up, (b.fallback ? 0.8 : 1) * b.j, b.roofHex, 'plain top: ' + say);
+      if (!b.fallback) plainFlat++;
+    }
+    assert.ok(b.roofs.length + b.up.length > 0, 'every building has a roof: ' + say);
   }
+  assert.ok(plainFlat >= 3, 'the measured flat roofs are drawn plain, in their roof colour');
   assert.ok(new Set(r.filter((b) => !b.house).map((b) => b.j.toFixed(4))).size > 1, 'the jitter varies');
+});
+
+test('measured flat roofs are plain, pitched roofs keep their tile courses', { timeout: 60000 }, async () => {
+  // D8: the tile map stretched over a flat roof drew courses that are not there; a measured
+  // flat roof is drawn plain now, as a prism's top is, while pitched roofs keep the tiles
+  const { page } = await shared();
+  const flats = buildingsDoc().features.filter((f) => !f.house && f.roof_shape && f.roof_shape.model === 'flat');
+  const pitched = buildingsDoc().features.filter((f) => !f.house && f.roof_shape && f.roof_shape.model === 'gable');
+  assert.ok(flats.length >= 3 && pitched.length >= 3);
+  const r = await page.evaluate(({ flats, pitched }) => {
+    const B = window.__cw.internals.buildings;
+    const count = (id, fn) => { const m = B.meshFor(id); return m.groups.filter((g, t) => fn(g, m.tones[t])).length; };
+    return {
+      flat: flats.map((id) => ({ id, textured: count(id, (g) => g === 1), plainRoof: count(id, (g, k) => g === 2 && k === 1) })),
+      pitched: pitched.map((id) => ({ id, textured: count(id, (g) => g === 1), plainRoof: count(id, (g, k) => g === 2 && k === 1) })),
+      roofMap: !!B.othersMesh.material[1].map, trimMap: B.othersMesh.material[2].map
+    };
+  }, { flats: flats.map((f) => f.id), pitched: pitched.map((f) => f.id) });
+  for (const b of r.flat) assert.ok(b.textured === 0 && b.plainRoof > 0, 'flat, plain: ' + JSON.stringify(b));
+  for (const b of r.pitched) assert.ok(b.textured > 0 && b.plainRoof === 0, 'pitched, tiled: ' + JSON.stringify(b));
+  assert.ok(r.roofMap, 'the roof material keeps the tile map for pitched roofs');
+  assert.equal(r.trimMap, null, 'the plain group has none');
 });
 
 test('near set conserves trees', { timeout: 60000 }, async () => {
@@ -865,6 +1047,7 @@ test('shadow focus limits casters', { timeout: READY_MS + 60000 }, async () => {
   assert.deepEqual([r.walked.unreported, r.walked.misplaced, r.walked.lost, r.walked.repeats], [0, 0, 0, 0], JSON.stringify(r.walked));
   assert.ok(r.walked.partial > 0, 'some changes upload part of the index, not all of it: ' + JSON.stringify(r.walked));
   assert.deepEqual(log.errors, []);
+  assert.deepEqual(glWarnings(log), [], 'GL refused nothing in the shadow pass');
   await page.close();
 });
 
@@ -912,6 +1095,15 @@ test('the fence dims at night and disposes of itself', { timeout: 60000 }, async
   r.low.forEach((c, i) => assert.ok(Math.abs(c - 0.4 * full[i]) < 1e-6));
   assert.ok(r.added && r.removed);
   assert.deepEqual(r.flags, [false, false]);
+});
+
+test('the shared page printed no error and no GL warning', { timeout: READY_MS + 60000 }, async () => {
+  // Most tests above draw on the one shared page (the observed roof colour's rebuilds, the
+  // flat roofs, the swap): its log is read here, after all of them (S2-2).
+  const { log } = await shared();
+  assert.deepEqual(log.errors, [], 'page errors');
+  assert.deepEqual(log.console, [], 'console errors');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
 });
 
 test('no request ever left localhost', () => {

@@ -350,6 +350,7 @@ export function pointInRing(ring, x, z) {
 // Drawn, not measured (a visible choice each, one line to change):
 export const OVERHANG = { pitched: 0.4, flat: 0.15, fallback: 0 };   // eave inset of the walls, m
 export const FASCIA = 0.2;                                             // trim board under the eaves, m
+export const FLAT_ROOF_MAP = null;                                     // measured flat roofs plain ('tiles': the tile map stretched to 4 m)
 // The listing house is drawn only as measured (Joseph's answer, A2): its roof as fitted, no
 // drawn eave, no fascia, and a plain roof in its highlight colour. Its walls keep the cladding.
 export const HOUSE_ROOF = 'fitted';                                    // 'prism': the flat prism at `roof` instead
@@ -357,13 +358,21 @@ export const HOUSE_OVERHANG = { pitched: 0, flat: 0, fallback: 0 };   // walls a
 export const HOUSE_FASCIA = 0;
 export const HOUSE_ROOF_MAP = null;                                    // plain roof: no tile courses ('tiles' to add them)
 export const HOUSE_WALL_LIFT = 1;                                      // 1.08: lifted for the cladding, as the neighbours
+// Joseph's answer P3: where the world's buildings.json carries the house's observed roof colour
+// (roof_colour, from a private per-world input, credited on screen), its roof is drawn plain in
+// that colour; its walls keep the highlight colour, since they cannot be seen from above.
+export const HOUSE_OBSERVED_ROOF = true;                               // false: the highlight roof even then
 // Colours: neighbours neutral with a +-5 % lightness jitter and no hue change; the house keeps
-// its highlight, which is not its real colour. The neighbours' walls are lifted 8 % for the
-// cladding's average. Every factor scales the sRGB values, as they show on screen.
+// its highlight, which is not its real colour (its roof excepted, as above). The neighbours'
+// walls are lifted 8 % for the cladding's average. Every factor scales the sRGB values, as they
+// show on screen.
 const COLOURS = { others: { walls: 0xcfc9bd, roof: 0x5f6664 }, house: { walls: 0xc98e5c, roof: 0x7c2e3e } };
 const WALL_LIFT = 1.08, TRIM_SHADE = 0.8, JITTER = 0.05;
 const FOCUS_MERGE = 64;                   // triangles: changed runs this close are uploaded as one
-const SLICE = { buildings: 50, ms: 4 };   // neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11)
+// Neighbours are meshed in slices this size, at most (lowered from 8, then 6 ms, per B-11), and
+// the swap after them runs in steps of `ms`. Exported for the tests: an `ms` below zero ends
+// every slice and step after one building, so each resumes where the last stopped.
+export const SLICE = { buildings: 50, ms: 4 };
 const MODELS = new Set(['flat', 'shed', 'gable', 'hip', 'split']);
 const WALL_TILE = 1.6;                    // roofmesh.js TILE.wall: a wall's v is height / 1.6
 
@@ -409,17 +418,27 @@ function planOf(f) {
       box = [Math.min(box[0], p[0]), Math.min(box[1], p[1]), Math.max(box[2], p[0]), Math.max(box[3], p[1])];
     }
     plan = { f, id: f.id, ground, top, ridge, prep, fallback, malformed, model: fallback ? null : s.model,
-             pitched: !fallback && isPitched(prep), box, ring: prep.outline };
+             pitched: !fallback && isPitched(prep), box, ring: prep.outline, roofColour: observedRoof(f) };
   }
   plans.set(f, plan);
   return plan;
+}
+
+/* The house's observed roof colour as a number (0xrrggbb), or null: only on the listing house,
+ * only written #rrggbb, and only while HOUSE_OBSERVED_ROOF is on. */
+function observedRoof(f) {
+  if (!HOUSE_OBSERVED_ROOF || f.house !== true || typeof f.roof_colour !== 'string') return null;
+  return /^#[0-9a-fA-F]{6}$/.test(f.roof_colour) ? parseInt(f.roof_colour.slice(1), 16) : null;
 }
 
 function meshOptions(plan, isHouse, opts = {}) {
   const kind = plan.fallback ? 'fallback' : plan.pitched ? 'pitched' : 'flat';
   const overhang = opts.overhang !== undefined ? opts.overhang : (isHouse ? HOUSE_OVERHANG : OVERHANG)[kind];
   const fascia = opts.fascia !== undefined ? opts.fascia : (plan.fallback ? 0 : isHouse ? HOUSE_FASCIA : FASCIA);
-  return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs };
+  // a measured flat roof face is drawn plain, as a prism's top is: in the untextured trim
+  // group, in its roof colour. The house's roof material has no map, so its flat faces stay.
+  const flatGroup = isHouse || FLAT_ROOF_MAP === 'tiles' ? undefined : GROUP.trim;
+  return { overhang, fascia, topGroup: plan.fallback ? GROUP.trim : GROUP.roofs, flatGroup };
 }
 
 /* hex, its sRGB values times f (so f is a lightness factor as the eye sees it, with no hue
@@ -437,16 +456,17 @@ function coloursFor(plan, isHouse) {
   const c = COLOURS[isHouse ? 'house' : 'others'];
   const j = isHouse ? 1 : buildingJitter(plan.id);
   const walls = srgbTimes(c.walls, (isHouse ? HOUSE_WALL_LIFT : WALL_LIFT) * j);
-  return [walls, srgbTimes(c.roof, j), srgbTimes(c.roof, j * TRIM_SHADE)];
+  const roof = isHouse && plan.roofColour !== null ? plan.roofColour : c.roof;
+  return [walls, srgbTimes(roof, j), srgbTimes(roof, j * TRIM_SHADE)];
 }
 
 const boxMeets = (b, r) => b[0] <= r.x1 && b[2] >= r.x0 && b[1] <= r.z1 && b[3] >= r.z0;
 
 /* One building's mesh as typed arrays ready to copy: positions, flat normals (a vertex
- * belongs to one face), uvs, colours by group, the local index per group, the wall
- * bottoms and the box. */
+ * belongs to one face), uvs, colours by tone (a plain flat roof sits in the trim group in
+ * its roof colour), the local index per group, the wall bottoms and the box. */
 function packMesh(m, colours) {
-  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups;
+  const nv = m.pos.length / 3, P = m.pos, I = m.idx, G = m.groups, K = m.tones || m.groups;
   const pos = Float32Array.from(P), uv = Float32Array.from(m.uv);
   const nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3);
   const counts = [0, 0, 0];
@@ -459,7 +479,7 @@ function packMesh(m, colours) {
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const L = Math.hypot(nx, ny, nz) || 1;
     nx /= L; ny /= L; nz /= L;
-    const k = colours[g];
+    const k = colours[K[t]];
     for (const v of [a, b, c]) {
       nor[3 * v] = nx; nor[3 * v + 1] = ny; nor[3 * v + 2] = nz;
       col[3 * v] = k.r; col[3 * v + 1] = k.g; col[3 * v + 2] = k.b;
@@ -513,44 +533,71 @@ class BuildingMesh {
 
   /* entries: [{item, packed (packMesh), order}]. Only copies: every per-building array was
    * made when that building was meshed, so the swap stays short. */
-  build(entries) { this.finish(this.stage(entries)); }
+  build(entries) {
+    const st = this.stage(entries);
+    this.copy(st, Infinity);
+    this.index(st, Infinity);
+    this.finish(st);
+  }
 
-  /* The first half of a build: the vertex attributes, copied into place. */
+  /* A build in steps, each of which stops once performance.now() passes `until` (having
+   * done at least one building): stage() orders the buildings and allocates the arrays;
+   * copy() copies the vertex attributes into place; index() writes the index, one group per
+   * material; finish() swaps the new geometry in. Only copies: every per-building array was
+   * made when that building was meshed. */
   stage(entries) {
     // within each group, buildings in 240 m squares, row by row, for locality
     const sq = (e) => [Math.floor(e.item.box[1] / 240), Math.floor(e.item.box[0] / 240)];
     entries = entries.slice().sort((a, b) => { const p = sq(a), q = sq(b); return p[0] - q[0] || p[1] - q[1] || a.order - b.order; });
     let nv = 0, ni = 0;
     for (const e of entries) { e.voff = nv; nv += e.packed.nv; ni += e.packed.ni; }
-    const st = { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
-                 col: new Float32Array(nv * 3), gnd: new Float32Array(nv) };
-    for (const e of entries) {
-      const p = e.packed;
+    return { entries, nv, ni, pos: new Float32Array(nv * 3), nor: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
+             col: new Float32Array(nv * 3), gnd: new Float32Array(nv), copied: 0,
+             idx: nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni), group: 0, next: 0, cursor: 0,
+             starts: [0, 0, 0], counts: [0, 0, 0] };
+  }
+
+  /* Copy vertex attributes until `until`; true when every building is copied. */
+  copy(st, until) {
+    const E = st.entries;
+    while (st.copied < E.length) {
+      const e = E[st.copied++], p = e.packed;
       st.pos.set(p.pos, e.voff * 3);
       st.nor.set(p.nor, e.voff * 3);
       st.uv.set(p.uv, e.voff * 2);
       st.col.set(p.col, e.voff * 3);
       st.gnd.fill(e.item.ground, e.voff, e.voff + p.nv);
+      if (performance.now() > until) break;
     }
-    return st;
+    return st.copied >= E.length;
   }
 
-  /* The second half: the index, one group per material, and the swap. */
-  finish(st) {
-    const { entries, nv, ni, pos, nor, uv, col, gnd } = st;
-    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
-    const starts = [0, 0, 0], counts = [0, 0, 0];
-    let cursor = 0;
-    for (let g = 0; g < 3; g++) {
-      starts[g] = cursor;
-      for (const e of entries) {
+  /* Write the index until `until`: group by group, building by building; true when done. */
+  index(st, until) {
+    const E = st.entries, idx = st.idx;
+    while (st.group < 3) {
+      const g = st.group;
+      if (st.next === 0) st.starts[g] = st.cursor;
+      while (st.next < E.length) {
+        const e = E[st.next++];
         e.blocks = e.blocks || [];
-        const local = e.packed.groups[g], off = e.voff, from = cursor;
-        for (let i = 0; i < local.length; i++) idx[cursor++] = local[i] + off;
-        e.blocks[g] = [from, cursor - from];
+        const local = e.packed.groups[g], off = e.voff, from = st.cursor;
+        for (let i = 0; i < local.length; i++) idx[st.cursor++] = local[i] + off;
+        e.blocks[g] = [from, st.cursor - from];
+        if (performance.now() > until) break;
       }
-      counts[g] = cursor - starts[g];
+      if (st.next < E.length) return false;
+      st.counts[g] = st.cursor - st.starts[g];
+      st.group++;
+      st.next = 0;
+      if (performance.now() > until && st.group < 3) return false;
     }
+    return true;
+  }
+
+  /* The swap: the new geometry from the copied arrays and the written index. */
+  finish(st) {
+    const { entries, ni, pos, nor, uv, col, gnd, idx, starts, counts } = st;
     for (const e of entries) {
       e.item.verts = Array.from(e.packed.wallBottom, (v) => v + e.voff);
       e.item.span = [e.voff, e.packed.nv];            // its vertices in the mesh: first, count
@@ -648,12 +695,15 @@ class BuildingMesh {
 
 /* Buildings: each drawn from its measured roof where the file has a sound roof_shape, and
  * as a flat-topped prism at max(roof, ground + 2) where it does not (the top then plain,
- * in the trim group). `ground` is the median terrain under a footprint, so on a slope the
+ * in the trim group, in the trim colour). A measured flat roof is plain too, in its roof
+ * colour (FLAT_ROOF_MAP). `ground` is the median terrain under a footprint, so on a slope the
  * ground just outside the downhill wall is lower than that: walls start sunk 2 m below
  * it, and reground() takes them further down, to the lowest ground drawable around the
  * footprint, once the heights there are loaded.
  * The house is meshed at once; the neighbours in slices of at most 50 buildings or 4 ms,
- * on a setTimeout chain, and drawn in one swap when the last slice ends (`ready`). */
+ * on a setTimeout chain. Then, in steps as short (B-11: the one-step swap ran long), their
+ * vertices are copied into place and their index written, the whole geometry is swapped in
+ * at once, and the shadow focus is set (`ready`). */
 export function buildBuildings(features) {
   const maps = detailMaps();
   const matsFor = (roofMap) => {
@@ -686,7 +736,7 @@ export function buildBuildings(features) {
     const entry = { item, order: order++, colours: coloursFor(plan, isHouse), packed: null };
     if (isHouse) {
       houseInfo = { ring: plan.ring, ground: plan.ground, roof: plan.ridge, centroid: ringCentroid(plan.ring),
-                    id: f.id, shape: plan.fallback ? null : f.roof_shape };
+                    id: f.id, shape: plan.fallback ? null : f.roof_shape, roofColour: plan.roofColour };
       houseEntry = entry;
     } else {
       pending.push(entry);
@@ -710,20 +760,23 @@ export function buildBuildings(features) {
     const start = performance.now();
     let next = 0;
     const note = (ms) => { timing.slices++; timing.sliceMs.push(ms); timing.longestSliceMs = Math.max(timing.longestSliceMs, ms); };
-    // the last step: one swap of the whole geometry, and the walls lowered meanwhile
+    // the last steps, each as short as a slice: order and allocate, copy the vertices, write
+    // the index, swap the whole geometry in at once (the walls lowered meanwhile fixed up),
+    // and put the buildings in the shadow focus first
     let staged = null;
-    const stage = () => {
+    const step = (fn) => () => {
       if (disposed) { resolve(false); return; }
       const s0 = performance.now();
-      staged = others.stage(pending);
+      const then = fn(s0 + SLICE.ms);
       const ms = performance.now() - s0;
-      timing.swapMs = ms;
+      timing.swapMs = Math.max(timing.swapMs, ms);
       note(ms);
-      setTimeout(swap, 0);
+      if (then) setTimeout(then, 0);
     };
-    const swap = () => {
-      if (disposed) { resolve(false); return; }
-      const s0 = performance.now();
+    const stage = step(() => { staged = others.stage(pending); return copy; });
+    const copy = step((until) => (others.copy(staged, until) ? index : copy));
+    const index = step((until) => (others.index(staged, until) ? swap : index));
+    const swap = step(() => {
       others.finish(staged);
       staged = null;
       const geo = others.mesh.geometry, P = geo.attributes.position.array, U = geo.attributes.uv.array;
@@ -738,13 +791,14 @@ export function buildBuildings(features) {
         geo.attributes.uv.needsUpdate = true;
         BuildingMesh.bounds(geo, pending.map((e) => ({ lo: [e.packed.lo[0], Math.min(e.packed.lo[1], e.item.bottom), e.packed.lo[2]], hi: e.packed.hi })));
       }
+      return focus;
+    });
+    const focus = step(() => {
       others.focus(lastRect);
-      const ms = performance.now() - s0;
-      timing.swapMs = Math.max(timing.swapMs, ms);
-      note(ms);
       timing.totalMs = performance.now() - start;
       resolve(true);
-    };
+      return null;
+    });
     const slice = () => {
       if (disposed) { resolve(false); return; }
       const s0 = performance.now();
@@ -799,7 +853,7 @@ export function buildBuildings(features) {
       const it = byId.get(id);
       if (!it) return null;
       const m = meshBuilding(it.plan.prep, it.bottom, meshOptions(it.plan, it.house, opts));
-      return { pos: m.pos, uv: m.uv, idx: m.idx, groups: m.groups, wallBottom: m.wallBottom };
+      return { pos: m.pos, uv: m.uv, idx: m.idx, groups: m.groups, tones: m.tones, wallBottom: m.wallBottom };
     },
     setShadowFocus(rect) {
       lastRect = rect || null;

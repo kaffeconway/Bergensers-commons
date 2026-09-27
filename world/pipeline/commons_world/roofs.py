@@ -39,6 +39,11 @@ ridge bearing phi and v the distance across it:
    or regrown outline that would reach into another building's traced ring, or
    meet another's drawn outline in the gap between them (the later building of
    the two), is refused, and the building keeps its own traced ring.
+8. Canopy taken for a roof (drop_canopy): a building other than the house that
+   fits no model, and fewer than a quarter of whose cells lie on a plane (some
+   3 x 3 window holding the cell fits one to 0.10 m), is tree crowns. It is cut
+   down to the planar part at its register point if that part fits a roof, and
+   otherwise not drawn.
 
 Every search is on a fixed grid with first-found tie-breaking, and every
 output is rounded, so a rebuild writes the same bytes. No network code.
@@ -72,6 +77,15 @@ STRAIGHTEN_OTHERS = True
 CLEAR_OF_NEIGHBOURS = True
 # Set False to write no roof_shape at all (the file is then as before this module).
 FIT = True
+# Canopy taken for a roof (Joseph's answer P2): draw no building where the surface is rough
+# like tree crowns and no roof fits; cut it down to its roof part where it has one.
+DROP_CANOPY = True
+CANOPY_REASONS = ("no model fits", "implausible")
+CANOPY_PATCH_RMS_M = 0.10   # a cell on a plane: some 3 x 3 window holding it fits one this well
+CANOPY_PLANAR_SHARE = 0.25  # fewer of a footprint's cells on a plane than this: canopy
+CANOPY_DROPPED = "rough like tree crowns, no roof fits, no roof part at its register point"
+CANOPY_PART_UNFIT = "rough like tree crowns, no roof fits, and its roof part fits none either"
+CANOPY_TRIMMED = "rough like tree crowns around a roof part: only the part is drawn"
 
 MODELS = ("flat", "shed", "gable", "hip", "split", "none")
 PART_MODELS = ("flat", "shed", "gable", "hip")
@@ -1028,12 +1042,42 @@ def _drawn(shape, ring_poly):
     return unary_union([_poly_xz(part["ring"]) for part in shape["parts"]])
 
 
+class _Crop:
+    """The cells around one building, as fit_building wants them: heights `d` and `t`,
+    labels `lab`, the closed planar mask `closed`, the 3 x 3 plane RMS `rms`, the cell
+    centres' local (x east, n north) `X`, `N`, the window in the grid (`rows`, `cols`),
+    and `near`, a box around it in (x, north)."""
+
+    def __init__(self, bounds, dom, dtm, labels, grid, origin):
+        oe, on = origin
+        minx, miny, maxx, maxy = bounds
+        q0 = max(int(math.floor(minx - grid.west)) - CROP_MARGIN, 0)
+        q1 = min(int(math.ceil(maxx - grid.west)) + CROP_MARGIN, dom.shape[1])
+        r0 = max(int(math.floor(grid.north - maxy)) - CROP_MARGIN, 0)
+        r1 = min(int(math.ceil(grid.north - miny)) + CROP_MARGIN, dom.shape[0])
+        self.rows, self.cols = slice(r0, r1), slice(q0, q1)
+        self.d, self.t, self.lab = dom[r0:r1, q0:q1], dtm[r0:r1, q0:q1], labels[r0:r1, q0:q1]
+        high = np.isfinite(self.d - self.t) & ((self.d - self.t) > buildingslib.MIN_HEIGHT_M)
+        self.rms = buildingslib.plane_rms(self.d)
+        planar = high & (self.rms < buildingslib.PLANE_RMS_M)
+        self.closed = ndimage.binary_closing(planar, structure=np.ones((3, 3), dtype=bool)) & high
+        xs = grid.west + np.arange(q0, q1) + 0.5 - oe
+        ns = grid.north - np.arange(r0, r1) - 0.5 - on
+        self.X, self.N = np.meshgrid(xs, ns)
+        self.near = box(xs[0] - 1, ns[-1] - 1, xs[-1] + 1, ns[0] + 1)
+        self.transform = Affine(grid.cell, 0.0, grid.west + q0 * grid.cell, 0.0, -grid.cell,
+                                grid.north - r0 * grid.cell)
+
+
+def _crop(bounds, dom, dtm, labels, grid, origin):
+    return _Crop(bounds, dom, dtm, labels, grid, origin)
+
+
 def fit_all(found, dom, dtm, grid, labels, origin, details=None):
     """({label: roof_shape}, stats) for every building in `found`.
 
     `details`, when a dict, receives {label: what the fit found} for reports."""
     t0 = time.perf_counter()
-    oe, on = origin
     dom = np.asarray(dom, dtype=np.float64)
     dtm = np.asarray(dtm, dtype=np.float64)
     order = sorted(found, key=lambda b: b.label)
@@ -1043,23 +1087,11 @@ def fit_all(found, dom, dtm, grid, labels, origin, details=None):
 
     def one(i, traced=False):
         b = order[i]
-        minx, miny, maxx, maxy = b.raw.bounds
-        q0 = max(int(math.floor(minx - grid.west)) - CROP_MARGIN, 0)
-        q1 = min(int(math.ceil(maxx - grid.west)) + CROP_MARGIN, dom.shape[1])
-        r0 = max(int(math.floor(grid.north - maxy)) - CROP_MARGIN, 0)
-        r1 = min(int(math.ceil(grid.north - miny)) + CROP_MARGIN, dom.shape[0])
-        d, t, lab = dom[r0:r1, q0:q1], dtm[r0:r1, q0:q1], labels[r0:r1, q0:q1]
-        high = np.isfinite(d - t) & ((d - t) > buildingslib.MIN_HEIGHT_M)
-        planar = high & (buildingslib.plane_rms(d) < buildingslib.PLANE_RMS_M)
-        closed = ndimage.binary_closing(planar, structure=np.ones((3, 3), dtype=bool)) & high
-        comp = lab == b.label
-        xs = grid.west + np.arange(q0, q1) + 0.5 - oe
-        ns = grid.north - np.arange(r0, r1) - 0.5 - on
-        X, N = np.meshgrid(xs, ns)
-        near = box(xs[0] - 1, ns[-1] - 1, xs[-1] + 1, ns[0] + 1)
-        neighbours = [polys[j] for j in sorted(int(j) for j in tree.query(near)) if j != i]
-        return fit_building(X, N, d, t, comp, comp & closed, (lab > 0) & ~comp, rings[i],
-                            house=bool(b.house), neighbours=neighbours, traced=traced)
+        c = _crop(b.raw.bounds, dom, dtm, labels, grid, origin)
+        comp = c.lab == b.label
+        neighbours = [polys[j] for j in sorted(int(j) for j in tree.query(c.near)) if j != i]
+        return fit_building(c.X, c.N, c.d, c.t, comp, comp & c.closed, (c.lab > 0) & ~comp,
+                            rings[i], house=bool(b.house), neighbours=neighbours, traced=traced)
 
     fits = [one(i) for i in range(len(order))]
     if CLEAR_OF_NEIGHBOURS:
@@ -1097,3 +1129,139 @@ def roof_stats(shapes, seconds):
             "fallback_reasons": dict(sorted(reasons.items())),
             "median_rms": round(float(np.median(rms)), 2) if rms else None,
             "fit_seconds": round(seconds, 1)}
+
+
+# -- canopy taken for a roof (Joseph's answer P2) -------------------------------------
+
+def planar_cells(rms):
+    """Cells that lie on a plane: some 3 x 3 window holding the cell fits a plane to
+    within CANOPY_PATCH_RMS_M (rms: the 3 x 3 plane RMS centred on each cell). A ridge
+    or eave cell of a roof passes through the face beside it; a tree crown's cells do not."""
+    return ndimage.minimum_filter(rms, size=3, mode="nearest") < CANOPY_PATCH_RMS_M
+
+
+def _roof_part(comp, flat, points, transform):
+    """The cells of `comp` kept when it is cut down to a roof part, or None.
+
+    The part is the planar cells, closed 3 x 3 and labelled as the segmentation does,
+    in pieces of at least MIN_AREA_M2; the one a register point anchors to (inside it
+    first, then the nearest within ANCHOR_M) is kept, grown by one cell within comp to
+    put back its eaves."""
+    cell = abs(transform.a)
+    part = ndimage.binary_closing(flat & comp, structure=np.ones((3, 3), dtype=bool)) & comp
+    lab, count = ndimage.label(part, structure=buildingslib._CROSS)
+    if count == 0:
+        return None
+    areas = np.bincount(lab.ravel()) * cell * cell
+    polys = buildingslib.component_polygons(np.where(areas[lab] >= buildingslib.MIN_AREA_M2,
+                                                     lab, 0), transform)
+    best = None
+    for value in sorted(polys):
+        poly = polys[value]
+        for p in points:
+            here = Point(p.e, p.n)
+            dist = poly.distance(here)
+            if dist > buildingslib.ANCHOR_M:
+                continue
+            rank = (not poly.contains(here), round(dist, 6), value)
+            if best is None or rank < best[0]:
+                best = (rank, value)
+    if best is None:
+        return None
+    grown = ndimage.binary_dilation(lab == best[1], structure=np.ones((3, 3), dtype=bool))
+    return grown & comp
+
+
+def drop_canopy(found, shapes, dom, dtm, grid, labels, origin, fit_seconds=None,
+                details=None):
+    """Draw no building where the surface is rough like tree crowns and no roof fits.
+
+    A building other than the house whose roof_shape is `none` for a reason in
+    CANOPY_REASONS, and fewer than CANOPY_PLANAR_SHARE of whose cells lie on a plane
+    (planar_cells), is canopy taken for a roof. It is cut down to the roof part at its
+    register point (_roof_part) if that part fits a roof, and otherwise dropped. The
+    house is never dropped or cut: if it looks like canopy it is kept and reported.
+
+    Changes `found` in place: a dropped building gets `dropped` (the reason); a cut one
+    gets `trimmed` (the reason), its polygon, raw outline, ground, roof and area from the
+    part, and `segmented` (its footprint as segmented, which still sets its id), and its
+    part's shape replaces its entry in `shapes`. Returns (labels with the dropped cells
+    cleared, the roof stats over the buildings still drawn, {"house_canopy_like": bool}).
+    `details`, when a dict, receives {label: what was measured} for reports."""
+    t0 = time.perf_counter()
+    dom = np.asarray(dom, dtype=np.float64)
+    dtm = np.asarray(dtm, dtype=np.float64)
+    labels = np.array(labels, copy=True)
+    order = sorted(found, key=lambda b: b.label)
+    house_canopy = False
+    candidates = []
+    for b in order:
+        shape = shapes.get(b.label)
+        if not (shape and shape.get("model") == "none" and shape.get("reason") in CANOPY_REASONS):
+            continue
+        c = _crop(b.raw.bounds, dom, dtm, labels, grid, origin)
+        comp = c.lab == b.label
+        flat = planar_cells(c.rms)
+        share = float(flat[comp].mean()) if comp.any() else 0.0
+        if details is not None:
+            details[b.label] = {"planar_share": share}
+        if share >= CANOPY_PLANAR_SHARE:
+            continue
+        if b.house:
+            house_canopy = True
+            continue
+        candidates.append((b, c, comp, flat))
+    if candidates:
+        cut = {id(b) for b, _, _, _ in candidates}
+        kept = [b for b in order if id(b) not in cut]
+        rings = [ring_local(b.polygon.exterior.coords, origin) for b in kept]
+        polys = [_poly_xz(ring) for ring in rings]
+        drawn = [_drawn(shapes[b.label], polys[i]) if b.label in shapes else polys[i]
+                 for i, b in enumerate(kept)]
+        tree = STRtree(polys) if polys else None
+    for b, c, comp, flat in candidates:
+        part = _roof_part(comp, flat, b.points, c.transform)
+        shape = None
+        if part is not None:
+            raw = buildingslib.component_polygons(part.astype(np.int32), c.transform)[1]
+            polygon = buildingslib.footprint(raw)
+            ring = ring_local(polygon.exterior.coords, origin)
+            near = [j for j in sorted(int(j) for j in tree.query(c.near))] if tree else []
+            other = (c.lab > 0) & ~comp
+            args = (c.X, c.N, c.d, c.t, part, part & c.closed, other, ring)
+            shape, _ = fit_building(*args, neighbours=[polys[j] for j in near])
+            if shape["model"] != "none":
+                mine = _drawn(shape, _poly_xz(ring))
+                if any(mine.intersection(drawn[j]).area >
+                       _poly_xz(ring).intersection(polys[j]).area + 1e-6 for j in near):
+                    shape, _ = fit_building(*args, neighbours=[polys[j] for j in near],
+                                            traced=True)
+        window = labels[c.rows, c.cols]
+        if shape is None or shape["model"] == "none":
+            b.dropped = CANOPY_DROPPED if part is None else CANOPY_PART_UNFIT
+            window[comp] = 0
+            shapes.pop(b.label, None)
+            continue
+        b.trimmed = CANOPY_TRIMMED
+        b.segmented = b.polygon
+        b.raw, b.polygon = raw, polygon
+        b.ground = float(np.median(c.t[part]))
+        b.roof = float(np.percentile(c.d[part], 90))
+        b.area = float(part.sum() * grid.cell * grid.cell)
+        window[comp & ~part] = 0
+        shapes[b.label] = shape
+    seconds = (fit_seconds or 0.0) + time.perf_counter() - t0
+    stats = roof_stats([shapes[b.label] for b in order if not b.dropped and b.label in shapes],
+                       seconds)
+    return labels, stats, {"house_canopy_like": house_canopy}
+
+
+def canopy_stats(found, summary):
+    """manifest stats.map.buildings.canopy: the ids dropped or cut down, with the reason
+    (never a position), and whether the house looked like canopy. Run after
+    buildings.buildings_record has numbered the buildings."""
+    def rows(attr):
+        return [{"id": b.id, "reason": getattr(b, attr)}
+                for b in sorted(found, key=lambda b: b.id) if getattr(b, attr)]
+    return {"dropped": rows("dropped"), "trimmed": rows("trimmed"),
+            "house_canopy_like": bool(summary.get("house_canopy_like"))}
