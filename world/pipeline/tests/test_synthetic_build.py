@@ -122,7 +122,9 @@ def class_at(world, world_manifest, level_name, x, n):
 
 # (level, local x, local n, expected class) at points chosen well inside each feature.
 CLASS_POINTS = [
-    ("h1", 520, 650, classes.FOREST),
+    ("h1", 922, 320, classes.FOREST),          # the dense stand
+    ("h1", 945, 300, classes.OPEN),            # its clearing: forest only where trees stand
+    ("h1", 900, 300, classes.BUILDING),        # the cabin in its yard
     ("h1", -335, -700, classes.FARMLAND),
     ("h1", 750, -250, classes.BOG),
     ("h1", 900, -800, classes.LAKE),
@@ -142,6 +144,7 @@ CLASS_POINTS = [
     ("h5", 900, -800, classes.LAKE),           # the bridge is not drawn over the lake
     ("h5", 2600, 1800, classes.ROCK),
     ("h5", 5, -8, classes.BUILT_UP),           # no footprints below h1
+    ("h5", 945, 300, classes.FOREST),          # the forest correction is h1 only
     ("h20", 5000, -1400, classes.ROAD),        # a county road (F)
     ("h20", 4000, 6000, classes.ROAD),         # a European road (E)
     ("h20", 110, 500, classes.OPEN),           # municipal roads are not drawn at h20
@@ -151,6 +154,33 @@ CLASS_POINTS = [
 @pytest.mark.parametrize("level,x,n,expected", CLASS_POINTS)
 def test_class_band_at_known_points(world, world_manifest, level, x, n, expected):
     assert class_at(world, world_manifest, level, x, n) == expected
+
+
+def test_forest_only_where_trees_stand(world, world_manifest):
+    record = world_manifest["stats"]["map"]["classes"]["h1"]
+    stats = record["forest_correction"]
+    assert (stats["canopy_min_m"], stats["fringe_m"], stats["min_open_m2"]) == (3.0, 2.0, 25.0)
+    assert stats["surface_hole_cells"] == 0
+    # The two scattered patches mostly open (their trees stand far apart), the stand does not.
+    assert stats["forest_cells"] - stats["forest_to_open"] == record["class_cells"]["1"]
+    assert stats["forest_to_open"] > 0.8 * stats["forest_cells"]
+    for level in ("h5", "h20"):
+        assert "forest_correction" not in world_manifest["stats"]["map"]["classes"][level]
+    # Around the cabin: 1 m out from each wall is open land, not forest kept by its roof.
+    x, n, width, depth, angle = synthetic.STAND_CABIN[:5]
+    a = math.radians(angle)
+    along, across = (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+    for (ux, un), half in ((along, width / 2.0), (across, depth / 2.0)):
+        for sign in (1.0, -1.0):
+            px, pn = x + sign * (half + 1.0) * ux, n + sign * (half + 1.0) * un
+            assert class_at(world, world_manifest, "h1", px, pn) == classes.OPEN, (px, pn)
+    # Inside the stand, even between trees, is forest; the clearing's middle is open land.
+    cx, cn, rx, rn = synthetic.STAND
+    for px in np.arange(cx - 8.0, cx + 8.5, 1.0):
+        assert class_at(world, world_manifest, "h1", px, cn + 20.0) == classes.FOREST, px
+    clear_x, clear_n, clear_r = synthetic.STAND_CLEARING
+    for dx in (-4.0, 0.0, 4.0):
+        assert class_at(world, world_manifest, "h1", clear_x + dx, clear_n) == classes.OPEN
 
 
 def test_buildings_file(world, world_manifest):
@@ -174,7 +204,8 @@ def test_buildings_file(world, world_manifest):
     stats = world_manifest["stats"]["map"]["buildings"]
     assert stats["register_points_without_roof"] == 1        # the demolished one
     assert stats["house"]["house"] is True and stats["house"]["id"] == houses[0]["id"]
-    # ring, ground and roof are exactly what they were before roofs were fitted
+    # ring, ground and roof are exactly what they were before roofs were fitted (and
+    # before the forest stand grew round one of the cabins)
     before = json.dumps([[f["id"], f["ring"], f["ground"], f["roof"]] for f in features],
                         sort_keys=True, separators=(",", ":"))
     assert hashlib.sha256(before.encode("ascii")).hexdigest() == \
@@ -209,7 +240,8 @@ def test_buildings_file(world, world_manifest):
 
 def test_trees_file(world):
     t = trees.decode((world / "trees.bin.gz").read_bytes())
-    assert 280 <= t["count"] <= synthetic.TREE_TARGET
+    stand = len(synthetic.stand_trees())
+    assert 280 + stand // 2 <= t["count"] <= synthetic.TREE_TARGET + stand
     keys = list(zip(t["records"]["z"].tolist(), t["records"]["x"].tolist()))
     assert keys == sorted(keys)
     assert np.all(np.hypot(t["x"], t["z"]) <= 1500)
@@ -328,8 +360,8 @@ def test_registered_step_output_lands_in_the_manifest(tmp_path):
         ctx.add_credit("Test credit \u00e5")
     pipeline.register("extra", extra, after="terrain")
     assert pipeline.names() == ["synthetic", "plot", "terrain_fetch", "synthetic_map", "classes",
-                                "buildings", "trees", "places", "map_stats", "terrain", "extra",
-                                "listing", "manifest"]
+                                "buildings", "forest", "trees", "places", "map_stats", "terrain",
+                                "extra", "listing", "manifest"]
     folder = synthetic.build_synthetic(tmp_path / "w", levels=SMALL_LEVELS[:1], pipeline=pipeline)
     m = json.loads((folder / "manifest.json").read_text(encoding="ascii"))
     assert m["files"]["extra"]["file"] == "extra.json"

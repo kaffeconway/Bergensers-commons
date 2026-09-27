@@ -18,7 +18,11 @@ it are functions in this file. No network is used and no real data is read.
   over the lake, one in a tunnel), a footway, a path and a trail; ten
   buildings (eight with roofs and register points, one roof with no point,
   one point with no roof), the house among them inside the parcel; a few
-  hundred trees in two forest patches; and named hills with spot heights.
+  hundred trees scattered in two forest patches; a dense stand in a forest
+  patch of its own, grown round the yard of one of the cabins and with a
+  clearing, so the class band's forest correction (commons_world.classes) has
+  a stand to keep and two treeless places to open; and named hills with spot
+  heights.
 
 Local coordinates here are x east and n north, in metres from the origin.
 (FORMAT.md's viewer frame uses z = -n.)
@@ -251,6 +255,21 @@ TREE_HEIGHT_M = (6.0, 20.0)
 TREE_CROWN_M = (1.5, 3.5)   # half-height crown radius
 CANOPY_ROUGHNESS_M = 0.5   # noise on crowns: real 1 m canopy is rough, roofs are not
 
+# A dense stand in a forest polygon of its own, for the forest correction: its crowns
+# touch, so it stays forest; a clearing and the yard round a registered cabin (one of
+# BUILDINGS, unchanged) hold no tree, so they open, and the cabin's roof never keeps
+# forest round it. The stand's trees have their own random generator and are drawn
+# last, so everything else in the world is as it was without them.
+STAND_CABIN = BUILDINGS[7]               # "another cabin", in the yard
+STAND = (922.0, 300.0, 45.0, 30.0)       # (centre x, centre n, radius x, radius n)
+STAND_CLEARING = (945.0, 300.0, 12.0)    # (x, n, radius): no tree stands in it
+STAND_YARD_M = 9.0                       # no tree this close to the cabin's walls
+STAND_SPACING_M = 6.0                    # a grid of trees, each moved up to STAND_JITTER_M
+STAND_JITTER_M = 1.0
+STAND_HEIGHT_M = (9.0, 16.0)
+STAND_CROWN_M = (2.5, 3.5)
+STAND_SEED = TREE_SEED + 2
+
 # (name, register type, x, n): names at hills, a little off their tops.
 PLACE_NAMES = (
     ("Synthetic Fjell", "Fjell", 2612.0, 1790.0),
@@ -290,7 +309,7 @@ def lake_polygon(segments=720):
 def synthetic_areas(origin_en):
     """Land-cover, water and sea polygons (n50.Area) in grid coordinates."""
     local = []
-    for cx, cn, rx, rn in FOREST_PATCHES:
+    for cx, cn, rx, rn in FOREST_PATCHES + (STAND,):
         local.append((FOREST, "landcover", ellipse(cx, cn, rx, rn), "Skog"))
     for cx, cn, rx, rn in BOG_PATCHES:
         local.append((BOG, "landcover", ellipse(cx, cn, rx, rn), "Myr"))
@@ -356,16 +375,35 @@ def synthetic_trees(origin_en):
     return trees
 
 
-def surface_mosaic(level, chunkset, origin_en):
-    """(LevelGrid, DOM mosaic): the terrain plus roofs and tree crowns, on the h1 grid."""
+def stand_trees():
+    """[(x, n, height, crown)] in local metres: the stand's grid of trees, from its own seed."""
+    rng = np.random.default_rng(STAND_SEED)
+    cx, cn, rx, rn = STAND
+    inside = prep(ellipse(cx, cn, rx - 1.0, rn - 1.0))
+    yard = prep(building_footprint(STAND_CABIN).buffer(STAND_YARD_M))
+    clear_x, clear_n, clear_r = STAND_CLEARING
+    trees = []
+    for n in np.arange(cn - rn, cn + rn + 1e-6, STAND_SPACING_M):
+        for x in np.arange(cx - rx, cx + rx + 1e-6, STAND_SPACING_M):
+            dx, dn = rng.uniform(-STAND_JITTER_M, STAND_JITTER_M, 2)
+            height = float(rng.uniform(*STAND_HEIGHT_M))
+            crown = float(rng.uniform(*STAND_CROWN_M))
+            x_, n_ = float(x + dx), float(n + dn)
+            here = Point(x_, n_)
+            if not inside.contains(here) or yard.contains(here):
+                continue
+            if math.hypot(x_ - clear_x, n_ - clear_n) < clear_r:
+                continue
+            trees.append((round(x_, 2), round(n_, 2), round(height, 2), round(crown, 2)))
+    return trees
+
+
+def _draw_roofs(specs, dom, dtm, lgrid, origin_en, rng):
+    """Raise `dom` over each building of `specs` that has a roof: eaves, ridge and 2 cm noise."""
     from rasterio.features import rasterize
 
-    lgrid = LevelGrid(level, list(chunkset))
-    dtm = lgrid.assemble(chunkset).astype(np.float64)
-    dom = dtm.copy()
-    rng = np.random.default_rng(TREE_SEED + 1)
     east, north = lgrid.centres()
-    for spec in BUILDINGS:
+    for spec in specs:
         if not spec[9]:
             continue
         x, n, width, depth, angle, eave, ridge = spec[:7]
@@ -382,20 +420,39 @@ def surface_mosaic(level, chunkset, origin_en):
         base = float(dtm[rows, cols].max())
         rise = ridge * np.clip(1.0 - np.abs(across) / (depth / 2.0), 0.0, 1.0)
         dom[rows, cols] = base + eave + rise + rng.normal(0.0, 0.02, len(rows))
+
+
+def _canopy(trees, lgrid, origin_en, rng):
+    """Crown heights above the ground on the grid, roughened where they stand above 0.5 m."""
+    east, north = lgrid.centres()
     canopy = np.zeros(lgrid.shape, dtype=np.float64)
-    for x, n, height, crown in synthetic_trees(origin_en):
+    for x, n, height, crown in trees:
         e, nn = origin_en[0] + x, origin_en[1] + n
         reach = crown * math.sqrt(2.0)
         r0, q0 = lgrid.rowcol(e - reach, nn + reach)
         r1, q1 = lgrid.rowcol(e + reach, nn - reach)
         r0, q0 = max(int(r0), 0), max(int(q0), 0)
         r1, q1 = min(int(r1) + 1, lgrid.height), min(int(q1) + 1, lgrid.width)
+        if r0 >= r1 or q0 >= q1:
+            continue                          # outside this (smaller) h1 grid
         d = np.hypot(east[None, q0:q1] - e, north[r0:r1, None] - nn)
         z = np.where(d < reach, height * (1.0 - 0.5 * (d / crown) ** 2), 0.0)
         canopy[r0:r1, q0:q1] = np.maximum(canopy[r0:r1, q0:q1], z)
     rough = canopy > 0.5
     canopy[rough] += rng.normal(0.0, CANOPY_ROUGHNESS_M, int(rough.sum()))
-    dom = np.maximum(dom, dtm + canopy)
+    return canopy
+
+
+def surface_mosaic(level, chunkset, origin_en):
+    """(LevelGrid, DOM mosaic): the terrain plus roofs and tree crowns, on the h1 grid."""
+    lgrid = LevelGrid(level, list(chunkset))
+    dtm = lgrid.assemble(chunkset).astype(np.float64)
+    dom = dtm.copy()
+    rng = np.random.default_rng(TREE_SEED + 1)
+    _draw_roofs(BUILDINGS, dom, dtm, lgrid, origin_en, rng)
+    dom = np.maximum(dom, dtm + _canopy(synthetic_trees(origin_en), lgrid, origin_en, rng))
+    stand_rng = np.random.default_rng(STAND_SEED + 1)     # the stand, drawn last
+    dom = np.maximum(dom, dtm + _canopy(stand_trees(), lgrid, origin_en, stand_rng))
     return lgrid, dom
 
 

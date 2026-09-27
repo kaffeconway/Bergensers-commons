@@ -121,7 +121,8 @@ SOURCE_NHM_DOM = {
     "licence_url": CC_BY_4_URL,
     "endpoint": "https://hoydedata.no/arcgis/rest/services/NHM_DOM_25832/ImageServer/exportImage",
     "modified": "read at native 1 m (nearest neighbour) within the h1 radius; used for "
-                "building footprints, roof heights and tree tops; roof planes are fitted to it "
+                "building footprints, roof heights and tree tops, and to keep forest only where "
+                "trees stand; roof planes are fitted to it "
                 "and written into buildings.json; not written into the world as a raster.",
 }
 
@@ -149,7 +150,8 @@ SOURCE_N50 = {
     "endpoint": "https://nedlasting.geonorge.no/api/order",
     "dataset_uuid": DATASETS["n50"]["uuid"],
     "modified": "land-cover polygons, lakes, rivers, paths and tracks rasterised into the "
-                "height chunks' class band; other N50 content not used.",
+                "height chunks' class band; within the h1 radius, land cover corrected with the "
+                "surface model (forest only where trees stand); other N50 content not used.",
 }
 SOURCE_NVDB = {
     "name": "NVDB Vegnett Pluss (road, footway and cycleway centre lines), per municipality",
@@ -191,6 +193,7 @@ SOURCE_STEDSNAVN = {
 CREDIT_KARTVERKET_MAP = (
     "\u00a9 Kartverket (https://www.kartverket.no), CC BY 4.0: N50 Kartdata, NVDB Vegnett "
     "Pluss, Turrutebasen, Matrikkelen building points and the surface model. Modified: land "
-    "cover, water, roads and paths rasterised into classes; building footprints and trees "
-    "derived from the surface model."
+    "cover, water, roads and paths rasterised into classes, and land cover corrected with the "
+    "surface model (forest only where trees stand); building footprints and trees derived "
+    "from the surface model."
 )

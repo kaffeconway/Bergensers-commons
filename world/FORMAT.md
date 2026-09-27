@@ -127,7 +127,26 @@ order, raw (gzip compresses them).
   sample could carry "forest".
 - **Precedence when rasterising**, lowest first: sea, then
   land-cover polygons, then lakes and rivers, then roads and paths, then building
-  footprints.
+  footprints, then (`h1` only) the forest correction below.
+- **Forest only where trees stand (`h1`).** N50 draws its forest for 1:50 000, so a lawn,
+  a garden or a clearing inside a forest polygon would come out as forest. At `h1`, once
+  the footprints are painted, a forest sample becomes open land (0) unless the 1 m surface
+  model shows a tree within 2 m of it:
+  - a tree is a sample whose surface stands at least 3 m above the terrain, outside every
+    building footprint grown by one sample, so a roof never counts as a tree;
+  - a hole in the surface model (no value, or more than 1 m below the terrain) counts as
+    a tree, since missing data is not evidence of open ground;
+  - a patch of samples with no tree within 2 m (joined by edges or corners) that covers
+    less than 25 m2 stays forest, so a gap inside a stand does not speckle (a roughly
+    square gap up to about 8 m across stays forest; from 9 m it opens), unless the patch
+    touches land of another class (anything but forest, lake, river and sea): a sliver
+    between a road and a footway is the open ground beside it, not a gap.
+
+  Only forest changes, and only to open land; nothing is ever turned into forest. `h5`
+  and `h20` keep N50's classes: the surface model is read at `h1` only, and within its
+  radius only, so correcting a coarser level would leave a seam in it at that radius.
+  What the correction did is in `manifest.json` under
+  `stats.map.classes.h1.forest_correction`.
 - **What each level carries:**
   - `h1`: every road, footway and path, buffered to a nominal width (road 6 m, footway
     3 m, path 2 m).
@@ -364,6 +383,13 @@ Notes:
 - Chunk keys are `"<i>_<j>"`.
 - `crs.lat_deg`, `crs.lon_deg` and `crs.time_zone` are described in section 1. Each is
   optional, and checked only when present.
+- `stats.map.classes.<level>` records how each level's class band was made, with
+  `class_cells` (samples per code), and at `h1` `forest_correction` (section 3):
+  `forest_cells` (forest samples with a terrain height, before it),
+  `forest_to_open`, `open_patches` (of which `small_patches_opened_at_edges` were under
+  25 m2 but touched other land), `small_patches_kept` and `small_patch_cells_kept`,
+  `surface_hole_cells`, and the three constants `canopy_min_m`, `fringe_m` and
+  `min_open_m2`; or `{"skipped": "no surface model"}`.
 - `stats.map.buildings.roofs` summarises the roof fitting: `by_model`, `by_quality`,
   `fallback_reasons`, `median_rms` and `fit_seconds`. `fit_seconds` is `null` in the
   synthetic world and in a build under `SOURCE_DATE_EPOCH`, where a build promises the

@@ -3,13 +3,15 @@
 They run between "terrain_fetch" and "terrain", in this order, and read their
 inputs from ctx.map (a MapInputs):
 
-    classes -> buildings -> trees -> places -> map_stats
+    classes -> buildings -> forest -> trees -> places -> map_stats
 
 - classes: rasterises every level's class band (commons_world.classes) and
   sets ctx.class_source, so "terrain" writes each chunk with band 2;
 - buildings: footprints from the h1 surface model, anchored to register
   points, with roof planes fitted to the same model (commons_world.roofs),
   written to buildings.json.gz and painted into the h1 class band;
+- forest: in the h1 class band, a forest cell with no tree near it in the
+  surface model becomes open land (commons_world.classes.forest_correction);
 - trees: canopy tops within the h1 radius, written to trees.bin.gz. Building
   footprints and every roof candidate (registered or not), grown by a cell,
   and lake and sea cells are excluded;
@@ -120,6 +122,21 @@ def step_buildings(ctx):
     m.stats["buildings"] = stats
 
 
+def step_forest(ctx):
+    """Forest only where trees stand: correct the h1 class band from the surface model."""
+    m = inputs(ctx)
+    band = getattr(ctx, "class_band", None)
+    entry = band.get("h1") if band is not None else None
+    if entry is None:
+        return
+    if m.surface is None or not ctx.chunks.get("h1"):
+        entry.stats["forest_correction"] = {"skipped": "no surface model"}
+        return
+    dtm = entry.grid.assemble(ctx.chunks["h1"], dtype=np.float64)
+    dom = entry.grid.assemble(m.surface, dtype=np.float64)
+    band.correct_forest("h1", dtm, dom)
+
+
 def _tree_exclusion(ctx, surface):
     band = getattr(ctx, "class_band", None)
     entry = band.get("h1") if band is not None else None
@@ -190,6 +207,7 @@ def step_map_stats(ctx):
 SHARED_STEPS = (
     ("classes", step_classes),
     ("buildings", step_buildings),
+    ("forest", step_forest),
     ("trees", step_trees),
     ("places", step_places),
     ("map_stats", step_map_stats),

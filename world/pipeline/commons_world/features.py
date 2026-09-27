@@ -4,10 +4,10 @@ The command line imports this module for `build` (build.PLUGIN_MODULES), which
 registers these steps between "terrain_fetch" and "terrain":
 
     kommuner -> n50 -> roads -> trails -> building_points -> surface -> place_names
-             -> classes -> buildings -> trees -> places -> map_stats
+             -> classes -> buildings -> forest -> trees -> places -> map_stats
 
 The first seven fetch, through ctx.client only (host allowlist, robots.txt,
-rate limit, disk cache), and fill ctx.map; the last five are the shared steps
+rate limit, disk cache), and fill ctx.map; the last six are the shared steps
 of commons_world.mapsteps. No OpenStreetMap data is used.
 
 Requests, for a world with levels h1 / h5 / h20 (all cached for a rebuild):

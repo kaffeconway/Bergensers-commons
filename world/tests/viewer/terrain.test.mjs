@@ -454,8 +454,9 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
   // world/pipeline/tests/test_synthetic_build.py CLASS_POINTS, h1 only: (x east, n north, class).
   // Each is read at the sample centre that test picks (the west and north of two equidistant).
   const points = [
-    [520, 650, 1], [-335, -700, 3], [750, -250, 2], [900, -800, 4], [-1300, 0, 5], [-100, 100, 6], [1300, 200, 13],
-    [110, 500, 7], [122, 500, 8], [550, 800, 9], [1325, -850, 4], [5, -8, 12], [900, -1120, 7], [1100, 400, 0], [-680, 0, 0]
+    [922, 320, 1], [945, 300, 0], [900, 300, 12], [-335, -700, 3], [750, -250, 2], [900, -800, 4], [-1300, 0, 5],
+    [-100, 100, 6], [1300, 200, 13], [110, 500, 7], [122, 500, 8], [550, 800, 9], [1325, -850, 4], [5, -8, 12],
+    [900, -1120, 7], [1100, 400, 0], [-680, 0, 0]
   ];
   const got = await page.evaluate((pts) => pts.map(([x, n]) => window.__cw.internals.manager.materialAt(x - 0.5, -n - 0.5)), points);
   points.forEach(([x, n, cls], k) => {
@@ -492,7 +493,7 @@ test('land cover lands in the right place', { timeout: 180000 }, async () => {
       for (let k = 0; k < n * n; k++) for (let c = 0; c < 3; c++) m[c] += px[k * 4 + c] / (n * n);
       return m;
     };
-    const road = await patch(110 - 0.5, -500 - 0.5, 6, 160), forest = await patch(520 - 0.5, -650 - 0.5, 20, 360);
+    const road = await patch(110 - 0.5, -500 - 0.5, 6, 160), forest = await patch(922 - 0.5, -320 - 0.5, 20, 360);
     cw.camera.start();
     await cw.settle(300000);
     return { road, forest };

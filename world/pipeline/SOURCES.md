@@ -43,7 +43,8 @@ so the client refuses it like any other. A step that needs one adds it here, to
 **Consequence: no OpenStreetMap data is fetched.** Norway is built entirely from
 Kartverket's open data:
 - **roads, footways, paths:** NVDB Vegnett Pluss, updated monthly;
-- **land cover, water, coast:** N50 Kartdata;
+- **land cover, water, coast:** N50 Kartdata, with its forest corrected from the surface
+  model at 1 m (forest only where trees stand);
 - **buildings:** register points plus footprints segmented from the surface model, and roof
   planes fitted to it;
 - **trails:** Turrutebasen;
