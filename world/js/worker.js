@@ -280,7 +280,10 @@ function classMips(classes, W) {
  * row - 1, bit 7 row + 1 (a neighbour off the texture counts as the same class). The low
  * nibble is the class. The phone's border blend reads both from the one texel it already
  * fetches, so its one extra fetch can go to the nearest texel of another class
- * (terrainmat.js). A new array: the class band itself stays as decoded. */
+ * (terrainmat.js). A new array: the class band itself stays as decoded. The class must
+ * therefore fit the low nibble: FORMAT.md defines codes 0-13, the shader's palette keeps 14
+ * for slope rock, and a code of 16 or more would fold onto another class here, as it
+ * already does in classMips. */
 function classEdges(a, w) {
   var out = new Uint8Array(w * w);
   for (var y = 0; y < w; y++) {

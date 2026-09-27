@@ -678,7 +678,10 @@ export function createSun({ renderer, scene, camera, sky, lights, water, manifes
     const dh = relief(fx, fz, Rn);
     const half = Rn * sinE + 0.5 * dh * cosE + 5;
     // 60 m / sin e along the sun's ray: a caster up to 60 m above a receiver still lies behind
-    // the near plane (the design's aim; its 60 / tan e allowed only 60 cos e, ST33)
+    // the near plane (the design's aim; its 60 / tan e allowed only 60 cos e, ST33). Which
+    // casters are drawn into the map at all is the caster rects' choice (below): they sweep
+    // the disc 35 / tan e toward the sun, so at its sunward edge they admit casters up to
+    // about 35 m above the ground there. The depth range does not narrow them.
     const back = Math.min(base.back, 60 / sinE);
     L.set(state.dir[0], state.dir[1], state.dir[2]).normalize();
     if (L.y < Math.sin(1 * Math.PI / 180)) { L.y = Math.sin(1 * Math.PI / 180); L.normalize(); }

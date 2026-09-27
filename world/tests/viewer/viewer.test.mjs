@@ -23,7 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { HERE, WORLD, REPO, SYN, PYTHON, READY_MS, offenders, origin, newContext, openWorld, mainPage,
-         reencodeChunk } from './harness.mjs';
+         reencodeChunk, watch } from './harness.mjs';
 
 // Console warnings that mean GL refused what it was asked (as sun.test.mjs): SPEC 6.3 names
 // PCFSoftShadowMap and GL_INVALID, and Chromium words a refused call "WebGL: INVALID_...".
@@ -373,7 +373,7 @@ test('the canvas shows a focus ring for the keyboard only, inside its edge', { t
   // Own page: Chromium keeps the Tab starting point at the last element focused, even after
   // blur(), so on the shared page Tab would start after whichever button a test clicked.
   const ctx = await newContext();
-  const { page } = await openWorld(ctx);
+  const { page, log } = await openWorld(ctx);
   await page.keyboard.press('Tab');
   const k = await page.evaluate(() => {
     const a = document.activeElement, cs = getComputedStyle(a);
@@ -389,6 +389,7 @@ test('the canvas shows a focus ring for the keyboard only, inside its edge', { t
   const next = [];
   for (let i = 0; i < 4; i++) { await page.keyboard.press('Tab'); next.push(await page.evaluate(() => document.activeElement.id)); }
   assert.deepEqual(next, ['btn-specs', 'btn-mode', 'btn-help', 'btn-sun']);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   await page.close();
 });
 
@@ -672,18 +673,19 @@ test('an unknown format version is refused with a readable message', { timeout: 
     m.version = 99;
     await route.fulfill({ response: res, body: JSON.stringify(m), headers: { 'content-type': 'application/json' } });
   });
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(), log = watch(page);
   await page.goto(origin() + '/world/?w=out/synthetic/');
   await page.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page.locator('#error').innerText(), /version 99/);
-  const page2 = await ctx.newPage();
+  const page2 = await ctx.newPage(), log2 = watch(page2);
   await page2.goto(origin() + '/world/?w=../../etc/');
   await page2.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page2.locator('#error').innerText(), /not a folder inside world/);
-  const page3 = await ctx.newPage();
+  const page3 = await ctx.newPage(), log3 = watch(page3);
   await page3.goto(origin() + '/world/?w=out/no-such-world/');
   await page3.locator('#error').waitFor({ state: 'visible', timeout: 30000 });
   assert.match(await page3.locator('#error').innerText(), /no manifest\.json/);
+  for (const l of [log, log2, log3]) assert.deepEqual(glWarnings(l), [], 'GL warnings');
   await Promise.all([page.close(), page2.close(), page3.close()]);
 });
 
@@ -752,12 +754,13 @@ test('a chunk whose header disagrees with its manifest key is refused, not drawn
     l.chunks[a] = fb; l.chunks[b] = fa;          // two chunk files swapped between keys
     await route.fulfill({ response: res, body: JSON.stringify(m), headers: { 'content-type': 'application/json' } });
   });
-  const { page } = await openWorld(ctx);
+  const { page, log } = await openWorld(ctx);
   const r = await page.evaluate(() => ({ stats: window.__cw.stats(), errors: window.__cw.errors, status: document.getElementById('status').textContent }));
   assert.equal(r.stats.failed, 2, 'both chunks refused');
   assert.equal(r.errors.length, 2);
   for (const e of r.errors) assert.match(e, /header corner[EN]dm is -?\d+, the manifest key says -?\d+/);
   assert.match(r.status, /2 problems/);
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
   await page.close();
 });
 
@@ -1039,6 +1042,15 @@ test('leaving the page frees every geometry and texture before the renderer goes
   assert.deepEqual(r.errors, [], 'the handler recorded no error');
   assert.deepEqual(glWarnings(log), [], 'GL warnings while leaving');
   await page.close();
+});
+
+// The shared page once every test has used it (test 1 checks it first).
+test('the shared page logged no page errors, console errors or GL warnings', { timeout: READY_MS + 60000 }, async () => {
+  const { page, log } = await mainPage();
+  await page.evaluate(() => window.__cw.frame());
+  assert.deepEqual(log.errors, [], 'page errors');
+  assert.deepEqual(log.console, [], 'console errors');
+  assert.deepEqual(glWarnings(log), [], 'GL warnings');
 });
 
 test('no request ever left localhost', () => {

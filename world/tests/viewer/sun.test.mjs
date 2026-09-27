@@ -1062,8 +1062,10 @@ test('ST24 casters across the whole receiver disc cast', { timeout: READY_MS + 3
 
 // ST33 (S2-10): the near map's depth range keeps its design's promise, that objects up to
 // about 60 m above the receivers still cast. A caster is drawn into the map only if it lies
-// behind the near plane; seen from a receiver, a point H metres above it along the sun's ray
-// is H / sin e nearer the light. At the highest June sun, the receiver inside the unfaded map
+// behind the near plane (and, for trees and buildings, inside the caster rects, which sweep
+// the disc 35 / tan e toward the sun: a separate limit, which does not apply to this pillar,
+// a plain scene mesh); seen from a receiver, a point H metres above it along the sun's ray is H / sin e
+// nearer the light. At the highest June sun, the receiver inside the unfaded map
 // with the least room is found (clear ground, as the shader reads it), and a pillar whose top
 // stands 58 m above it on its sun ray must shade it. With the near plane 60 / tan e toward the
 // sun that point fell in front of it (it allows 60 cos e along the ray), so a caster standing

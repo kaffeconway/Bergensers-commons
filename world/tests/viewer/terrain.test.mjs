@@ -42,9 +42,66 @@ function horizonsAt(page, x, z, maxM, eye = null) {
     const distDrawn = new Float64Array(720), distRef = new Float64Array(720);
     const drawn = M.drawnHorizon(x, z, { surface: 'drawn', eyeY, maxM, dist: distDrawn });
     const ref = M.drawnHorizon(x, z, { surface: 'reference', eyeY, maxM, dist: distRef });
+    // where each ray's reference maximum lies: on h1 ground (the TIN's) or farther out
+    let onH1 = 0;
+    for (let k = 0; k < 720; k++) {
+      const g = (k * 0.5 + M.offset) * Math.PI / 180, d = distRef[k];
+      if (d > 0 && M.chunkAt('h1', x + Math.sin(g) * d, z - Math.cos(g) * d)) onH1++;
+    }
+    const cam = window.__cw.internals.camera, h = window.__cw.internals.renderer.domElement.clientHeight;
     return { drawn: Array.from(drawn), ref: Array.from(ref), distDrawn: Array.from(distDrawn), distRef: Array.from(distRef),
-             cam: t.cam, dy: t.cam[1] - eyeY, px: t.px, K: t.K, tmin: t.tmin, live: { px: M.px(), K: M.K, tmin: M.tin.tmin } };
+             cam: t.cam, dy: t.cam[1] - eyeY, px: t.px, K: t.K, tmin: t.tmin, live: { px: M.px(), K: M.K, tmin: M.tin.tmin },
+             pxScale: M.pxScale, force: M.force, viewK: 2 * Math.tan(cam.fov * Math.PI / 360) / Math.max(1, h), onH1 };
   }, { x, z, maxM, eye });
+}
+// The profiles' own px (SPEC T-2: 1 on a laptop, 2 on a phone). TT14's bound is px K at the px
+// the meshes were made at, so a loosened px would loosen the bound with the TIN: the heldCap
+// net (px x 1.25, up to x 4), tinForce, or a changed profile. The check pins it, and pins K
+// to the view's own (2 tan(fov / 2) / CSS height; the manager follows it within 2 %).
+const PROFILE_PX = { laptop: 1, phone: 2 };
+function assertPinned(r, name) {
+  assert.equal(r.force, null, name + ': no tinForce');
+  assert.equal(r.pxScale, 1, name + ': the heldCap net has not raised px');
+  assert.equal(r.px, PROFILE_PX[name], name + ': meshed at the profile\'s px');
+  assert.ok(Math.abs(r.K / r.viewK - 1) <= 0.02, name + ': meshed at the view\'s K: ' + r.K + ' against ' + r.viewK);
+}
+// TT14's comparison at (x, z): the camera stands there at eye height, every h1 chunk is
+// re-meshed for it, and each ray's difference is compared with its bound (horizonBound) at the
+// profile's px. With loosen > 1 the meshes are made at loosen times the profile's px
+// (tinForce) and still judged against the profile's bound: a check that cannot tell such a
+// TIN from the real one has no power at that point.
+async function tinHorizon(page, name, x, z, loosen = 1) {
+  const on = await page.evaluate(({ x, z, px }) => {
+    const M = window.__cw.internals.manager, g = M.surfaceAt(x, z);
+    M.tinForce(px === null ? null : { px });
+    window.__cw.camera.set({ mode: 'walk', x, z, y: g + 1.7, yaw: Math.PI, pitch: 0 });
+    return !!M.chunkAt('h1', x, z) && g > 0;
+  }, { x, z, px: loosen === 1 ? null : loosen * PROFILE_PX[name] });
+  assert.ok(on, name + ': (' + x + ', ' + z + ') is h1 land');
+  await settleHere(page);
+  const r = await horizonsAt(page, x, z, 11000);
+  assert.equal(r.drawn.length, 720);
+  assert.ok(Math.abs(r.cam[0] - x) < 1e-6 && Math.abs(r.cam[2] - z) < 1e-6, name + ': meshed for this eye: ' + JSON.stringify(r.cam));
+  assert.deepEqual({ px: r.px, K: r.K, tmin: r.tmin }, r.live, name + ': meshed at the live tolerance settings');
+  if (loosen === 1) assertPinned(r, name);
+  else assert.equal(r.px, loosen * PROFILE_PX[name], name + ': meshed at ' + loosen + ' times the profile\'s px');
+  const b = Object.assign({}, r, { px: PROFILE_PX[name] });
+  const near = b.tmin / (b.px * b.K);
+  let worst = 0, at = -1, share = 0, atShare = -1, nNear = 0;
+  for (let k = 0; k < 720; k++) {
+    const d = Math.abs(r.drawn[k] - r.ref[k]), e = horizonBound(b, k);
+    if (Math.min(r.distDrawn[k], r.distRef[k]) < near) nNear++;
+    if (d > worst) { worst = d; at = k; }
+    if (d / e > share) { share = d / e; atShare = k; }
+  }
+  const where = name + ' at (' + x + ', ' + z + ')' + (loosen === 1 ? '' : ', TIN at ' + loosen + ' x px');
+  const msg = where + ': px K ' + (b.px * b.K * 180 / Math.PI).toFixed(4) + ' deg; largest difference ' +
+    worst.toFixed(5) + ' deg at ray ' + at + ' (highest point ' + r.distDrawn[at] + ' m out); worst share of its bound ' +
+    share.toFixed(3) + ' at ray ' + atShare + '; rays decided nearer than ' + near.toFixed(1) + ' m: ' + nNear +
+    '; rays whose reference maximum is on h1 ground: ' + r.onH1;
+  const fail = where + ': ray ' + atShare + ': drawn ' + r.drawn[atShare] + ', reference ' + r.ref[atShare] +
+    ', bound ' + horizonBound(b, atShare) + ' (' + r.distDrawn[atShare] + ' m, ' + r.distRef[atShare] + ' m)';
+  return { share, worst, onH1: r.onH1, msg, fail, where };
 }
 // The distance from (x, z) to the world's farthest corner, from the manifest's squares (land
 // chunks and sea squares of every level).
@@ -1037,30 +1094,39 @@ test('the drawn horizon agrees with the world\'s own 1 m horizon', { timeout: RE
   const gp = facts.sun.garden_point;
   for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
     const { page } = await get();
-    await page.evaluate(({ x, z }) => {
-      const g = window.__cw.internals.manager.surfaceAt(x, z);
-      window.__cw.camera.set({ mode: 'walk', x, z, y: g + 1.7, yaw: Math.PI, pitch: 0 });
-    }, gp);
-    await settleHere(page);
-    const r = await horizonsAt(page, gp.x, gp.z, 11000);
-    assert.equal(r.drawn.length, 720);
-    assert.ok(Math.abs(r.cam[0] - gp.x) < 1e-6 && Math.abs(r.cam[2] - gp.z) < 1e-6, name + ': meshed for this eye: ' + JSON.stringify(r.cam));
-    assert.deepEqual({ px: r.px, K: r.K, tmin: r.tmin }, r.live, name + ': meshed at the live tolerance settings');
-    const near = r.tmin / (r.px * r.K);
-    let worst = 0, at = -1, share = 0, atShare = -1, nNear = 0;
-    for (let k = 0; k < 720; k++) {
-      const d = Math.abs(r.drawn[k] - r.ref[k]), b = horizonBound(r, k);
-      if (Math.min(r.distDrawn[k], r.distRef[k]) < near) nNear++;
-      if (d > worst) { worst = d; at = k; }
-      if (d / b > share) { share = d / b; atShare = k; }
-    }
-    t.diagnostic(name + ': px K ' + (r.px * r.K * 180 / Math.PI).toFixed(4) + ' deg; largest difference ' + worst.toFixed(5) +
-                 ' deg at ray ' + at + ' (highest point ' + r.distDrawn[at] + ' m out); worst share of its bound ' + share.toFixed(3) +
-                 ' at ray ' + atShare + '; rays decided nearer than ' + near.toFixed(1) + ' m: ' + nNear);
-    assert.ok(share <= 1, name + ': ray ' + atShare + ': drawn ' + r.drawn[atShare] + ', reference ' + r.ref[atShare] +
-              ', bound ' + horizonBound(r, atShare) + ' (' + r.distDrawn[atShare] + ' m, ' + r.distRef[atShare] + ' m)');
+    const r = await tinHorizon(page, name, gp.x, gp.z);
+    t.diagnostic(r.msg);
+    assert.ok(r.share <= 1, r.fail);
     await page.evaluate(() => window.__cw.camera.start());
     await settleHere(page);
+  }
+});
+
+// TT14 at the garden point (SPEC 8.3 #7) has little power on the synthetic world: its horizon
+// is decided on gentle ground, where even a TIN made at four times its tolerance draws within
+// the bound. These two points, on the flanks of the small synthetic hill west of the origin
+// (its top near x -350, z -320), have their horizons decided on steeper h1 ground within a few
+// hundred metres. The same per-ray check runs there, and the test shows that it has power at
+// each, on both tiers: a TIN made at four times the profile's px, judged against the profile's
+// bound, must fail it. (The phone's bound is nearly three times the laptop's, so a point that
+// gives the laptop that power need not give it to the phone; these two give it to both.)
+const TIN_POINTS = [[-480, -200], [-450, -450]];
+test('the drawn horizon keeps the TIN\'s promise on steeper h1 ground, where a looser TIN would not', { timeout: READY_MS + 900000 }, async (t) => {
+  for (const [name, get] of [['laptop', mainPage], ['phone', phonePage]]) {
+    const { page } = await get();
+    try {
+      for (const [x, z] of TIN_POINTS) {
+        const r = await tinHorizon(page, name, x, z);
+        t.diagnostic(r.msg);
+        assert.ok(r.share <= 1, r.fail);
+        const loose = await tinHorizon(page, name, x, z, 4);
+        t.diagnostic(loose.msg);
+        assert.ok(loose.share > 1, loose.where + ': a TIN at four times the tolerance passes too (worst share ' + loose.share + '), so the check has no power here');
+      }
+    } finally {
+      await page.evaluate(() => { window.__cw.internals.manager.tinForce(null); window.__cw.camera.start(); });
+      await settleHere(page);
+    }
   }
 });
 
@@ -1086,6 +1152,7 @@ test('the drawn horizon agrees with the measured one where the world decides it'
     }, gp);
     await settleHere(page);
     const r = await horizonsAt(page, gp.x, gp.z, maxM, 1.5);
+    assertPinned(r, name);
     let n = 0, worst = 0, at = -1, excess = -Infinity, atExcess = -1;
     for (let k = 0; k < 720; k++) {
       if (!(beyond[k] < measured[k] - 0.35)) continue;
@@ -1708,6 +1775,20 @@ test('the page installs the phone\'s class edge bits on every level, and none on
     } else {
       assert.deepEqual(r.highBits, [0, 0], 'laptop: no edge bits');
     }
+  }
+});
+
+// The shared pages once every test has used them. TT6 checks them early; the crease test, the
+// install test and the horizon tests run on them after it, and a GL warning there would
+// otherwise go unread.
+test('the shared pages logged no page errors, console errors or GL warnings', { timeout: READY_MS + 60000 }, async () => {
+  const pages = [['laptop', await mainPage()]];
+  if (phone) pages.push(['phone', phone]);
+  for (const [name, { page, log }] of pages) {
+    await page.evaluate(() => window.__cw.frame());
+    assert.deepEqual(log.errors, [], name + ': page errors');
+    assert.deepEqual(log.console, [], name + ': console errors');
+    assert.deepEqual(glWarnings(log), [], name + ': GL warnings');
   }
 });
 
