@@ -490,6 +490,14 @@ const subArea=p=>{if(!p)return "";
  return "";};
 /* Every pin anyone dropped, flattened: {i, who, rg, p}. Region names are run through
    rgNow so a renamed region groups with itself. */
+/* Map pins are switched off (31 Oct 2026, the organiser's decision: pick a region or a town
+   first; where inside it can come later). Off means not asked, not shown and not scored:
+   the region step has no picker, the review has no pin line, the results have no pins on
+   the map, no "Where exactly" and no pin discount in the Where score, and the shareable
+   image lists none. The share-code format is untouched and a pin already in somebody's code
+   is kept, not deleted - it simply is not shown - so switching this back on restores
+   everything as it was. Nothing else needs changing to turn them back on. */
+const PINS_ON=false;
 const allPins=list=>{const out=[];
  (list||[]).forEach((c,i)=>Object.entries(c.pn||{}).forEach(([rg,p])=>{
   if(p&&typeof p[0]==="number")out.push({i:i,rg:rgNow(rg),p:p});}));
@@ -1223,7 +1231,7 @@ const STEPS=[
    (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
      <label for="rgw"><b>Where were you thinking?</b></label>
      <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place"></div>`:"")+
-   (live.length?`<div class="grp">Whereabouts, more precisely</div>`+live.map(r=>pinPicker(r)).join(""):"");},
+   (PINS_ON&&live.length?`<div class="grp">Whereabouts, more precisely</div>`+live.map(r=>pinPicker(r)).join(""):"");},
  save:()=>{grabOwn();
   /* Retired picks are kept only until the person has actually chosen again. Once they
      have a live pick, the warning has served its purpose and the stale one goes. */
@@ -1594,12 +1602,12 @@ function review(){
   rvRow("What shape is it",1,labOf(STYLES,r.s))+
   rvRow("Gut feeling on where",9,picks.join(", "),
    picks.indexOf(OFFLIST)>=0?(String(r.rw||"").trim()?"You named: "+String(r.rw).trim():"You did not say where"):"")+
-  rvRow("Whereabouts, more precisely",9,
+  (!PINS_ON?"":rvRow("Whereabouts, more precisely",9,
    picks.length?picks.map(rg=>{const q=(r.pn||{})[rg];const ar=q?subArea(q):"";
     return (SHORT[rg]||rg)+": "+(q?(ar?ar+", ":"")+q[0].toFixed(2)+"N "+q[1].toFixed(2)+"E":"no pin placed");
    }).join(" \u00b7 "):"",
    picks.some(rg=>(r.pn||{})[rg])?"A pin is stored to about four kilometres, so it moves a little.":
-    (picks.length?"A pin is optional \u2014 the region alone is a real answer.":""))+
+    (picks.length?"A pin is optional \u2014 the region alone is a real answer.":"")))+
   sec("Being there")+
   rvRow("How would you use it",5,labOf(USES,r.u))+
   rvRow("Who would be coming with you",5,labOf(HOUSE,r.hh))+
@@ -2036,7 +2044,7 @@ function mapSVG(rgT){
   }});
  /* Individual pins sit on top of the region bubbles: the bubble says how many, the pin
     says where in it. A pin outside every bubble is somebody's off-list answer. */
- allPins(codes).forEach(pn=>{const q=MPX(pn.p[0],pn.p[1]),a=subArea(pn.p);
+ if(PINS_ON)allPins(codes).forEach(pn=>{const q=MPX(pn.p[0],pn.p[1]),a=subArea(pn.p);
   o+=`<circle cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="7" fill="${PAL[pn.i%PAL.length]}"
     fill-opacity=".95" stroke="#EAEDE8" stroke-width="1.4"${insAttr(a||pn.rg,
       [[nameOf(pn.i),PAL[pn.i%PAL.length],(a?a+", in ":"in ")+pn.rg]])}>
@@ -2253,7 +2261,7 @@ function result(){
  const who=i=>codes[i].n||("#"+(i+1));
  const spv=(c,k)=>(c.sp&&c.sp[k])||0, tov=(c,k)=>(c.t&&c.t[k]!==undefined)?c.t[k]:2;
  /* pins re-keyed through rgNow, so a renamed region lines up with itself */
- const pinMap=c=>{const m={};Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
+ const pinMap=c=>{const m={};if(!PINS_ON)return m;Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
  try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
  let secList=[];
  /* h3, not a div: these are the only structure over twenty-odd screens, and a screen
@@ -2614,7 +2622,7 @@ function result(){
   corner, the more a region leans that way.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
- const pins=allPins(codes);
+ const pins=PINS_ON?allPins(codes):[];
  if(pins.length){
   h+=`${sec("Where exactly")}
    <p class="hint">A region name can hide a large disagreement. This is the part worth arguing with.</p>`;
@@ -2998,7 +3006,7 @@ function result(){
     .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
     .concat(codes.filter(c=>c.rw&&String(c.rw).trim())
       .map(c=>"\u201c"+String(c.rw).trim()+"\u201d \u2014 "+(c.n||"anon"))),
-  pins:allPins(codes).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
+  pins:(PINS_ON?allPins(codes):[]).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
   trial:(()=>{const t=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
     if(!t.length)return [];
     return TRIAL.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;
