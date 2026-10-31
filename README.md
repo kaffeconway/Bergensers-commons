@@ -57,9 +57,10 @@ Kept here as a record of how it was wired, and in case it ever needs redoing.
    `localStorage`, never in this repo. Don't commit anything you wouldn't publish.
 
 2. Repository **Settings → Pages**:
-   - Source: **Deploy from a branch**
-   - Branch: **main**, folder: **/ (root)**
-   - Save
+   - Source: **GitHub Actions**
+   - The workflow in `.github/workflows/pages.yml` does the rest: on every push to
+     `main` it publishes the repo root exactly as committed. It was *Deploy from a
+     branch* until 31 Oct 2026; see `CLAUDE.md` for why it changed.
 
    **Enforce HTTPS** switches itself on and can't be turned off on the default
    `github.io` domain, which is exactly what we want.
@@ -82,11 +83,15 @@ That's the whole pipeline. If you're using Claude Code in this folder, just ask 
 make the change and push — it has full context in `CLAUDE.md` and will use your own
 local git credentials, so nothing needs to be handed to anyone.
 
-A push takes a minute or so to go live.
+A push takes a minute or so to go live. Each deploy shows in the repo's **Actions** tab as
+"Deploy to GitHub Pages", passed or failed; to republish without a new commit, open it
+there and press **Run workflow**.
 
 There is an empty `.nojekyll` file at the repo root, which turns off Jekyll processing
 entirely, so files are served exactly as committed. It is there because Jekyll otherwise
 runs its Liquid template parser over everything in the repo — Markdown included — and a
 stray double-brace anywhere fails the build. When that happens the deploy step is simply
 skipped: nothing breaks visibly, the previous build stays live, and the site just looks
-like it did not update. Leave `.nojekyll` in place and that whole failure mode is gone.
+like it did not update. Leave `.nojekyll` in place and that whole failure mode is gone. Deploying
+through the workflow skips Jekyll anyway; the file stays so the site is still safe if the
+source is ever set back to *Deploy from a branch*.
