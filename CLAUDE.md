@@ -423,7 +423,15 @@ carry everyone. **Every chart and score is drawn from the planners only** — `r
 `codes` to them while it draws, keeping the full list in `crowd`. With fewer than two planners
 the page shows who is in and says there is nothing to compare yet, the same rule as the
 board's two-code minimum. The board marks who is following or visiting beside their name, and
-the shareable image adds a "Who's in" block when anyone is not planning.
+the shareable image adds a "Who's in" card when anyone is not planning.
+
+**The shareable image** ("Make a shareable image" on the results page; `posterSVG`) is cards
+since 31 Oct 2026, the organiser's choice over a single long list: a score band with the seven
+part scores as bars, then cards two to a row — Who's in, Where (bars), the two "how we'd start"
+questions as stacked bars, Locked in, Could be's — and a full-width "What would stop us" that
+says how many more are on the results page rather than dropping them silently. It covers the
+planning committee only (names wrap rather than being cut off), except the Who's in card. Its
+height fits its content, so nothing runs off the bottom; the PNG canvas reads `POSTER_H`.
 
 **The planning WhatsApp.** `PLANCHAT` holds the planning group's invite link, shown on the code
 screen to people who chose planning, and nobody else. Added 31 Oct 2026, with the organiser

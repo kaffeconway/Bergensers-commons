@@ -2214,42 +2214,92 @@ function triSVG(rgT){
  });
  return o+`</svg>`;
 }
-let POSTER=null, POSTER_H=1620;
-/* The image grows to fit what it lists. It was a fixed 1620px, and with a full set of
-   answers the last blocks ran off the bottom under the footer; 1620 stays the minimum. */
+let POSTER=null, POSTER_H=1350;
+/* The shareable image, as cards (31 Oct 2026, the organiser's choice over a single long
+   list): a score band across the top, then cards two to a row, with counts drawn as bars
+   rather than listed. Like the rest of the results it covers the planning committee - the
+   names, the footer and every number - except "Who's in", which counts everybody. The
+   height fits whatever it holds; nothing is cut off the bottom. */
 function posterSVG(){
- const W=1080,P=70;let y=0,o="";
- const MONO="ui-monospace,Menlo,Consolas,monospace";
- const T=(x,yy,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${yy}" font-size="${sz}" fill="${col}"
-   font-family="${fam||"Georgia,serif"}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t).slice(0,72))}</text>`;
- y=P+52; o+=T(P,y,"Where we stand",54,"#131E1B");
- y+=38; o+=T(P,y,POSTER.names.join("  \u00B7  ").toUpperCase(),19,"#22423A",MONO);
- y+=26; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
- y+=100; o+=T(P,y,POSTER.score,108,"#131E1B");
- o+=T(P+200,y-52,"ALIGNED",20,"#22423A",MONO);
- o+=T(P+200,y-16,POSTER.verdict,24,"#22423A");
- y+=44;
- POSTER.sections.forEach(([lab,v])=>{
-  o+=T(P,y+14,lab,23,"#131E1B");
-  o+=`<rect x="${W-P-320}" y="${y}" width="300" height="14" rx="7" fill="#131E1B" fill-opacity=".1"/>`;
-  o+=`<rect x="${W-P-320}" y="${y}" width="${(300*v/100).toFixed(0)}" height="14" rx="7"
-    fill="${v>=70?"#35748A":v>=45?"#8A6A2F":"#7C2E3E"}"/>`;
-  o+=T(W-P,y+13,v,20,"#22423A",MONO,"end");
-  y+=40;});
- y+=22; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
- const block=(title,col,items)=>{
-  y+=50; o+=T(P,y,title.toUpperCase(),20,col,MONO,"start","bold");
-  (items.length?items.slice(0,5):["none yet"]).forEach(t=>{y+=34;o+=T(P,y,"\u2014 "+t,25,"#131E1B");});};
- block("Locked in","#35748A",POSTER.locked);
- block("Could be's","#7C2E3E",POSTER.fight);
- if(POSTER.crowd&&POSTER.crowd.length)block("Who's in","#22423A",POSTER.crowd);
- block("Where","#22423A",POSTER.regions);
- if(POSTER.pins.length)block("Where exactly","#22423A",POSTER.pins);
- if(POSTER.trial.length)block("A year renting first","#35748A",POSTER.trial);
- if(POSTER.same.length)block("Same town first","#35748A",POSTER.same);
- if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
- const H=Math.max(1620,y+130); POSTER_H=H;
- o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
+ const W=1080,P=60,G=24,PAD=26,CW=(W-2*P-G)/2;
+ const MONO="ui-monospace,Menlo,Consolas,monospace",SERIF="Georgia,serif";
+ const INK="#131E1B",PINE="#22423A",GLAC="#35748A",GOLD="#8A6A2F",WINE="#7C2E3E",MIST="#C5CBC7";
+ const T=(x,y,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${y}" font-size="${sz}" fill="${col}"
+   font-family="${fam||SERIF}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t))}</text>`;
+ const wrap=(t,n)=>{const out=[];let cur="";String(t).split(/\s+/).forEach(w=>{
+   const nx=(cur+" "+w).trim(); if(nx.length>n&&cur){out.push(cur);cur=w;}else cur=nx;}); if(cur)out.push(cur); return out;};
+ const two=(t,n)=>{const l=wrap(t,n);if(l.length>2){l.length=2;l[1]=l[1].replace(/\s*\S*$/,"")+"\u2026";}return l;};
+ let o="",y=P+50;
+ o+=T(P,y,"Where we stand",54,INK);
+ /* names wrap onto further lines rather than being cut off */
+ let line="";const nl=[];
+ POSTER.names.map(n=>String(n).toUpperCase()).forEach(n=>{const nx=line?line+"  \u00B7  "+n:n;
+  if(nx.length>76&&line){nl.push(line);line=n;}else line=nx;});
+ if(line)nl.push(line);
+ nl.forEach(l=>{y+=32;o+=T(P,y,l,19,PINE,MONO);});
+ y+=30;
+ const box=(x,yy,w,h)=>`<rect x="${x}" y="${yy}" width="${w}" height="${h}" rx="16" fill="#F5F7F3" stroke="${INK}" stroke-opacity=".08"/>`;
+ /* the score band */
+ {const y0=y, rows=POSTER.sections, xr=P+400;
+  let s2=T(P+PAD,y0+PAD+92,POSTER.score,108,INK);
+  s2+=T(P+PAD,y0+PAD+128,"ALIGNED",18,PINE,MONO,"start","bold");
+  const vl=wrap(POSTER.verdict,26); vl.forEach((l,i)=>{s2+=T(P+PAD,y0+PAD+160+i*28,l,22,PINE);});
+  rows.forEach(([lab,v],i)=>{const yy=y0+PAD+22+i*32, bx=W-P-PAD-230;
+   s2+=T(xr,yy,lab,19,INK);
+   s2+=`<rect x="${bx}" y="${yy-12}" width="180" height="12" rx="6" fill="${INK}" fill-opacity=".1"/>`;
+   s2+=`<rect x="${bx}" y="${yy-12}" width="${(180*v/100).toFixed(0)}" height="12" rx="6" fill="${v>=70?GLAC:v>=45?GOLD:WINE}"/>`;
+   s2+=T(W-P-PAD,yy,v,19,PINE,MONO,"end");});
+  const h=Math.max(PAD+160+vl.length*28+PAD-10, PAD+22+rows.length*32+PAD-10);
+  o+=box(P,y0,W-2*P,h)+s2; y=y0+h+G;}
+ /* card bodies draw in local coordinates from 0 and return their height */
+ const stacked=(parts,w)=>{const tot=parts.reduce((a,x)=>a+x[1],0)||1;let s3="",x=0,h=0;
+  parts.forEach(([lab,n,col])=>{const sw=Math.max(4,w*n/tot);
+   s3+=`<rect x="${x.toFixed(1)}" y="0" width="${Math.max(2,sw-3).toFixed(1)}" height="22" rx="4" fill="${col}"/>`;x+=sw;});
+  h=22+14;
+  parts.forEach(([lab,n,col])=>{h+=30;s3+=`<circle cx="7" cy="${h-7}" r="7" fill="${col}"/>`;
+   s3+=`<text x="24" y="${h}" font-size="21" fill="${INK}" font-family="${SERIF}"><tspan font-weight="bold">${n}</tspan> ${esc(lab)}</text>`;});
+  return {s:s3,h:h+4};};
+ const hbars=(rows,w,col)=>{const mx=Math.max(1,...rows.map(r=>r[1]));let s3="",h=0;
+  rows.slice(0,6).forEach(([lab,n])=>{h+=34;
+   s3+=T(0,h,lab.length>17?lab.slice(0,16).trim()+"\u2026":lab,21,INK);
+   const bw=(w-230-36)*n/mx;
+   s3+=`<rect x="200" y="${h-15}" width="${Math.max(4,bw).toFixed(0)}" height="16" rx="5" fill="${col}"/>`;
+   s3+=T(w,h,n,20,PINE,MONO,"end");});
+  return {s:s3,h:h+6};};
+ const list=(items,n)=>{let s3="",h=0;(items.length?items:["none yet"]).forEach(t=>{
+   two(t,n).forEach((l,i)=>{h+=i?27:31;s3+=T(0,h,l,21,items.length?INK:PINE);});h+=4;});
+  return {s:s3,h:h+2};};
+ const cards=[];
+ const card=(title,col,span,body)=>cards.push({title,col,span,body});
+ const ROLECOL={plan:PINE,follow:GLAC,visit:GOLD};
+ if(POSTER.crowd.length)card("Who's in",PINE,1,w=>stacked(POSTER.crowd.map(([k,a,n])=>[a.toLowerCase(),n,ROLECOL[k]||MIST]),w));
+ card("Where",PINE,1,w=>{const r=POSTER.where.length?hbars(POSTER.where,w,WINE):list([],34);
+  if(POSTER.named.length){two("Named instead: "+POSTER.named.join(", "),36).forEach(l=>{r.h+=28;
+   r.s+=`<text x="0" y="${r.h}" font-size="19" fill="${PINE}" font-family="${SERIF}" font-style="italic">${esc(l)}</text>`;});r.h+=6;}
+  return r;});
+ if(POSTER.pins.length)card("Where exactly",PINE,1,w=>list(POSTER.pins.slice(0,5),34));
+ const STARTCOL={unsure:MIST,must:GLAC,want:GLAC,good:"#7FA9B5",fine:"#7FA9B5",skip:"#D2A7AF",against:WINE};
+ if(POSTER.trial.length)card("A year renting first",GLAC,1,w=>stacked(POSTER.trial.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
+ if(POSTER.same.length)card("Same town first",GLAC,1,w=>stacked(POSTER.same.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
+ card("Locked in",GLAC,1,w=>list(POSTER.locked,34));
+ card("Could be's",WINE,1,w=>list(POSTER.fight,34));
+ if(POSTER.stops.length)card("What would stop us",WINE,2,w=>{let s3="",h=0;
+  POSTER.stops.slice(0,6).forEach(([nm,t])=>{const l=two(t,74-String(nm).length);
+   l.forEach((ln,i)=>{h+=i?27:31;s3+=`<text x="0" y="${h}" font-size="21" fill="${INK}" font-family="${SERIF}">${
+     i?"":`<tspan font-weight="bold" fill="${PINE}">${esc(nm)}</tspan>  `}${esc(ln)}</text>`;});h+=6;});
+  const more=POSTER.stops.length-6;
+  if(more>0){h+=30;s3+=`<text x="0" y="${h}" font-size="19" fill="${PINE}" font-family="${SERIF}" font-style="italic">and ${more} more on the results page</text>`;h+=6;}
+  return {s:s3,h:h};});
+ const draw=(c,x,yy,w,hh)=>box(x,yy,w,hh)+T(x+PAD,yy+PAD+16,c.title.toUpperCase(),18,c.col,MONO,"start","bold")+
+   `<g transform="translate(${x+PAD},${yy+PAD+32})">${c.r.s}</g>`;
+ const ch=c=>PAD+32+c.r.h+PAD-6;
+ for(let i=0;i<cards.length;){
+  const a=cards[i],b=cards[i+1];
+  if(a.span===2||!b||b.span===2){a.r=a.body(W-2*P-2*PAD);const h=ch(a);o+=draw(a,P,y,W-2*P,h);y+=h+G;i++;}
+  else{a.r=a.body(CW-2*PAD);b.r=b.body(CW-2*PAD);const h=Math.max(ch(a),ch(b));
+   o+=draw(a,P,y,CW,h)+draw(b,P+CW+G,y,CW,h);y+=h+G;i+=2;}}
+ y+=26; o+=T(P,y,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,PINE,MONO);
+ const H=Math.max(1080,y+50); POSTER_H=H;
  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#EAEDE8"/>${o}</svg>`;
 }
 function svgDataURL(){return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(posterSVG());}
@@ -3077,23 +3127,19 @@ function result(){
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
  document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
-  crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>l.length+" "+a.toLowerCase()):[],
+  /* everybody, by role - the one part of the image that is not planners only */
+  crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>[k,a,l.length]):[],
   sections:secLive.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
-  locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
-  regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
-    .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
-    .concat(codes.filter(c=>c.rw&&String(c.rw).trim())
-      .map(c=>"\u201c"+String(c.rw).trim()+"\u201d \u2014 "+(c.n||"anon"))),
+  locked:locked.slice(0,5).map(p=>p.label),fight:fight.slice(0,5).map(p=>p.label),
+  where:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
+    .map(([r,n])=>[r===OFFLIST?"Somewhere else":(SHORT[r]||r)+(RETIRED.indexOf(r)>=0?" (earlier list)":""),n]),
+  named:codes.filter(c=>c.rw&&String(c.rw).trim()).map(c=>String(c.rw).trim()),
   pins:(PINS_ON?allPins(codes):[]).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
-  trial:(()=>{const t=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
-    if(!t.length)return [];
-    return TRIAL.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;
-      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
-  same:(()=>{const t=codes.filter(c=>c.same&&c.same!==SAMETOWN[0][0]);
-    if(!t.length)return [];
-    return SAMETOWN.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.same===k).length;
-      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
-  stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
+  /* the two "how we'd start" questions as counts per answer, "no view" included, over the
+     codes that were asked; empty when nobody has moved off "no view" */
+  trial:codes.some(c=>c.tr&&c.tr!==TRIAL[0][0])?TRIAL.map(([k,a])=>[k,a,codes.filter(c=>c.tr===k).length]).filter(x=>x[2]):[],
+  same:codes.some(c=>c.same&&c.same!==SAMETOWN[0][0])?SAMETOWN.map(([k,a])=>[k,a,codes.filter(c=>c.same===k).length]).filter(x=>x[2]):[],
+  stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>[c.n||"anon",c.st.trim()])};
  wireInspector();
  const tip1=document.querySelector("#app .res[data-items]");
  if(tip1)tip1.classList.add("tip1");
