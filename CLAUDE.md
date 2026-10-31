@@ -43,10 +43,19 @@ and is **not** under the pure-ASCII rule below.
 ## Deploy
 
 Hosted on **GitHub Pages**, served straight from the repo. Settings → Pages: source is
-**Deploy from a branch**, branch `main`, folder `/ (root)`. **Enforce HTTPS** is on and
-cannot be turned off on the default `github.io` domain. Every push to `main` rebuilds and
-republishes automatically, usually within about a minute. No build command, no manual
-upload step.
+**GitHub Actions**, and `.github/workflows/pages.yml` publishes the repo root exactly as
+committed on every push to `main`, usually within about a minute. **Enforce HTTPS** is on and
+cannot be turned off on the default `github.io` domain. No build command, no manual upload
+step.
+
+The source was *Deploy from a branch* through the last September deploy. On 31 Oct 2026
+PR #18 merged and nothing published: no build ran at all, and the September page stayed live
+with no error anywhere. The source was then found set to *GitHub Actions*, with no deploy
+workflow in the repo for it to run. When it changed is not known. The
+workflow was added to fix that. It also makes every deploy visible in the Actions tab, and
+it can be re-run by hand there (*Run workflow*) to republish without a new commit. If the
+live site has not updated a few minutes after a push to `main`, look there first. Pages
+caches each page for ten minutes, so allow that before calling it stuck.
 
 Live at **https://kaffeconway.github.io/Bergensers-commons/** — that is the one address
 to share. The old EdgeOne address (`bergensers-commons.edgeone.dev`) is retired; see
@@ -69,7 +78,9 @@ Serving from the repo root means **every file here is on the public web**, this 
 never surnames**, and **no specific home locations for anyone**.
 
 **Jekyll is disabled** by an empty `.nojekyll` file at the repo root, so every file is
-served byte-for-byte as committed. Keep that file. Without it, GitHub Pages runs Jekyll's
+served byte-for-byte as committed. Deploying through the workflow skips Jekyll anyway, but
+keep that file: it is what protects the site if the source is ever set back to *Deploy from
+a branch*. Without it, GitHub Pages runs Jekyll's
 Liquid parser over the whole repo — including Markdown like this one — and a single stray
 double-brace anywhere fails the build. The failure is quiet in the worst way: the deploy
 step is skipped, no error surfaces on the site, and the *previous* build stays live, so
