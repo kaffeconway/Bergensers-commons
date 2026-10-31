@@ -5,13 +5,13 @@
 <meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
-<meta property="og:title" content="Build your commons">
-<meta property="og:site_name" content="Bergensers Commons">
+<meta property="og:title" content="The Bergenshire">
+<meta property="og:site_name" content="The Bergenshire">
 <meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>Build your commons</title>
+<title>The Bergenshire</title>
 <style>
 html{color-scheme:light;background:#EAEDE8;-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 :root{color-scheme:light only;
@@ -39,6 +39,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);f
 #app{max-width:620px;margin:0 auto;padding:20px 16px 60px}
 h1{font-family:var(--serif);font-weight:500;font-size:30px;line-height:1.08;margin:0 0 6px;letter-spacing:-.015em}
 h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;margin:0 0 4px}
+.door{display:block;width:54px;height:54px;margin:2px 0 16px}
 .kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pine);opacity:.85;margin-bottom:14px}
 .lede{font-size:16px;color:var(--pine);margin:0 0 20px}
 .hint{font-size:13.5px;color:var(--pine);opacity:.8;margin:0 0 16px}
@@ -1264,7 +1265,7 @@ const STEPS=[
    Milj&oslash;direktoratet.</span></div></details>`,
  save:()=>S.debt?null:"Answer the borrowing question too."},
 
-{t:"What could you bring?",k:"Not what you own \u2014 what you can do. A commons runs on skills more than money.",
+{t:"What could you bring?",k:"Not what you own \u2014 what you can do. The Bergenshire runs on skills more than money.",
  r:()=>`<div class="chips">`+SKILLS.map(([k,a])=>
    `<button class="chip plain ${S.sk[k]?"must":""}" data-sk="${esc(k)}" data-fk="${esc("sk:"+k)}"
     aria-pressed="${S.sk[k]?"true":"false"}"><span class="l">${esc(a)}</span></button>`).join("")+`</div>
@@ -1428,7 +1429,17 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
 }
 function home(){
  const saved=lsKeys();
- app.innerHTML=`<div class="kicker">A commons, in the making</div>
+ /* Bilbo's door: "a perfectly round door like a porthole, painted green, with a shiny yellow
+    brass knob in the exact middle". Hobbit things only - the hobbits lived in the Shire, not
+    the elves or dwarves or anyone else. Drawn here in the palette's own colours, so there is
+    no image to fetch, and hidden from screen readers because it says nothing. */
+ app.innerHTML=`<svg class="door" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+  <circle cx="32" cy="32" r="30" style="fill:none;stroke:var(--pine)" stroke-opacity=".3" stroke-width="2.5"/>
+  <circle cx="32" cy="32" r="25.5" style="fill:var(--pine)"/>
+  <path d="M23 8.4V55.6M32 6.6V57.4M41 8.4V55.6" style="stroke:var(--paper)" stroke-opacity=".14" stroke-width="1"/>
+  <circle cx="32" cy="32" r="3.6" style="fill:var(--gold)"/>
+  <circle cx="31" cy="31" r="1.2" style="fill:var(--paper)" fill-opacity=".55"/></svg>
+ <div class="kicker">The Bergenshire</div>
  <h1>A life with friends</h1>
  <p class="lede">Some of us have been talking about building a life closer together, somewhere in
  Europe, and one day perhaps a shared place of our own to live in. Nothing about it is settled: not
@@ -2421,7 +2432,7 @@ function result(){
   srow("Stoppers",st?`<b>${st}</b> of ${N} named a deal-breaker`:
    `<em>nobody named a deal-breaker</em>`);}
 
- let h=`<div class="kicker">${N} of you</div><h2>Where you stand</h2>
+ let h=`<div class="kicker">${N} of you</div><h2>Under the Party Tree</h2>
   ${sec("Where this leaves us")}<div class="sum">
    <p class="lede2"><b>${N} answer${N===1?"":"s"} so far.</b> Every line is a count of those
    ${nword(N)}, not of the group.</p>${sumRows.join("")}</div>

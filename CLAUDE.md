@@ -11,6 +11,17 @@ a results dashboard (charts, maps, alignment scoring, per-person breakdowns).
 Everything — HTML, CSS, JS — lives in that one file. Keep it that way unless explicitly
 asked to split it up; the whole point is that anyone can open it with no server.
 
+**On screen it is called The Bergenshire** (renamed 31 Oct 2026): the page title, the link
+previews, the line above the home heading, and "The Bergenshire runs on skills more than
+money". The repo, the web address and the `commons:` storage prefix keep the old name on
+purpose — renaming the repo breaks every link already shared, and changing the storage key
+would orphan every saved draft and the collector's board. Two Shire touches were agreed
+with the group's organiser before they went in: Bilbo's round green door on the home screen
+(an inline drawing in the palette's colours, hidden from screen readers) and "Under the
+Party Tree" as the results heading. Any further ones go past him first, and they stay
+**hobbit-only** — "the hobbits lived in the Shire, not the elves or dwarves or anyone else":
+no runes, no Elvish script, no wizards, no rings.
+
 `where-we-landed.html` sits beside it: a static recap of the September call, quietly
 linked from the home screen. It is a separate file, has no shared code with `index.html`,
 and is **not** under the pure-ASCII rule below.
