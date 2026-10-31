@@ -181,6 +181,16 @@ the build.
   Adding a **fixed-width** field is the opposite: it moves `N_FIX`, so it needs a new
   version byte and a new `BITS_*` constant.
 
+- **Map pins are switched off** (31 Oct 2026, the organiser's decision: "I do not think we
+  need people to pin on the map just yet. I feel we need just to get a region/city picked
+  first"). `PINS_ON = false` beside `allPins` turns off the picker on the region step, the pin
+  line on the review, the pins on the results map, the "Where exactly" section, the pin
+  discount in the *Where* alignment score, and the pins on the shareable image. Hidden pins
+  must not move a visible number, which is why the score ignores them too. **Nothing else
+  changed**: the share-code format still carries pins, a pin already in somebody's code is
+  kept when they re-save (just not shown), and the picker code below is intact. Setting
+  `PINS_ON = true` brings all of it back exactly as it was — ask him before doing that.
+
 - **Map pins (`pn`) are keyed by region name, never by position.** In state and in a decoded
   record `pn` is `{"Italian Alps": [lat, lon]}`. On the wire they are written in `REGIONS`
   order, because that is the order the 8-bit region mask decodes in — `rgPicks()` sorts to
@@ -524,7 +534,8 @@ was meant to do. Some editing tools decode `\uXXXX` escapes before the text reac
 so a JS string written as `"\u2014"` can land as a real em dash. It happened twice while
 building C5, and the grep caught it both times.
 
-There is also a Playwright pass worth running for anything touching the pin picker —
+There is also a Playwright pass worth running for anything touching the pin picker (while
+`PINS_ON` is false, run it against a copy of the page with it set to true) —
 Chromium is preinstalled at `/opt/pw-browsers`. Open `index.html` from `file://`, walk to
 the region step, click the pixel where a known town's dot is drawn, and check the app
 stores that town's coordinates. That is the only way to catch a broken inverse projection;
