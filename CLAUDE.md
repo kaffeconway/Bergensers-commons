@@ -11,6 +11,31 @@ a results dashboard (charts, maps, alignment scoring, per-person breakdowns).
 Everything — HTML, CSS, JS — lives in that one file. Keep it that way unless explicitly
 asked to split it up; the whole point is that anyone can open it with no server.
 
+**On screen it is called The Bergenshire** (renamed 31 Oct 2026): the page title, the link
+previews and the line above the home heading. The repo, the web address and the `commons:`
+storage prefix keep the old name on
+purpose — renaming the repo breaks every link already shared, and changing the storage key
+would orphan every saved draft and the collector's board. Two Shire touches were agreed
+with the group's organiser before they went in: Bilbo's round green door on the home screen
+(an inline drawing in the palette's colours, hidden from screen readers) and "Under the
+Party Tree" as the results heading. Any further ones go past him first, and they stay
+**hobbit-only** — "the hobbits lived in the Shire, not the elves or dwarves or anyone else":
+no runes, no Elvish script, no wizards, no rings.
+
+**The questionnaire is deliberately minimal** (31 Oct 2026, the organiser's decision: "too
+much information all at once is paradoxically harmful, not helpful, to a decision"). Each step
+shows its question, its answers and at most one short instruction line — no explanations,
+context, background or reference material, and the home screen is one line. Everything that
+came off, and the research behind the questions, lives in **`RESEARCH.md` in the private repo
+`kaffeconway/bergensers-property-search`** — read it before changing what a question asks or
+why. It is private because it holds group answers and names; nothing from it is copied here,
+since this repo is public on the web. Do not add explanatory text back to the quiz; put it
+there. What stays on screen regardless: the one-line reason for asking passport and country
+(a consent reason, never hidden behind a disclosure), every storage-failure warning
+(`lsFailed`), retired-pick and split-band notices, and every alarm on the review screen.
+Answer options and their one-line reasons were **not** cut: rewording an option changes what
+everyone who already chose it said, so that is a decision per option, not a tidy-up.
+
 `where-we-landed.html` sits beside it: a static recap of the September call, quietly
 linked from the home screen. It is a separate file, has no shared code with `index.html`,
 and is **not** under the pure-ASCII rule below.
@@ -71,13 +96,16 @@ the build.
   field (activities, token spends, tolerances, skills, region picks) is packed into a
   handful of bits each rather than stored as a JSON key. Free text (name, deal-breakers,
   why, activity write-ins, region write-in) is stored as raw UTF-8 after the packed block,
-  as five `\x1f`-joined fields. Encoder is `encode()` / `packC4()` / `recBin()`; decoder is
+  as `\x1f`-joined fields. Encoder is `encode()` / `packC5()` / `recBin()`; decoder is
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
-- **Four formats coexist: C1, C2, C3 and C4.** The leading byte of the decoded blob says
-  which. `encode()` always writes **C4**; `decode()` tries C4, then C3, then C2, then C1 (a
-  prior JSON-based format), then raw JSON, in that order.
+- **Five formats coexist: C1 to C5.** The leading byte of the decoded blob says which.
+  `encode()` always writes **C5**; `decode()` tries C5, then C4, then C3, then C2, then C1 (a
+  prior JSON-based format), then raw JSON, in that order. There is no C4 writer any more:
+  `recBin` writes the C5 layout, so a C4 header in front of it would describe it wrongly.
+  To make a genuine C4 code for a test, load the previous commit's `index.html` and call its
+  `encode()` — that is the real old encoder, not an imitation of it.
 
   **C4 lengthened the fixed block**, which C3 and the write-in did not. `BITS_CORE` is the
   original width (C1/C2/C3, 20 bytes); `BITS_C4` adds a 3-bit trial-year answer and two
@@ -85,14 +113,40 @@ the build.
   `N_FIX` from the right constant — never share one N_FIX across versions, or an older
   record's free-text tail is read five bytes late and comes back as garbage.
 
+  **C5 (31 Oct 2026) lengthened it again**, by 12 bits: the same-town answer (`same`,
+  3 bits, `SAMETOWN`), whether you would move to the chosen town before anything is bought
+  (`early`, 3 bits, `EARLY`), the hotter-summers tolerance (3 bits, `TOLX`), and one bit each
+  saying whether `USES`, `HOUSE` and `HORIZON` were answered at all. Those three fill all four
+  values of their two bits, so until C5 an unanswered one was written as its first option and
+  came back as somebody saying "Live there full time"; a C5 code carries the blank. `ext` is
+  now a level — falsy for C2/C3, truthy for C4, `2` for C5 — and `fixBits(ext)` picks the
+  width. A record older than C5 leaves `same` and `early` **absent**, not defaulted: absent
+  means "never asked", which is not "No view yet", and the results page counts only codes that
+  were asked. The trial year is the cautionary case — its default cannot be told from a real
+  answer, and still cannot.
+
+  **`TOLX` is a separate list on purpose.** `TOL.length` is part of `BITS_CORE`, so appending
+  a tolerance to `TOL` would move the fixed block of every C1–C4 code ever sent. A tolerance
+  added later goes in `TOLX` (and a second one there means a C6, because `BITS_C5` spells its
+  widths out as numbers).
+
   Region picks are stored **positionally** — C2 as a bit index into the region array
   (`mask |= 1 << i`), C1 as a base36 character. So editing the region list in place does
   not throw: the record still validates, and every existing code silently comes back
   meaning a *different* region than the person picked. That is why the old eight-item list
   is frozen as **`REGIONS_V2`** and never touched. **C1 and C2 codes are decoded against
-  `REGIONS_V2`; C3 and C4 codes against the current `REGIONS`.** If the region list ever
-  changes again, freeze the current array the same way and add a C5 — do not edit
-  `REGIONS` in place.
+  `REGIONS_V2`; C3 and C4 against `REGIONS_V3`, the five-item list frozen when C5 arrived;
+  C5 against the current `REGIONS`.** If the region list ever changes again, freeze the
+  current array the same way and add a C6 — do not edit `REGIONS` in place.
+
+  **Oslo & eastern Norway** was added in C5 by *appending* it, never inserting, so every
+  earlier region keeps its bit and `REGIONS` begins with `REGIONS_V3` exactly (`WIDTHS`
+  refuses to encode if that stops being true). The version byte was still needed: an older
+  saved copy of the page reading a C5 code must refuse it rather than drop the sixth bit.
+  `REGIONS` stays a literal array because the property search reads it with a regex.
+  Storage order is not display order: `RGSHOW` puts "Somewhere not on this list" last and the
+  newest region just before it, so no region is offered first by default. Oslo has no row on
+  the triangle — the property search has no listings there — and the caption says so.
 
   `RENAMED` maps a region that was only relabelled (`French Alps & Vercors` →
   `French Alps, Vercors & Chartreuse`) onto its new name. It is applied at display and
@@ -183,19 +237,26 @@ the build.
   `c.cp < 5` test would have read both appended top bands as "did not answer".
 
   **Three bits holds exactly eight and both lists now hold eight.** A ninth band in either
-  needs a C5. There is an assertion that fails the moment one is added, rather than the
-  ninth silently writing as zero and reading back as "Under €10k".
+  needs a C6. Until 31 Oct 2026 this file said an assertion caught a ninth band; there was no
+  such assertion anywhere. There is now: `WIDTHS` lists every positional answer with the most
+  options its bits can hold, and `recBin` throws rather than write a code if any list has
+  outgrown it — which the review and code screens already report as "could not be written".
 
 - **The Europe map's region names sit in fixed margin slots** (`MAPLAB`), on leader lines,
   not above their bubbles. The bubble radius grows with votes and the three alpine regions
   fall within about 35 viewBox units of each other, so printed labels collided: "French
   Alps" was buried inside the Italian Alps bubble at **four** votes, and at a realistic
   fifteen two more went under and the bubbles themselves overlapped. Fixed slots cannot
-  collide however the vote splits — there is a test that walks all 816 possible
-  fifteen-person divisions and checks no label lands in a bubble and no leader crosses one.
-  If a region is ever added to the map, give it a slot at least 30 units clear of the others
-  on its side. The vote count rides **in the label**, as `Italian Alps · 7`, not inside the
-  bubble: individual pins are drawn after the bubbles, so a cluster of them covered the
+  collide however the vote splits. The check for that walks every way the votes can split —
+  with five regions, every split of 15 votes and of 30, 50,252 in all — and confirms no label
+  lands in a bubble, no leader passes through another bubble, no two labels overlap and no two
+  leaders cross. It is a throwaway Playwright script, not committed here; this file used to
+  describe it as though it were. If a region is ever added to the map, give it a slot at least
+  30 units clear of the others on its side, and re-run that check. Oslo's bubble sits about 20
+  units from Vestland's, closer than any other pair, so its label is on the opposite side
+  (Vestland's leader runs west, Oslo's east) and the two bubbles overlap at high counts. That
+  is the real geography at this scale, and the counts are in the labels.
+  The vote count rides **in the label**, as `Italian Alps · 7`, not inside the bubble: individual pins are drawn after the bubbles, so a cluster of them covered the
   numeral at four people as well as fifteen. A pin is somebody's actual answer about *where*
   in a region; it wins, and the number moves out of its way.
 
@@ -209,15 +270,21 @@ the build.
   the two repos cannot drift, then rescaled across the four regions so each axis spans the
   range they actually differ over. Rescaling changes spacing, never order. The listing
   counts are uneven and are printed in the caption, **with the date they were computed**:
-  as of 15 Sept 2026, 30 listings — French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4.
+  as of 25 Sept 2026, 32 scored listings — French Alps 13, Vestland 9, Pyrenees 6, Italian
+  Alps 4. (The 15 Sept run was 30: 12, 8, 6, 4.) The values are produced by
+  `tools/triangle_regions.py` in the property repo, whose `--check` reproduces the 15 Sept run
+  exactly; nothing here is computed by hand any more.
 
   **The date is there because the numbers drift faster than anyone expects.** The tracker
   gained eleven listings in six days. When that first happened the dots had barely moved
   (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
   of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
-  A test pins the current total and counts, so a re-run fails until the caption is brought
-  with it, and two further assertions check the counts sum to the stated total and that a
-  date is present at all.
+  Until 25 Sept 2026 this file said a test pinned those counts; none existed. One does now, in
+  the property repo's `tools/test_charts.py`: it reads this file's caption from the default
+  branch and compares the counts, their sum, the date and the renovation sentence with the
+  tracker. It reports drift without failing the build until `CAPTION_DRIFT_IS_FATAL` is
+  switched on, which should happen once the current caption is live. It counts SCORED
+  listings, as the caption does — an unassessed property is not a low-scoring one.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
@@ -288,6 +355,26 @@ one of us knows the Pyrenees, which now hold six listings and its top-ranked pro
 Passport and country-lived-in were the fourth, and are now asked.
 
 ## Results page
+
+**Folded into groups since 31 Oct 2026.** Only the counts-only summary and the overall
+alignment gauge (with at most three headline cards) are open at the top. Every other section
+sits in one of nine closed groups, each summary line showing how aligned the group is on that
+part: Where · How we'd start, and when · What matters most · What has to be possible · How
+much you can take · Shape of the place · Money & commitment · Who is closest to whom · In your
+own words. Those percentages are the same per-part scores the overall number averages, so the
+two cannot disagree; a group with nothing to score says "not scored", and one with fewer than
+two answers says "too few answers" rather than showing a number. The grouping is done after
+the page is built, by cutting it at its `h3.sec` headings (`RGRP` in `result()`), so a new
+section must be named in a group — one that is not is kept, unfolded, after the groups rather
+than dropped. The per-part bars and the chip navigation strip were removed: the group lines
+are the overview, and a chip pointing into a closed group jumps to nothing.
+
+The alignment score's timing part became **"How we'd start, and when"** on 31 Oct 2026, on the
+organiser's decision and knowing it moves scores already given: timing over those who
+answered, plus the trial year and the same-town idea compared as for / against, plus whether
+people would move early. "No view yet" and a code that never had the question are left out,
+not counted as agreement, and do not add to the gauge's unanswered-question note. "Hotter
+summers" is still kept out of the score until most respondents have been asked it.
 
 The page explains itself once, not per row. "Tap for names" is a `::after` on `.res.tip1`,
 and that class is applied in JS to the first inspectable row on the page — it used to be
@@ -387,14 +474,23 @@ check with a quick Node script: extract the `<script>` contents, `new Function(.
 them with stub DOM globals, and roundtrip a sample answer through `encode`/`decode`.
 This has caught real bugs before (see the strict-validation and hyphen fixes above) —
 don't skip it for anything touching
-`packOne`/`packC4`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
+`packOne`/`packC5`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
 
-Things worth asserting every time the codec changes: a new answer roundtrips through C4
-with its regions, write-in, pins and trial-year answer intact; a **C3** and a **C2** code
+Things worth asserting every time the codec changes: a new answer roundtrips through C5
+with its regions (Oslo included), write-in, pins, trial-year, same-town and move-early
+answers, the hotter-summers slider, and a genuine blank for use, household and timing;
+a **C4** code made by the previous commit's own `encode()` still decodes, with `same` and
+`early` absent; a **C3** and a **C2** code
 still decode, still report the regions the person actually picked, and still read their
 free-text tail from the *shorter* fixed block (build them in the test by writing the old
 bit layout with a leading byte 2 or 3 and the right region array); a **C1** code still
-decodes; and a grouped code pasted as one blob still imports as a single code.
+decodes; a grouped code pasted as one blob still imports as a single code; and an older
+saved copy of the page refuses a C5 code rather than misreading it.
+
+If you edit `index.html` with a script, run the ASCII check afterwards whatever the script
+was meant to do. Some editing tools decode `\uXXXX` escapes before the text reaches the file,
+so a JS string written as `"\u2014"` can land as a real em dash. It happened twice while
+building C5, and the grep caught it both times.
 
 There is also a Playwright pass worth running for anything touching the pin picker —
 Chromium is preinstalled at `/opt/pw-browsers`. Open `index.html` from `file://`, walk to
