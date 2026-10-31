@@ -112,16 +112,23 @@ the build.
   field (activities, token spends, tolerances, skills, region picks) is packed into a
   handful of bits each rather than stored as a JSON key. Free text (name, deal-breakers,
   why, activity write-ins, region write-in) is stored as raw UTF-8 after the packed block,
-  as `\x1f`-joined fields. Encoder is `encode()` / `packC5()` / `recBin()`; decoder is
+  as `\x1f`-joined fields. Encoder is `encode()` / `packC6()` / `recBin()`; decoder is
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
-- **Five formats coexist: C1 to C5.** The leading byte of the decoded blob says which.
-  `encode()` always writes **C5**; `decode()` tries C5, then C4, then C3, then C2, then C1 (a
-  prior JSON-based format), then raw JSON, in that order. There is no C4 writer any more:
-  `recBin` writes the C5 layout, so a C4 header in front of it would describe it wrongly.
-  To make a genuine C4 code for a test, load the previous commit's `index.html` and call its
-  `encode()` — that is the real old encoder, not an imitation of it.
+- **Six formats coexist: C1 to C6.** The leading byte of the decoded blob says which.
+  `encode()` always writes **C6**; `decode()` tries C6, then C5, C4, C3, C2, then C1 (a
+  prior JSON-based format), then raw JSON, in that order. There is no C4 or C5 writer any
+  more: `recBin` writes the C6 layout, so an older header in front of it would describe it
+  wrongly. To make a genuine older code for a test, load an earlier commit's `index.html` and
+  call its `encode()` — that is the real old encoder, not an imitation of it. (C5 was written
+  until 31 Oct 2026; `main` before the C6 merge is a genuine C5 encoder.)
+
+  **C6 (31 Oct 2026) adds 3 bits: how involved somebody wants to be** (`role`, `ROLE`: 0 is
+  unanswered, then the `ROLE` index + 1). `ext` level `3`, `BITS_C6 = BITS_C5 + 3`. A record
+  older than C6 leaves `role` **absent**; the results count an absent or blank role as
+  planning (`isPlan`), the organiser's decision, because those people answered everything.
+  That is applied when counting, never inside `decode`.
 
   **C4 lengthened the fixed block**, which C3 and the write-in did not. `BITS_CORE` is the
   original width (C1/C2/C3, 20 bytes); `BITS_C4` adds a 3-bit trial-year answer and two
@@ -378,7 +385,9 @@ It also derives its scoring weights from the mean token spend of the codes colle
 (`/sync-weights`), reads `STYLES` to score the *Buildings* axis, reads the *"unfinished for
 years"* tolerance as the ceiling on an acceptable *Condition* score, and reads the *use*
 answer as the evidence that year-round residence is required. Four responses are in as of
-Sept 2026, and every ranking it publishes carries that caveat.
+Sept 2026, and every ranking it publishes carries that caveat. **Only planning-committee
+codes count toward its weights** (`isPlan`): somebody following along or visiting spends no
+tokens, and averaging them in would drag every weight toward zero.
 
 Three things it says it is blocked on that this questionnaire does **not** yet ask, recorded
 here so they are not rediscovered: **who is actually buying in and how many** (its Assumptions
@@ -390,6 +399,33 @@ its 15%-equity model becomes a cash purchase — a 7x swing in the per-person fi
 Vestland 4 by definition, France and Italy 0–1 — and nobody has been asked whether a single
 one of us knows the Pyrenees, which now hold six listings and its top-ranked property).
 Passport and country-lived-in were the fourth, and are now asked.
+
+## Who is in: planning, following, visiting
+
+**Step 2 asks how involved somebody wants to be** (31 Oct 2026, the organiser's decision and
+wording): *On the planning committee* ("I may invest, and want a say in where and how"),
+*Keep me posted* ("Not planning, but I'd like to follow along"), *Visiting is enough* ("I'm
+happy seeing everyone at Bergensers reunions"). An answer is required to go on. Planning
+continues through the questionnaire. The other two finish there with a code ("Thank you.
+Here is your code"), so they are counted without being asked about land and money; their
+review shows only name and role, and changing the role to planning from the review brings
+the full questionnaire back. Because the step sits second, every review row and integrity
+check refers to later steps by index one higher than before — use the step's position, and
+re-check those numbers whenever a step is added.
+
+**Results.** Everybody is counted once, in a "Who's in" line at the top of the summary, each
+count tappable for names; the kicker counts everyone, and the shared link and combined code
+carry everyone. **Every chart and score is drawn from the planners only** — `result()` narrows
+`codes` to them while it draws, keeping the full list in `crowd`. With fewer than two planners
+the page shows who is in and says there is nothing to compare yet, the same rule as the
+board's two-code minimum. The board marks who is following or visiting beside their name, and
+the shareable image adds a "Who's in" block when anyone is not planning.
+
+**The planning WhatsApp.** `PLANCHAT` holds the planning group's invite link, shown on the code
+screen to people who chose planning, and nobody else. It is empty until the organiser sends the
+link. This page and repo are public, so the group must have WhatsApp's **Approve new
+participants** switched on before a link goes in: whoever finds it can then only ask to join.
+That was the condition the organiser agreed to; do not add a link without it.
 
 ## Results page
 
@@ -516,18 +552,19 @@ check with a quick Node script: extract the `<script>` contents, `new Function(.
 them with stub DOM globals, and roundtrip a sample answer through `encode`/`decode`.
 This has caught real bugs before (see the strict-validation and hyphen fixes above) —
 don't skip it for anything touching
-`packOne`/`packC5`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
+`packOne`/`packC6`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
 
-Things worth asserting every time the codec changes: a new answer roundtrips through C5
-with its regions (Oslo included), write-in, pins, trial-year, same-town and move-early
-answers, the hotter-summers slider, and a genuine blank for use, household and timing;
-a **C4** code made by the previous commit's own `encode()` still decodes, with `same` and
-`early` absent; a **C3** and a **C2** code
+Things worth asserting every time the codec changes: a new answer roundtrips through C6
+with its role (each of the three, and blank), regions (Oslo included), write-in, pins,
+trial-year, same-town and move-early answers, the hotter-summers slider, and a genuine blank
+for use, household and timing; a **C5** code made by an earlier commit's own `encode()` still
+decodes, with `role` absent and counted as planning; a **C4** code made the same way still
+decodes, with `same` and `early` absent; a **C3** and a **C2** code
 still decode, still report the regions the person actually picked, and still read their
 free-text tail from the *shorter* fixed block (build them in the test by writing the old
 bit layout with a leading byte 2 or 3 and the right region array); a **C1** code still
 decodes; a grouped code pasted as one blob still imports as a single code; and an older
-saved copy of the page refuses a C5 code rather than misreading it.
+saved copy of the page refuses a C6 code rather than misreading it.
 
 If you edit `index.html` with a script, run the ASCII check afterwards whatever the script
 was meant to do. Some editing tools decode `\uXXXX` escapes before the text reaches the file,
