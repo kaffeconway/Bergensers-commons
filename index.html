@@ -557,6 +557,11 @@ const ROLE=[["plan","On the planning committee","I may invest, and want a say in
  ["follow","Keep me posted","Not planning, but I'd like to follow along"],
  ["visit","Visiting is enough","I'm happy seeing everyone at Bergensers reunions"]];
 const isPlan=c=>!c||!c.role||c.role==="plan";
+/* Where to begin (31 Oct 2026, the organiser's wording): one open question in place of the
+   trial year, the same-town idea and moving early, which are no longer asked, shown or
+   scored - answers already given stay in their codes. Positional: append only. */
+const BEGIN=[["shared","Look for a shared place to live"],["town","Move to the same town or city first"],
+ ["any","Doesn't matter to me"]];
 /* The planning committee's WhatsApp invite, shown on the code screen to planners only.
    This page and its repo are public, so the group must have "Approve new participants"
    switched on before a link goes here: whoever finds it can then only ask to join. Empty
@@ -597,7 +602,7 @@ let pend=[], pendBoth=false;
    with no confirmation while clearing the whole board asks twice, so the guard was on the
    less likely action - and a row is somebody's answers, which may be the only copy. */
 let undoRow=null;
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],same:SAMETOWN[0][0],early:EARLY[0][0],pin:{},role:""};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],same:SAMETOWN[0][0],early:EARLY[0][0],pin:{},role:"",begin:""};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.concat(TOLX).forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
@@ -643,7 +648,7 @@ function stateFrom(o){
   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||"",
   cz:o.cz||"",lv:o.lv||"",
   tr:o.tr||TRIAL[0][0],same:o.same||SAMETOWN[0][0],early:o.early||EARLY[0][0],
-  pin:Object.assign({},o.pn||{}),role:o.role||""});
+  pin:Object.assign({},o.pn||{}),role:o.role||"",begin:o.begin||""});
 }
 
 const BOARD="commons:board";
@@ -728,6 +733,17 @@ liveInit();
    choose anything. Captured before the rebuild, restored after it; a key that no longer
    exists (a step change, a new screen) simply finds nothing and does nothing. */
 let fk="", fkNext="";
+/* iPhone Safari: when a text box had the keyboard open, its scroll position came back as the
+   keyboard closed, after the next step had been drawn, so that step opened at its bottom.
+   Close the keyboard first, draw, go to the top, and once more when the keyboard has gone -
+   unless the person has already started scrolling. */
+function toTop(draw){
+ try{const a=document.activeElement;if(a&&a.blur&&/^(INPUT|TEXTAREA)$/.test(a.tagName))a.blur();}catch(e){}
+ window.scrollTo(0,0); draw(); window.scrollTo(0,0);
+ let moved=false;const mv=()=>{moved=true;};
+ window.addEventListener("touchstart",mv,{once:true,passive:true});
+ setTimeout(()=>{window.removeEventListener("touchstart",mv);if(!moved)window.scrollTo(0,0);},450);
+}
 function markFocus(){try{const a=document.activeElement;
  fk=fkNext||((a&&a.getAttribute)?(a.getAttribute("data-fk")||""):"");
  fkNext="";
@@ -856,8 +872,10 @@ const BITS_C4=BITS_CORE+3+PIN_BITS*2;
 const BITS_C5=BITS_C4+3+3+3+3;
 /* C6: how involved somebody wants to be (3 bits: 0 is unanswered, then ROLE index + 1). */
 const BITS_C6=BITS_C5+3;
+/* C7: where to begin (3 bits: 0 is unanswered, then BEGIN index + 1). */
+const BITS_C7=BITS_C6+3;
 const NFIX=b=>Math.ceil(b/8);
-const fixBits=ext=>ext===3?BITS_C6:ext===2?BITS_C5:ext?BITS_C4:BITS_CORE;
+const fixBits=ext=>ext===4?BITS_C7:ext===3?BITS_C6:ext===2?BITS_C5:ext?BITS_C4:BITS_CORE;
 /* Pins are quantised across the map window: 1023 steps over 37 degrees of latitude is
    about 4 km, and over 43 degrees of longitude about 3.3 km at 45 N. Ample for telling
    the western Italian Alps from the eastern ones, and it costs 21 bits. */
@@ -888,7 +906,7 @@ const rgPicks=o=>(o.rg||[]).filter(r=>REGIONS.indexOf(r)>=0)
    REGIONS_V3, or every C3 and C4 code would quietly read against the wrong list. */
 const WIDTHS=[["STYLES",STYLES,7],["USES",USES,4],["HOUSE",HOUSE,4],["HORIZON",HORIZON,4],
  ["CAP",CAP,8],["RUN",RUN,8],["TRIAL",TRIAL,8],["SAMETOWN",SAMETOWN,8],["EARLY",EARLY,8],
- ["REGIONS",REGIONS,8],["ROLE",ROLE,7]];
+ ["REGIONS",REGIONS,8],["ROLE",ROLE,7],["BEGIN",BEGIN,7]];
 const OVERFULL=WIDTHS.filter(([,l,m])=>l.length>m).map(x=>x[0])
  .concat(REGIONS_V3.every((r,i)=>REGIONS[i]===r)?[]:["REGIONS no longer begins with REGIONS_V3"])
  .concat(TOLX.length===1?[]:["TOLX is not one item long, so BITS_C5 is wrong"]);
@@ -924,6 +942,8 @@ function recBin(o){
  w.w(o.u?1:0,1); w.w(o.hh?1:0,1); w.w(o.hz?1:0,1);
  /* C6 */
  w.w(o.role?IDX(ROLE,o.role)+1:0,3);
+ /* C7 */
+ w.w(o.begin?IDX(BEGIN,o.begin)+1:0,3);
  const bytes=w.done();
  /* Seven \u001f-joined free-text fields. An older code carries four or five; the missing
     parts[n] come back undefined and default to "". The fixed block is untouched, so N_FIX
@@ -960,6 +980,8 @@ function recRead(str,REG,ext){
  }
  /* C6 only. Older records leave role absent, which the results count as planning. */
  if(ext>=3){const v=r.r(3); o.role=ROLE[v-1]?ROLE[v-1][0]:"";}
+ /* C7 only. Older records leave begin absent: "not asked yet". */
+ if(ext>=4){const v=r.r(3); o.begin=BEGIN[v-1]?BEGIN[v-1][0]:"";}
  const parts=uU8(str.slice(N_FIX)).split("\u001f");
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
@@ -971,8 +993,8 @@ function recRead(str,REG,ext){
    then the same-town answer, whether you would move early, the hotter-summers tolerance
    and three answered-or-not flags. There is no C4 writer any more: recBin writes the C5
    layout, so a C4 header in front of it would describe the record wrongly. */
-function packC6(list){
- let out=String.fromCharCode(6)+String.fromCharCode(Math.min(255,list.length));
+function packC7(list){
+ let out=String.fromCharCode(7)+String.fromCharCode(Math.min(255,list.length));
  list.forEach(o=>{const b=recBin(o);
   out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
  return out;
@@ -997,6 +1019,7 @@ const unpackC3=str=>unpackRecs(str,REGIONS_V3,false);
 const unpackC4=str=>unpackRecs(str,REGIONS_V3,true);
 const unpackC5=str=>unpackRecs(str,REGIONS,2);
 const unpackC6=str=>unpackRecs(str,REGIONS,3);
+const unpackC7=str=>unpackRecs(str,REGIONS,4);
 const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
 const unbin64=c=>{
  c=String(c).trim().replace(/\s+/g,"");
@@ -1007,11 +1030,12 @@ const unbin64=c=>{
 const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
-const encode=o=>bin64(packC6(Array.isArray(o)?o:[o]));
+const encode=o=>bin64(packC7(Array.isArray(o)?o:[o]));
 /* Fallback chain, newest first: C5, C4 and C3 (frozen five-region list), C2 (frozen
    eight-region list), C1, then raw JSON. */
 const decode=c=>{
  let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===7){const rows=unpackC7(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===6){const rows=unpackC6(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===5){const rows=unpackC5(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===4){const rows=unpackC4(bin);return rows.length===1?rows[0]:rows;}
@@ -1047,7 +1071,7 @@ const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S
  rw:liveRg().indexOf(OFFLIST)>=0?cut(String(S.rw||"").trim(),60):"",
  cz:cut(String(S.cz||"").trim(),40),lv:cut(String(S.lv||"").trim(),40),
  tr:S.tr||TRIAL[0][0],same:S.same||SAMETOWN[0][0],early:S.early||EARLY[0][0],
- pn:Object.assign({},S.pin||{}),role:S.role||""});
+ pn:Object.assign({},S.pin||{}),role:S.role||"",begin:S.begin||""});
 /* Everything a person can TYPE, captured before the screen is rebuilt under them. The name
    was missing from this list because, until the review screen existed, step 0 was only ever
    left through its own save(). It can now be left by "Back to my answers" and by "Home"
@@ -1214,26 +1238,13 @@ const STEPS=[
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"How we'd start, and when",k:"",
- r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first:</b> a year living
-   together before any money goes into land.</p>
-   <div role="group" aria-labelledby="q-tr">`+
-  TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+`</div>`+
-  `<p class="hint" id="q-same" style="margin-top:24px"><b>Or the same town first:</b> each of us in a
-   place of our own in one town, moving in together as people are ready.</p>
-   <div role="group" aria-labelledby="q-same">`+
-  SAMETOWN.map(([k,a,b])=>opt(S.same===k,"same",k,a,b)).join("")+`</div>`+
-  `<p class="hint" id="q-early" style="margin-top:24px"><b>Would you move to the chosen town before
-   anything is bought?</b></p>
-   <div role="group" aria-labelledby="q-early">`+
-  EARLY.map(([k,a,b])=>opt(S.early===k,"early",k,a,b)).join("")+`</div>`+
+ r:()=>`<p class="hint" id="q-begin" style="margin:0 0 12px"><b>Where should we begin?</b></p>
+   <div role="group" aria-labelledby="q-begin">`+
+  BEGIN.map(([k,a])=>opt(S.begin===k,"begin",k,a)).join("")+`</div>`+
   `<p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
    <div role="group" aria-labelledby="q-hz">`+
-  HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`+
-  `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line.</p>
-   <textarea id="stop" aria-label="What would make you walk away"
-    placeholder="A job, a person, a number you can't reach... or nothing yet">${esc(S.stop||"")}</textarea>`,
- save:()=>{const q=document.getElementById("stop");if(q)S.stop=cut(q.value,240);
-  return S.hz?null:"Pick a rough timeframe.";}},
+  HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`,
+ save:()=>S.hz?null:"Pick a rough timeframe."},
 
 {t:"Money, roughly",k:"Rough bands, not commitments.",
  r:()=>`  <p class="hint" id="q-cap" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 one-off</p>
@@ -1273,8 +1284,12 @@ const STEPS=[
 
 {t:"Last one, and it's optional",k:"In one line: why do you want this at all?",
  r:()=>`<textarea id="why" aria-label="Why do you want this at all"
-   placeholder="Because...">${esc(S.why||"")}</textarea>`,
- save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,180);return null;}}
+   placeholder="Because...">${esc(S.why||"")}</textarea>
+  <p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line.</p>
+  <textarea id="stop" aria-label="What would make you walk away"
+   placeholder="A job, a person, a number you can't reach... or nothing yet">${esc(S.stop||"")}</textarea>`,
+ save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,180);
+  const q=document.getElementById("stop");if(q)S.stop=cut(q.value,240);return null;}}
 ];
 
 /* ---------- render ---------- */
@@ -1337,6 +1352,7 @@ function wire(){
  q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
 q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-role]",b=>b.onclick=()=>{S.role=b.dataset.role;autosave();render();});
+ q("[data-begin]",b=>b.onclick=()=>{S.begin=b.dataset.begin;autosave();render();});
  q("[data-hh]",b=>b.onclick=()=>{S.hh=b.dataset.hh;autosave();render();});
  /* aria-pressed already says which way a two-state toggle is, so no live message on top. */
  q("[data-sk]",b=>b.onclick=()=>{const k=b.dataset.sk;S.sk[k]=S.sk[k]?0:1;autosave();
@@ -1388,11 +1404,11 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
    else if(step===STEPS.length-1)mode="review";
    else if(STEPS[step].role&&!isPlan(S))mode="done";
    else step++;
-   window.scrollTo(0,0);render();};
+   toTop(render);};
  const bk=document.getElementById("back");
  if(bk)bk.onclick=()=>{grabOwn();autosave();
    if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";} else step--;
-   window.scrollTo(0,0);render();};
+   toTop(render);};
  const ex=document.getElementById("exit");
  if(ex)ex.onclick=()=>{grabOwn();autosave();rvJump=-1;mode="home";window.scrollTo(0,0);render();};
  /* Deliberately does NOT autosave: autosave() writes to slug(S.n), so someone who opened the
@@ -1473,7 +1489,7 @@ function resume(){
 let rvJump=-1;
 
 const RVREQ=[["n","First name",0],["s","What shape is it",2],["u","How would you use it",6],
- ["hh","Who would be coming with you",6],["hz","Realistically, when",7],["d","Would you borrow",8]];
+ ["hh","Who would be coming with you",6],["hz","Realistically, when",7],["begin","Where should we begin",7],["d","Would you borrow",8]];
 const labOf=(list,k)=>{const x=list.filter(y=>y[0]===k)[0];return x?x[1]:"";};
 const NOANS='<span class="no">not answered</span>';
 /* Four answers start on a value that is also an option somebody can pick on purpose:
@@ -1531,6 +1547,7 @@ function rvCheck(p,d){
  if(!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,6);
  if(!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,6);
  if(!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,7);
+ if(!eq(p.begin,d.begin))add("Where should we begin",labOf(BEGIN,p.begin)||none,labOf(BEGIN,d.begin)||none,7);
  if(!eq(p.tr,d.tr))add("Renting together first",labOf(TRIAL,p.tr)||none,labOf(TRIAL,d.tr)||none,7);
  if(!eq(p.same,d.same))add("The same town first",labOf(SAMETOWN,p.same)||none,labOf(SAMETOWN,d.same)||none,7);
  if(!eq(p.early,d.early))add("Would you move early",labOf(EARLY,p.early)||none,labOf(EARLY,d.early)||none,7);
@@ -1546,7 +1563,7 @@ function rvCheck(p,d){
   if(x!==y)add(a,tolSay(lo,hi,x),tolSay(lo,hi,y),5,x,y);});
  SKILLS.forEach(([k,a])=>{const x=(p.sk&&p.sk[k])?1:0,y=(d.sk&&d.sk[k])?1:0;
   if(x!==y)add(a,x?"offered":"not offered",y?"offered":"not offered",9);});
- [["st","What would make you walk away",7],["wy","Why you want this",11],
+ [["st","What would make you walk away",11],["wy","Why you want this",11],
   ["rw","Where you were thinking",10],["cz","Passport",6],["lv","Country you live in",6]]
   .forEach(([k,lab,j])=>{if(!eq(p[k],d[k]))add(lab,p[k]||"nothing",d[k]||"nothing",j);});
  const want=rgPicks(p), got=(d.rg||[]).slice();
@@ -1666,15 +1683,9 @@ function review(){
    TOL.concat(TOLX).map(([k,a,lo,hi])=>a+": "+tolSay(lo,hi,(r.t&&r.t[k]!==undefined)?r.t[k]:2)).join(" \u00b7 "),
    TOL.concat(TOLX).some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
     "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
-  sec("How we'd start, when, and what would stop you")+
-  rvRow("Renting together first",7,labOf(TRIAL,r.tr),
-   r.tr!==TRIAL[0][0]?"":
-   (onBoard?"This is where the question starts, so it may mean they left it there \u2014 or that their code was sent before the question existed.":RVLEFT))+
-  rvRow("The same town first",7,labOf(SAMETOWN,r.same),r.same!==SAMETOWN[0][0]?"":RVFIRST(onBoard))+
-  rvRow("Would you move before anything is bought",7,labOf(EARLY,r.early),
-   r.early!==EARLY[0][0]?"":RVFIRST(onBoard))+
+  sec("How we'd start, and when")+
+  rvRow("Where should we begin",7,labOf(BEGIN,r.begin))+
   rvRow("Realistically, when",7,labOf(HORIZON,r.hz))+
-  rvRow("What would make you walk away",7,r.st)+
   sec("Money")+
   rvRow("Up-front capital",8,CAP[r.cp]||"",
    r.cp===CAPSPLIT?RVSPLIT:r.cp===5?RVLEFT:"")+
@@ -1683,7 +1694,8 @@ function review(){
   rvRow("Would you borrow to take part",8,r.d)+
   sec("What you bring, and why")+
   rvRow("What you could bring",9,sks.join(", "))+
-  rvRow("Why you want this at all",11,r.wy);
+  rvRow("Why you want this at all",11,r.wy)+
+  rvRow("What would make you walk away",11,r.st);
 
  /* "Don't block" does not mean "carry on as though nothing happened": when the code does
     not read back, the way on is still there but it stops being the confident answer, and
@@ -1710,7 +1722,7 @@ function review(){
  if(iffy||nameSaid)setTimeout(()=>{const w=document.querySelector("#app .warn");
   if(w)say(w.textContent.replace(/\s+/g," ").trim());},60);
  document.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>{
-  rvJump=+b.dataset.jump; step=rvJump; mode="build"; window.scrollTo(0,0); render();});
+  rvJump=+b.dataset.jump; step=rvJump; mode="build"; toTop(render);});
  document.getElementById("exit").onclick=()=>{
   rvJump=-1; mode=onBoard?"combine":"home"; window.scrollTo(0,0); render();};
  document.getElementById("rvok").onclick=()=>{
@@ -2278,9 +2290,8 @@ function posterSVG(){
    r.s+=`<text x="0" y="${r.h}" font-size="19" fill="${PINE}" font-family="${SERIF}" font-style="italic">${esc(l)}</text>`;});r.h+=6;}
   return r;});
  if(POSTER.pins.length)card("Where exactly",PINE,1,w=>list(POSTER.pins.slice(0,5),34));
- const STARTCOL={unsure:MIST,must:GLAC,want:GLAC,good:"#7FA9B5",fine:"#7FA9B5",skip:"#D2A7AF",against:WINE};
- if(POSTER.trial.length)card("A year renting first",GLAC,1,w=>stacked(POSTER.trial.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
- if(POSTER.same.length)card("Same town first",GLAC,1,w=>stacked(POSTER.same.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
+ const BEGINCOL={shared:GLAC,town:"#7FA9B5",any:MIST};
+ if(POSTER.begin.length)card("Where to begin",GLAC,1,w=>stacked(POSTER.begin.map(([k,a,n])=>[a,n,BEGINCOL[k]||MIST]),w));
  card("Locked in",GLAC,1,w=>list(POSTER.locked,34));
  card("Could be's",WINE,1,w=>list(POSTER.fight,34));
  if(POSTER.stops.length)card("What would stop us",WINE,2,w=>{let s3="",h=0;
@@ -2445,30 +2456,15 @@ function result(){
   const gone=RETIRED.map(r=>[r,t[r]||0]).filter(x=>x[1]);
   srow("Where",(liveL||"<em>nobody picked a region</em>")+
    (gone.length?` <em>&middot; ${gone.reduce((a,x)=>a+x[1],0)} for regions since dropped</em>`:""));}
- /* The trial year sits second: it is the proposal the September call put highest and the
-    one nothing else on this page can settle. "No view" is the stored default as well as a
-    real answer, and the record cannot tell those apart, so the line says so. */
- {const f=codes.filter(c=>c.tr==="must"||c.tr==="good").length,
-    ag=codes.filter(c=>c.tr==="skip"||c.tr==="against").length,
-    nv=N-f-ag;
-  srow("Trial year",(f||ag)?
-   `<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
-   `<em>${N===2?"both of you":"all "+nword(N)+" of you"} left it at "no view", which is
-    also where it starts</em>`);}
- /* The second proposal, in the same form as the first and directly beneath it, so neither
-    is read as the default. Only codes that were asked count: one sent before the question
-    existed is "not asked", which is neither for nor against, and is said as such. */
- {const asked=codes.filter(c=>c.same!==undefined), A=asked.length;
-  const f=asked.filter(c=>c.same==="want"||c.same==="fine").length,
-    ag=asked.filter(c=>c.same==="skip"||c.same==="against").length, nv=A-f-ag;
-  const mv=asked.filter(c=>c.early==="yes").length, dp=asked.filter(c=>c.early==="depends").length;
-  srow("Same town first",!A?`<em>not asked yet &mdash; ${N===1?"this code was":"every code here was"}
-    sent before the question existed</em>`:
-   ((f||ag)?`<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
-    `<em>${A===N?(N===2?"both of you":"all "+nword(N)+" of you"):A+" of "+N} left it at "no view",
-     which is also where it starts</em>`)+
-   ((mv||dp)?` <em>&middot; ${mv} would move before anything is bought${dp?`, ${dp} depending on the town`:""}</em>`:"")+
-   (A&&A<N?` <em>&middot; ${N-A} not asked</em>`:""));}
+ /* Where to begin. Only codes that were asked count; one sent before the question existed is
+    "not asked yet", which is not a preference, and is said as such. The trial year and the
+    same-town idea it replaced are no longer shown (31 Oct 2026). */
+ {const asked=codes.filter(c=>c.begin!==undefined), A=asked.length, t={};
+  asked.forEach(c=>{if(c.begin)t[c.begin]=(t[c.begin]||0)+1;});
+  const L=leadTxt(lead(BEGIN.map(([k,a])=>[a,t[k]||0])));
+  srow("Where to begin",!A?`<em>not asked yet &mdash; ${N===1?"this code was":"every code here was"}
+    sent before the question existed</em>`:(L||"<em>nobody answered</em>")+
+   (A<N?` <em>&middot; ${N-A} not asked yet</em>`:""));}
  {const t={};codes.forEach(c=>{if(c.hz)t[c.hz]=(t[c.hz]||0)+1;});
   srow("When",leadTxt(lead(HORIZON.map(([k,a])=>[a,t[k]||0])))||"<em>nobody gave a timeframe</em>");}
  /* Pooled from CAPEUR / RUNEUR, the same ranges the two rows further down use. */
@@ -2549,9 +2545,9 @@ function result(){
      like any other non-answer, and do not count toward the note under the gauge. */
   ["How we'd start, and when",avgSome([
     agrSome(codes.map(c=>c.hz?HORIZON.findIndex(x=>x[0]===c.hz):null),3),
-    catQ(codes.map(c=>side(c.tr,["must","good"],["skip","against"]))),
-    catQ(codes.map(c=>side(c.same,["want","fine"],["skip","against"]))),
-    catQ(codes.map(c=>c.early&&c.early!=="unsure"?c.early:""))])],
+    /* where to begin (31 Oct 2026, replacing the trial year, same town and moving early):
+       "Doesn't matter to me" fits either answer, so like "No view yet" it is left out */
+    catQ(codes.map(c=>c.begin&&c.begin!=="any"?c.begin:""))])],
   ["Money & commitment",avgSome([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
     agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u)),catAgr(codes.map(c=>c.d))])],
   /* Region overlap, discounted by how far apart the pins are inside a shared region.
@@ -2912,45 +2908,14 @@ function result(){
   HORIZON.forEach(([k,a])=>{const n=codes.filter(c=>c.hz===k).length;if(!n)return;
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.hz===k?[nameOf(i),PAL[i%PAL.length],"this timeframe"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${codes.filter(c=>c.hz===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
     <div class="bar"><span style="width:${n/N*100}%;background:var(--gold)"></span></div></div>`;});}
- /* ---------- the trial year ---------- */
- const trAns=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
- if(trAns.length){
-  h+=`${sec("Renting together first")}
-   <p class="hint">A year living together somewhere before any money goes into land.</p>`;
-  const yes=codes.filter(c=>c.tr==="must"||c.tr==="good").length;
-  const no=codes.filter(c=>c.tr==="skip"||c.tr==="against").length;
-  const hard=codes.filter(c=>c.tr==="must").length, anti=codes.filter(c=>c.tr==="against").length;
-  if(hard&&anti) h+=`<div class="card split"><div class="ct">A straight conflict</div>
-    <p>${hard} of you will not buy without a trial year and ${anti} ${anti===1?"is":"are"} against
-    having one. That is not a preference to average out \u2014 settle it before anyone looks at
-    property.</p></div>`;
-  else if(yes&&!no&&trAns.length>1) h+=`<div class="card agree"><div class="ct">Settled, if you want it to be</div>
-    <p>Everyone who answered is for it. The trial year can stop being a proposal and start being
-    the plan.</p></div>`;
-  TRIAL.forEach(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;if(!c2)return;
-   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.tr===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}><div class="t"><b>${a}</b>
-    <em>${codes.filter(c=>c.tr===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
-    <div class="bar"><span style="width:${c2/N*100}%;background:${k==="must"||k==="good"?"var(--glacier)":k==="unsure"?"var(--rule)":"var(--madder)"}"></span></div></div>`;});
- }
- /* ---------- the same town first ---------- */
- /* Same layout as the trial year above, deliberately: two proposals, shown alike. No card
-    and no verdict - the page reports. Bars are out of those who were asked. */
- const smAsked=codes.filter(c=>c.same!==undefined), SA=smAsked.length;
- if(smAsked.some(c=>c.same!==SAMETOWN[0][0]||(c.early&&c.early!==EARLY[0][0]))){
-  h+=`${sec("Same town first")}
-   <p class="hint">The other proposal: each of us in a place of our own in one town, sorting out living
-   together as people are ready.${SA<N?` ${N-SA} of you sent a code before this was asked, and are
-   left out of the counts here.`:""}</p>`;
-  const bar=(list,k,a,col,key)=>{const w2=list.filter(c=>c[key]===k);if(!w2.length)return "";
-   return `<div class="res"${insAttr(a,codes.map((c,i)=>c[key]===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}>
-    <div class="t"><b>${esc(a)}</b><em>${w2.map(c=>esc(c.n||"anon")).join(", ")}</em></div>
-    <div class="bar"><span style="width:${w2.length/SA*100}%;background:${col}"></span></div></div>`;};
-  SAMETOWN.forEach(([k,a])=>{h+=bar(smAsked,k,a,k==="want"||k==="fine"?"var(--glacier)":
-   k==="unsure"?"var(--rule)":"var(--madder)","same");});
-  /* One colour for all four: moving later is a timing, not an objection. */
-  h+=`<div class="grp">Would move before anything is bought</div>`;
-  EARLY.forEach(([k,a])=>{h+=bar(smAsked,k,a,k==="unsure"?"var(--rule)":"var(--glacier)","early");});
- }
+ /* ---------- where to begin ---------- */
+ {const said=codes.filter(c=>c.begin);
+  if(said.length){h+=sec("Where to begin")+(said.length<N?`<p class="hint">${N-said.length} of you
+    ${N-said.length===1?"has":"have"} not answered this.</p>`:"");
+   BEGIN.forEach(([k,a])=>{const w2=said.filter(c=>c.begin===k);if(!w2.length)return;
+    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.begin===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}>
+     <div class="t"><b>${esc(a)}</b><em>${w2.map(c=>esc(c.n||"anon")).join(", ")}</em></div>
+     <div class="bar"><span style="width:${w2.length/N*100}%;background:${k==="any"?"var(--rule)":"var(--glacier)"}"></span></div></div>`;});}}
  const hhs=codes.filter(c=>c.hh).length;
  if(hhs){h+=sec("Who is coming");
   HOUSE.forEach(([k,a])=>{const n=codes.filter(c=>c.hh===k).length;if(!n)return;
@@ -3045,7 +3010,7 @@ function result(){
    const score=lab=>{const x=secScores.filter(y=>y[0]===lab)[0];return x?x[1]:null;};
    const RGRP=[
     ["Where",score("Where"),["Gut feeling, mapped","Where exactly"]],
-    ["How we'd start, and when",score("How we'd start, and when"),["When","Renting together first","Same town first"]],
+    ["How we'd start, and when",score("How we'd start, and when"),["When","Where to begin"]],
     ["What matters most",score("Land & buildings"),["What you would trade for what","The whole picture in one chart"]],
     ["What has to be possible",score("What's possible"),["What has to be possible","Added by hand"]],
     ["How much you can take",score("Tolerances"),["How much you can each take"]],
@@ -3135,10 +3100,8 @@ function result(){
     .map(([r,n])=>[r===OFFLIST?"Somewhere else":(SHORT[r]||r)+(RETIRED.indexOf(r)>=0?" (earlier list)":""),n]),
   named:codes.filter(c=>c.rw&&String(c.rw).trim()).map(c=>String(c.rw).trim()),
   pins:(PINS_ON?allPins(codes):[]).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
-  /* the two "how we'd start" questions as counts per answer, "no view" included, over the
-     codes that were asked; empty when nobody has moved off "no view" */
-  trial:codes.some(c=>c.tr&&c.tr!==TRIAL[0][0])?TRIAL.map(([k,a])=>[k,a,codes.filter(c=>c.tr===k).length]).filter(x=>x[2]):[],
-  same:codes.some(c=>c.same&&c.same!==SAMETOWN[0][0])?SAMETOWN.map(([k,a])=>[k,a,codes.filter(c=>c.same===k).length]).filter(x=>x[2]):[],
+  /* where to begin, as counts per answer; empty when nobody has answered it */
+  begin:codes.some(c=>c.begin)?BEGIN.map(([k,a])=>[k,a,codes.filter(c=>c.begin===k).length]).filter(x=>x[2]):[],
   stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>[c.n||"anon",c.st.trim()])};
  wireInspector();
  const tip1=document.querySelector("#app .res[data-items]");

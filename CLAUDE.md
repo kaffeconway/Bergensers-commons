@@ -112,17 +112,24 @@ the build.
   field (activities, token spends, tolerances, skills, region picks) is packed into a
   handful of bits each rather than stored as a JSON key. Free text (name, deal-breakers,
   why, activity write-ins, region write-in) is stored as raw UTF-8 after the packed block,
-  as `\x1f`-joined fields. Encoder is `encode()` / `packC6()` / `recBin()`; decoder is
+  as `\x1f`-joined fields. Encoder is `encode()` / `packC7()` / `recBin()`; decoder is
   `decode()` / `unpackRecs()` / `recRead()`. There's a fallback chain so older-format codes
   still decode — don't break that fallback.
 
-- **Six formats coexist: C1 to C6.** The leading byte of the decoded blob says which.
-  `encode()` always writes **C6**; `decode()` tries C6, then C5, C4, C3, C2, then C1 (a
-  prior JSON-based format), then raw JSON, in that order. There is no C4 or C5 writer any
-  more: `recBin` writes the C6 layout, so an older header in front of it would describe it
+- **Seven formats coexist: C1 to C7.** The leading byte of the decoded blob says which.
+  `encode()` always writes **C7**; `decode()` tries C7, C6, C5, C4, C3, C2, then C1 (a
+  prior JSON-based format), then raw JSON, in that order. There is no writer for any older
+  format: `recBin` writes the C7 layout, so an older header in front of it would describe it
   wrongly. To make a genuine older code for a test, load an earlier commit's `index.html` and
-  call its `encode()` — that is the real old encoder, not an imitation of it. (C5 was written
-  until 31 Oct 2026; `main` before the C6 merge is a genuine C5 encoder.)
+  call its `encode()` — that is the real old encoder, not an imitation of it. (C5 and C6 were
+  both written on 31 Oct 2026; `main` before each later merge is a genuine encoder of each.)
+
+  **C7 (31 Oct 2026) adds 3 bits: where to begin** (`begin`, `BEGIN`: 0 is unanswered, then
+  the `BEGIN` index + 1). `ext` level `4`, `BITS_C7 = BITS_C6 + 3`. A record older than C7
+  leaves `begin` **absent**, shown as "not asked yet". It replaced three questions on page 8 —
+  the trial year (`tr`), the same-town idea (`same`) and moving early (`early`) — which are no
+  longer asked, shown or scored. Their fields are still written and read, so answers already
+  given stay in people's codes; nothing that was said is dropped.
 
   **C6 (31 Oct 2026) adds 3 bits: how involved somebody wants to be** (`role`, `ROLE`: 0 is
   unanswered, then the `ROLE` index + 1). `ext` level `3`, `BITS_C6 = BITS_C5 + 3`. A record
@@ -460,11 +467,17 @@ section must be named in a group — one that is not is kept, unfolded, after th
 than dropped. The per-part bars and the chip navigation strip were removed: the group lines
 are the overview, and a chip pointing into a closed group jumps to nothing.
 
-The alignment score's timing part became **"How we'd start, and when"** on 31 Oct 2026, on the
-organiser's decision and knowing it moves scores already given: timing over those who
-answered, plus the trial year and the same-town idea compared as for / against, plus whether
-people would move early. "No view yet" and a code that never had the question are left out,
-not counted as agreement, and do not add to the gauge's unanswered-question note. "Hotter
+The alignment score's timing part is **"How we'd start, and when"**: timing over those who
+answered, plus **where to begin** (since the redesign of page 8 later on 31 Oct 2026, which
+replaced the trial year, the same-town idea and moving early — the organiser's decision, knowing
+it moves scores already given). "Doesn't matter to me" fits either answer, so like "No view
+yet" it is left out rather than counted as agreement, as is a code that never had the question.
+
+**Page 8 is two questions** (31 Oct 2026): "Where should we begin?" — *Look for a shared place
+to live*, *Move to the same town or city first*, *Doesn't matter to me* — and "Realistically,
+when?". "What would make you walk away?" moved to the last page, beside "Why do you want this
+at all?". The results show "Where to begin" in the summary and as its own section; the shareable
+image has one "Where to begin" card in place of the trial-year and same-town cards. "Hotter
 summers" is still kept out of the score until most respondents have been asked it.
 
 The page explains itself once, not per row. "Tap for names" is a `::after` on `.res.tip1`,
@@ -556,6 +569,13 @@ Joseph doing the work.
 
 ## Testing changes
 
+**Changing step goes through `toTop()`.** On iPhone Safari, a text box with the keyboard open
+restored its scroll position as the keyboard closed, after the next step had drawn, so that
+step opened at its bottom (seen on page 8, whose last field was a text box). `toTop()` closes
+the keyboard before drawing, scrolls to the top after, and once more when the keyboard has
+gone unless the person has started scrolling. Chromium never showed the bug, so only a phone
+proves the fix.
+
 Keyboard focus is styled with `:focus-visible` only (a 2px glacier outline), so a mouse or
 a tap shows nothing and a keyboard user gets a visible ring. Every control here is a custom
 button, so without it there is only the browser default to go on.
@@ -565,19 +585,20 @@ check with a quick Node script: extract the `<script>` contents, `new Function(.
 them with stub DOM globals, and roundtrip a sample answer through `encode`/`decode`.
 This has caught real bugs before (see the strict-validation and hyphen fixes above) —
 don't skip it for anything touching
-`packOne`/`packC6`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
+`packOne`/`packC7`/`recBin`/`recRead`/`unpackRecs`/`decode`/`encode`.
 
-Things worth asserting every time the codec changes: a new answer roundtrips through C6
-with its role (each of the three, and blank), regions (Oslo included), write-in, pins,
+Things worth asserting every time the codec changes: a new answer roundtrips through C7
+with its where-to-begin answer (each of the three, and blank), its role (each, and blank), regions (Oslo included), write-in, pins,
 trial-year, same-town and move-early answers, the hotter-summers slider, and a genuine blank
-for use, household and timing; a **C5** code made by an earlier commit's own `encode()` still
+for use, household and timing; a **C6** code made by an earlier commit's own `encode()` still
+decodes, with `begin` absent; a **C5** code made by an earlier commit's own `encode()` still
 decodes, with `role` absent and counted as planning; a **C4** code made the same way still
 decodes, with `same` and `early` absent; a **C3** and a **C2** code
 still decode, still report the regions the person actually picked, and still read their
 free-text tail from the *shorter* fixed block (build them in the test by writing the old
 bit layout with a leading byte 2 or 3 and the right region array); a **C1** code still
 decodes; a grouped code pasted as one blob still imports as a single code; and an older
-saved copy of the page refuses a C6 code rather than misreading it.
+saved copy of the page refuses a C7 code rather than misreading it.
 
 If you edit `index.html` with a script, run the ASCII check afterwards whatever the script
 was meant to do. Some editing tools decode `\uXXXX` escapes before the text reaches the file,
