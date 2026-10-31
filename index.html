@@ -2,12 +2,12 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
+<meta name="description" content="Twelve steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
 <meta property="og:title" content="The Bergenshire">
 <meta property="og:site_name" content="The Bergenshire">
-<meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
+<meta property="og:description" content="Twelve steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
@@ -345,6 +345,13 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  .res,.card,.chartwrap{break-inside:avoid}
  body{background:#fff}
 }
+/* Used by the review screen's "does not read back" alarm (and by the pin list while pins are on).
+   Removed by mistake with the pairs section on 31 Oct 2026 and restored the same day. */
+.brole{opacity:.7;font-size:.85em}
+.diffs{margin-top:8px;padding-left:10px;border-left:2px solid var(--rule)}
+.dl{display:block;margin:5px 0;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
+.dl .dk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--pine);opacity:.65}
+.dl .dv{color:var(--ink);opacity:.9}
 .stack{display:flex;height:9px;margin-top:6px;background:var(--rule2);border-radius:5px;overflow:hidden}
 .stack span{display:block;height:9px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
@@ -539,6 +546,22 @@ const EARLY=[["unsure","Can't say yet",""],
  ["yes","Yes","I could move there before there is a shared place"],
  ["depends","It depends on the town",""],
  ["later","Not until there is a shared place","I would come once there is somewhere to live together"]];
+/* How involved somebody wants to be, asked straight after their name (31 Oct 2026, the
+   organiser's decision). Only "plan" goes on through the questionnaire; the other two finish
+   there with a code, so they are counted without being asked about land and money, and the
+   results leave them out of every chart and score. Positional: append only. A code with no
+   role - every code sent before this question existed - counts as planning, also his call:
+   those people answered everything. That is applied when counting (isPlan), never in decode,
+   so an old code still says exactly what was sent. */
+const ROLE=[["plan","On the planning committee","I may invest, and want a say in where and how"],
+ ["follow","Keep me posted","Not planning, but I'd like to follow along"],
+ ["visit","Visiting is enough","I'm happy seeing everyone at Bergensers reunions"]];
+const isPlan=c=>!c||!c.role||c.role==="plan";
+/* The planning committee's WhatsApp invite, shown on the code screen to planners only.
+   This page and its repo are public, so the group must have "Approve new participants"
+   switched on before a link goes here: whoever finds it can then only ask to join. Empty
+   means nothing is shown. Added 31 Oct 2026, the organiser confirming approval is on. */
+const PLANCHAT="https://chat.whatsapp.com/G3tnaAUOUr8K05uRar4Ytr";
 /* The four states of an activity chip, in one place: the legend above the grid, the glyph
    carried on the chip itself and the state a screen reader is told all read from here, so
    they cannot drift apart. The glyph is the non-colour cue - neutral and "nice to have"
@@ -574,7 +597,7 @@ let pend=[], pendBoth=false;
    with no confirmation while clearing the whole board asks twice, so the guard was on the
    less likely action - and a row is somebody's answers, which may be the only copy. */
 let undoRow=null;
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],same:SAMETOWN[0][0],early:EARLY[0][0],pin:{}};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],same:SAMETOWN[0][0],early:EARLY[0][0],pin:{},role:""};
  SKILLS.forEach(([k])=>o.sk[k]=0);
  SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.concat(TOLX).forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
@@ -620,7 +643,7 @@ function stateFrom(o){
   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||"",
   cz:o.cz||"",lv:o.lv||"",
   tr:o.tr||TRIAL[0][0],same:o.same||SAMETOWN[0][0],early:o.early||EARLY[0][0],
-  pin:Object.assign({},o.pn||{})});
+  pin:Object.assign({},o.pn||{}),role:o.role||""});
 }
 
 const BOARD="commons:board";
@@ -831,8 +854,10 @@ const BITS_C4=BITS_CORE+3+PIN_BITS*2;
    (3). Spelled out as numbers rather than TOLX.length: a list that sets a width is a list
    somebody can lengthen without noticing the width has moved. */
 const BITS_C5=BITS_C4+3+3+3+3;
+/* C6: how involved somebody wants to be (3 bits: 0 is unanswered, then ROLE index + 1). */
+const BITS_C6=BITS_C5+3;
 const NFIX=b=>Math.ceil(b/8);
-const fixBits=ext=>ext===2?BITS_C5:ext?BITS_C4:BITS_CORE;
+const fixBits=ext=>ext===3?BITS_C6:ext===2?BITS_C5:ext?BITS_C4:BITS_CORE;
 /* Pins are quantised across the map window: 1023 steps over 37 degrees of latitude is
    about 4 km, and over 43 degrees of longitude about 3.3 km at 45 N. Ample for telling
    the western Italian Alps from the eastern ones, and it costs 21 bits. */
@@ -863,7 +888,7 @@ const rgPicks=o=>(o.rg||[]).filter(r=>REGIONS.indexOf(r)>=0)
    REGIONS_V3, or every C3 and C4 code would quietly read against the wrong list. */
 const WIDTHS=[["STYLES",STYLES,7],["USES",USES,4],["HOUSE",HOUSE,4],["HORIZON",HORIZON,4],
  ["CAP",CAP,8],["RUN",RUN,8],["TRIAL",TRIAL,8],["SAMETOWN",SAMETOWN,8],["EARLY",EARLY,8],
- ["REGIONS",REGIONS,8]];
+ ["REGIONS",REGIONS,8],["ROLE",ROLE,7]];
 const OVERFULL=WIDTHS.filter(([,l,m])=>l.length>m).map(x=>x[0])
  .concat(REGIONS_V3.every((r,i)=>REGIONS[i]===r)?[]:["REGIONS no longer begins with REGIONS_V3"])
  .concat(TOLX.length===1?[]:["TOLX is not one item long, so BITS_C5 is wrong"]);
@@ -897,6 +922,8 @@ function recBin(o){
  w.w(IDX(SAMETOWN,o.same),3); w.w(IDX(EARLY,o.early),3);
  TOLX.forEach(([k])=>w.w(Math.min(7,(o.t&&o.t[k]!==undefined)?o.t[k]:2),3));
  w.w(o.u?1:0,1); w.w(o.hh?1:0,1); w.w(o.hz?1:0,1);
+ /* C6 */
+ w.w(o.role?IDX(ROLE,o.role)+1:0,3);
  const bytes=w.done();
  /* Seven \u001f-joined free-text fields. An older code carries four or five; the missing
     parts[n] come back undefined and default to "". The fixed block is untouched, so N_FIX
@@ -926,11 +953,13 @@ function recRead(str,REG,ext){
     in a default, because absent means "never asked" and that is not "No view yet". The
     trial year is the warning: its default cannot be told apart from a real answer, and
     still cannot. */
- if(ext===2){
+ if(ext>=2){
   o.same=(SAMETOWN[r.r(3)]||SAMETOWN[0])[0]; o.early=(EARLY[r.r(3)]||EARLY[0])[0];
   TOLX.forEach(([k])=>o.t[k]=r.r(3));
   if(!r.r(1))o.u=""; if(!r.r(1))o.hh=""; if(!r.r(1))o.hz="";
  }
+ /* C6 only. Older records leave role absent, which the results count as planning. */
+ if(ext>=3){const v=r.r(3); o.role=ROLE[v-1]?ROLE[v-1][0]:"";}
  const parts=uU8(str.slice(N_FIX)).split("\u001f");
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
@@ -942,8 +971,8 @@ function recRead(str,REG,ext){
    then the same-town answer, whether you would move early, the hotter-summers tolerance
    and three answered-or-not flags. There is no C4 writer any more: recBin writes the C5
    layout, so a C4 header in front of it would describe the record wrongly. */
-function packC5(list){
- let out=String.fromCharCode(5)+String.fromCharCode(Math.min(255,list.length));
+function packC6(list){
+ let out=String.fromCharCode(6)+String.fromCharCode(Math.min(255,list.length));
  list.forEach(o=>{const b=recBin(o);
   out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
  return out;
@@ -967,6 +996,7 @@ const unpackC2=str=>unpackRecs(str,REGIONS_V2,false);
 const unpackC3=str=>unpackRecs(str,REGIONS_V3,false);
 const unpackC4=str=>unpackRecs(str,REGIONS_V3,true);
 const unpackC5=str=>unpackRecs(str,REGIONS,2);
+const unpackC6=str=>unpackRecs(str,REGIONS,3);
 const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
 const unbin64=c=>{
  c=String(c).trim().replace(/\s+/g,"");
@@ -977,11 +1007,12 @@ const unbin64=c=>{
 const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
-const encode=o=>bin64(packC5(Array.isArray(o)?o:[o]));
+const encode=o=>bin64(packC6(Array.isArray(o)?o:[o]));
 /* Fallback chain, newest first: C5, C4 and C3 (frozen five-region list), C2 (frozen
    eight-region list), C1, then raw JSON. */
 const decode=c=>{
  let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===6){const rows=unpackC6(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===5){const rows=unpackC5(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===4){const rows=unpackC4(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===3){const rows=unpackC3(bin);return rows.length===1?rows[0]:rows;}
@@ -1016,7 +1047,7 @@ const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S
  rw:liveRg().indexOf(OFFLIST)>=0?cut(String(S.rw||"").trim(),60):"",
  cz:cut(String(S.cz||"").trim(),40),lv:cut(String(S.lv||"").trim(),40),
  tr:S.tr||TRIAL[0][0],same:S.same||SAMETOWN[0][0],early:S.early||EARLY[0][0],
- pn:Object.assign({},S.pin||{})});
+ pn:Object.assign({},S.pin||{}),role:S.role||""});
 /* Everything a person can TYPE, captured before the screen is rebuilt under them. The name
    was missing from this list because, until the review screen existed, step 0 was only ever
    left through its own save(). It can now be left by "Back to my answers" and by "Home"
@@ -1127,6 +1158,10 @@ const STEPS=[
    `Your answers save on this device under this name. Nothing is uploaded anywhere.`}</p>`,
  save:()=>setName(document.getElementById("nm").value)},
 
+{t:"How involved do you want to be?",k:"",role:true,
+ r:()=>ROLE.map(([k,a,b])=>opt(S.role===k,"role",k,a,b)).join(""),
+ save:()=>S.role?null:"Pick one to go on."},
+
 {t:"What shape is it?",k:"Pick the one closest to how you picture it.",
  r:()=>STYLES.map(([k,a,b])=>opt(S.style===k,"style",k,a,b)).join(""),
  save:()=>S.style?null:"Pick one."},
@@ -1167,17 +1202,15 @@ const STEPS=[
   `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
    <div role="group" aria-labelledby="q-hh">`+
   HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
-  /* The reason for asking stays, in the open, above the inputs: why somebody's personal data
+  /* The reason for asking stays, in the open, above the input: why somebody's personal data
      is wanted is not reference material and never goes behind a disclosure or into the
-     research file. It survived the October cut that took everything else, at one line. */
-  `<p class="hint" id="q-from" style="margin-top:22px"><b>Where are you coming from?</b> Optional.
-   Passport and country decide what is legally possible.</p>
-   <div role="group" aria-labelledby="q-from">
-   <div class="sl"><label for="cz">Passport, or passports</label>
-    <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
-   <div class="sl"><label for="lv">Country you live in now</label>
-    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>
-   </div>`,
+     research file. It survived the October cut that took everything else, at one line.
+     The passport question was removed on 31 Oct 2026 (the organiser's decision); a passport
+     already in somebody's code (cz) is kept there, not shown and not asked. */
+  `<p class="hint" id="q-from" style="margin-top:22px"><b>Which country are you in now?</b> Optional.
+   Where you live decides what is legally possible.</p>
+   <div class="sl"><input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"
+    aria-labelledby="q-from"></div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"How we'd start, and when",k:"",
@@ -1303,6 +1336,7 @@ function wire(){
  q("[data-more]",d=>d.ontoggle=()=>{moreOpen[d.dataset.more]=d.open;});
  q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
 q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
+ q("[data-role]",b=>b.onclick=()=>{S.role=b.dataset.role;autosave();render();});
  q("[data-hh]",b=>b.onclick=()=>{S.hh=b.dataset.hh;autosave();render();});
  /* aria-pressed already says which way a two-state toggle is, so no live message on top. */
  q("[data-sk]",b=>b.onclick=()=>{const k=b.dataset.sk;S.sk[k]=S.sk[k]?0:1;autosave();
@@ -1351,7 +1385,9 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
    if(e){document.getElementById("err").textContent=e;return;}
    autosave();
    if(rvJump>=0){fkNext="rv:"+rvJump;rvJump=-1;mode="review";}
-   else if(step===STEPS.length-1)mode="review"; else step++;
+   else if(step===STEPS.length-1)mode="review";
+   else if(STEPS[step].role&&!isPlan(S))mode="done";
+   else step++;
    window.scrollTo(0,0);render();};
  const bk=document.getElementById("back");
  if(bk)bk.onclick=()=>{grabOwn();autosave();
@@ -1436,8 +1472,8 @@ function resume(){
    as a code to send. */
 let rvJump=-1;
 
-const RVREQ=[["n","First name",0],["s","What shape is it",1],["u","How would you use it",5],
- ["hh","Who would be coming with you",5],["hz","Realistically, when",6],["d","Would you borrow",7]];
+const RVREQ=[["n","First name",0],["s","What shape is it",2],["u","How would you use it",6],
+ ["hh","Who would be coming with you",6],["hz","Realistically, when",7],["d","Would you borrow",8]];
 const labOf=(list,k)=>{const x=list.filter(y=>y[0]===k)[0];return x?x[1]:"";};
 const NOANS='<span class="no">not answered</span>';
 /* Four answers start on a value that is also an option somebody can pick on purpose:
@@ -1486,43 +1522,44 @@ function rvCheck(p,d){
   out.push({lab:lab,mine:m,theirs:t,jump:jump});};
  const none="not answered";
  if(!eq(p.n,d.n))add("First name",p.n||none,d.n||none,0);
- if(!eq(p.s,d.s))add("What shape is it",labOf(STYLES,p.s)||none,labOf(STYLES,d.s)||none,1);
+ if(!eq(p.role,d.role))add("How involved",labOf(ROLE,p.role)||none,labOf(ROLE,d.role)||none,1);
+ if(!eq(p.s,d.s))add("What shape is it",labOf(STYLES,p.s)||none,labOf(STYLES,d.s)||none,2);
  /* Compared flat. Until C5 an unanswered one of these three had no blank to travel as and
     came back as the first option, so a blank had to be let through here or everybody who
     had not finished got a red panel. A C5 code carries the blank, so a difference of any
     kind is now a real one. */
- if(!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,5);
- if(!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,5);
- if(!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,6);
- if(!eq(p.tr,d.tr))add("Renting together first",labOf(TRIAL,p.tr)||none,labOf(TRIAL,d.tr)||none,6);
- if(!eq(p.same,d.same))add("The same town first",labOf(SAMETOWN,p.same)||none,labOf(SAMETOWN,d.same)||none,6);
- if(!eq(p.early,d.early))add("Would you move early",labOf(EARLY,p.early)||none,labOf(EARLY,d.early)||none,6);
- if(!eq(p.d,d.d))add("Would you borrow",p.d||none,d.d||none,7);
- if(p.cp!==d.cp)add("Up-front capital",CAP[p.cp]||none,CAP[d.cp]||none,7);
- if(p.rn!==d.rn)add("Monthly running cost",RUN[p.rn]||none,RUN[d.rn]||none,7);
+ if(!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,6);
+ if(!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,6);
+ if(!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,7);
+ if(!eq(p.tr,d.tr))add("Renting together first",labOf(TRIAL,p.tr)||none,labOf(TRIAL,d.tr)||none,7);
+ if(!eq(p.same,d.same))add("The same town first",labOf(SAMETOWN,p.same)||none,labOf(SAMETOWN,d.same)||none,7);
+ if(!eq(p.early,d.early))add("Would you move early",labOf(EARLY,p.early)||none,labOf(EARLY,d.early)||none,7);
+ if(!eq(p.d,d.d))add("Would you borrow",p.d||none,d.d||none,8);
+ if(p.cp!==d.cp)add("Up-front capital",CAP[p.cp]||none,CAP[d.cp]||none,8);
+ if(p.rn!==d.rn)add("Monthly running cost",RUN[p.rn]||none,RUN[d.rn]||none,8);
  SPEND.forEach(([k,a])=>{const x=(p.sp&&p.sp[k])||0,y=(d.sp&&d.sp[k])||0;
-  if(x!==y)add("Tokens on "+a,String(x),String(y),2);});
+  if(x!==y)add("Tokens on "+a,String(x),String(y),3);});
  ALLACTS.forEach(([k,a])=>{const x=(p.a&&p.a[k])||0,y=(d.a&&d.a[k])||0;
-  if(x!==y)add(a,ACTSTATE[x][1],ACTSTATE[y][1],3);});
+  if(x!==y)add(a,ACTSTATE[x][1],ACTSTATE[y][1],4);});
  TOL.concat(TOLX).forEach(([k,a,lo,hi])=>{const x=(p.t&&p.t[k]!==undefined)?p.t[k]:2,
    y=(d.t&&d.t[k]!==undefined)?d.t[k]:2;
-  if(x!==y)add(a,tolSay(lo,hi,x),tolSay(lo,hi,y),4,x,y);});
+  if(x!==y)add(a,tolSay(lo,hi,x),tolSay(lo,hi,y),5,x,y);});
  SKILLS.forEach(([k,a])=>{const x=(p.sk&&p.sk[k])?1:0,y=(d.sk&&d.sk[k])?1:0;
-  if(x!==y)add(a,x?"offered":"not offered",y?"offered":"not offered",8);});
- [["st","What would make you walk away",6],["wy","Why you want this",10],
-  ["rw","Where you were thinking",9],["cz","Passport",5],["lv","Country you live in",5]]
+  if(x!==y)add(a,x?"offered":"not offered",y?"offered":"not offered",9);});
+ [["st","What would make you walk away",7],["wy","Why you want this",11],
+  ["rw","Where you were thinking",10],["cz","Passport",6],["lv","Country you live in",6]]
   .forEach(([k,lab,j])=>{if(!eq(p[k],d[k]))add(lab,p[k]||"nothing",d[k]||"nothing",j);});
  const want=rgPicks(p), got=(d.rg||[]).slice();
  if(want.join("|")!==got.join("|"))
-  add("Where",want.length?want.join(", "):"nothing picked",got.length?got.join(", "):"nothing picked",9);
+  add("Where",want.length?want.join(", "):"nothing picked",got.length?got.join(", "):"nothing picked",10);
  const ow1=(p.ow||[]).join(" / "), ow2=(d.ow||[]).join(" / ");
- if(ow1!==ow2)add("Anything you added",ow1||"nothing",ow2||"nothing",3);
+ if(ow1!==ow2)add("Anything you added",ow1||"nothing",ow2||"nothing",4);
  want.forEach(rg=>{const a=(p.pn||{})[rg], b=(d.pn||{})[rg];
   if(!a&&!b)return;
-  if(!a||!b){add("Pin in "+(SHORT[rg]||rg),a?"placed":"none placed",b?"placed":"none placed",9);return;}
+  if(!a||!b){add("Pin in "+(SHORT[rg]||rg),a?"placed":"none placed",b?"placed":"none placed",10);return;}
   /* the quantisation is about 4 km a step, so anything under 6 km apart is the storage */
   if(kmApart(a,b)>6)add("Pin in "+(SHORT[rg]||rg),a[0].toFixed(2)+", "+a[1].toFixed(2),
-    b[0].toFixed(2)+", "+b[1].toFixed(2),9);});
+    b[0].toFixed(2)+", "+b[1].toFixed(2),10);});
  return out;
 }
 function review(){
@@ -1542,8 +1579,11 @@ function review(){
     kept tells them apart. (Only a C1 record omits the key, because unpackOne never sets it.
     A guard on the key's absence therefore covers one format out of three and reads as
     though it covers all of them, so there is no guard: the line says the ambiguity instead.) */
- const missing=RVREQ.filter(([k])=>!String(pay[k]||"").trim());
- const noTokens=SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
+ /* Following along or visiting: only the name and that answer were asked, so only those are
+    shown, and nothing else is reported missing. */
+ const brief=!isPlan(pay);
+ const missing=brief?[]:RVREQ.filter(([k])=>!String(pay[k]||"").trim());
+ const noTokens=!brief&&SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
 
 
  const sec=t=>`<h3 class="sec">${esc(t)}</h3>`;
@@ -1594,55 +1634,56 @@ function review(){
    chosen on the region step.</div>`;
  }
 
- h+=sec("Who")+
+ h+=brief?sec("Who")+rvRow("First name",0,r.n)+rvRow("How involved",1,labOf(ROLE,r.role)):
+  sec("Who")+
   rvRow("First name",0,r.n)+
-  rvRow("Passport, or passports",5,r.cz)+
-  rvRow("Country you live in now",5,r.lv)+
+  rvRow("How involved",1,labOf(ROLE,r.role)||"On the planning committee")+
+  rvRow("Country you live in now",6,r.lv)+
   sec("The place")+
-  rvRow("What shape is it",1,labOf(STYLES,r.s))+
-  rvRow("Gut feeling on where",9,picks.join(", "),
+  rvRow("What shape is it",2,labOf(STYLES,r.s))+
+  rvRow("Gut feeling on where",10,picks.join(", "),
    picks.indexOf(OFFLIST)>=0?(String(r.rw||"").trim()?"You named: "+String(r.rw).trim():"You did not say where"):"")+
-  (!PINS_ON?"":rvRow("Whereabouts, more precisely",9,
+  (!PINS_ON?"":rvRow("Whereabouts, more precisely",10,
    picks.length?picks.map(rg=>{const q=(r.pn||{})[rg];const ar=q?subArea(q):"";
     return (SHORT[rg]||rg)+": "+(q?(ar?ar+", ":"")+q[0].toFixed(2)+"N "+q[1].toFixed(2)+"E":"no pin placed");
    }).join(" \u00b7 "):"",
    picks.some(rg=>(r.pn||{})[rg])?"A pin is stored to about four kilometres, so it moves a little.":
     (picks.length?"A pin is optional \u2014 the region alone is a real answer.":"")))+
   sec("Being there")+
-  rvRow("How would you use it",5,labOf(USES,r.u))+
-  rvRow("Who would be coming with you",5,labOf(HOUSE,r.hh))+
+  rvRow("How would you use it",6,labOf(USES,r.u))+
+  rvRow("Who would be coming with you",6,labOf(HOUSE,r.hh))+
   sec("What matters")+
-  rvRow("Spend your twenty",2,spTot?sp.slice(0,3).map(x=>x.a+" "+x.v).join(", "):"",
+  rvRow("Spend your twenty",3,spTot?sp.slice(0,3).map(x=>x.a+" "+x.v).join(", "):"",
    spTot?"Then "+sp.slice(3).map(x=>x.a+" "+x.v).join(", ")+"."+
     (spTot<BANK?" "+(BANK-spTot)+" of "+BANK+" left unspent.":" All "+BANK+" spent."):"")+
-  rvRow("What has to be possible",3,
+  rvRow("What has to be possible",4,
    byState[0].length===ALLACTS.length?"":(byState[2].length?byState[2].join(", "):"nothing marked essential"),
    byState[0].length===ALLACTS.length?"":
     "Nice to have: "+(byState[1].join(", ")||"none")+". Ruled out: "+(byState[3].join(", ")||"none")+
     ". "+byState[0].length+" left neutral.")+
-  rvRow("Anything you added",3,(r.ow||[]).join(", "))+
-  rvRow("How much you can take",4,
+  rvRow("Anything you added",4,(r.ow||[]).join(", "))+
+  rvRow("How much you can take",5,
    TOL.concat(TOLX).map(([k,a,lo,hi])=>a+": "+tolSay(lo,hi,(r.t&&r.t[k]!==undefined)?r.t[k]:2)).join(" \u00b7 "),
    TOL.concat(TOLX).some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
     "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
   sec("How we'd start, when, and what would stop you")+
-  rvRow("Renting together first",6,labOf(TRIAL,r.tr),
+  rvRow("Renting together first",7,labOf(TRIAL,r.tr),
    r.tr!==TRIAL[0][0]?"":
    (onBoard?"This is where the question starts, so it may mean they left it there \u2014 or that their code was sent before the question existed.":RVLEFT))+
-  rvRow("The same town first",6,labOf(SAMETOWN,r.same),r.same!==SAMETOWN[0][0]?"":RVFIRST(onBoard))+
-  rvRow("Would you move before anything is bought",6,labOf(EARLY,r.early),
+  rvRow("The same town first",7,labOf(SAMETOWN,r.same),r.same!==SAMETOWN[0][0]?"":RVFIRST(onBoard))+
+  rvRow("Would you move before anything is bought",7,labOf(EARLY,r.early),
    r.early!==EARLY[0][0]?"":RVFIRST(onBoard))+
-  rvRow("Realistically, when",6,labOf(HORIZON,r.hz))+
-  rvRow("What would make you walk away",6,r.st)+
+  rvRow("Realistically, when",7,labOf(HORIZON,r.hz))+
+  rvRow("What would make you walk away",7,r.st)+
   sec("Money")+
-  rvRow("Up-front capital",7,CAP[r.cp]||"",
+  rvRow("Up-front capital",8,CAP[r.cp]||"",
    r.cp===CAPSPLIT?RVSPLIT:r.cp===5?RVLEFT:"")+
-  rvRow("Monthly running cost",7,RUN[r.rn]||"",
+  rvRow("Monthly running cost",8,RUN[r.rn]||"",
    r.rn===RUNSPLIT?RVSPLIT:r.rn===4?RVLEFT:"")+
-  rvRow("Would you borrow to take part",7,r.d)+
+  rvRow("Would you borrow to take part",8,r.d)+
   sec("What you bring, and why")+
-  rvRow("What you could bring",8,sks.join(", "))+
-  rvRow("Why you want this at all",10,r.wy);
+  rvRow("What you could bring",9,sks.join(", "))+
+  rvRow("Why you want this at all",11,r.wy);
 
  /* "Don't block" does not mean "carry on as though nothing happened": when the code does
     not read back, the way on is still there but it stops being the confident answer, and
@@ -1698,11 +1739,13 @@ function done(){
   return;
  }
  try{history.replaceState(null,"","#c="+code);}catch(e){}
- app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>Here is your code</h2>
+ app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>${isPlan(S)?"Here is your code":"Thank you. Here is your code"}</h2>
  <p class="lede">Copy it and send it to the group chat.</p>
  <button class="btn" id="cl">Copy my link \u2014 easiest</button>
  <div class="code" id="cd">${grp(code)}</div>
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
+ ${S.role==="plan"&&PLANCHAT?`<a class="btn ghost" href="${esc(PLANCHAT)}" target="_blank" rel="noopener">Join the planning committee's WhatsApp</a>
+ <p class="hint">The group's admin lets new people in.</p>`:""}
  <button class="btn ghost" id="again">Check or change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
  <div class="ok" id="st" role="status" aria-live="polite"></div>
@@ -1808,7 +1851,7 @@ function combine(){
  <p class="lede">${b.length?"Add new codes as they arrive \u2014 the ones already here stay put.":"One per line. Two is enough to start; more is better."}</p>
  ${storeWarn()}
  ${b.length?`<div class="board">${b.map((o,i)=>`<div class="brow">
-   <button class="bn bedit" data-ed="${i}" aria-label="Open and edit ${esc(o.n||"this")}"><span>${esc(o.n||"anon")}</span><em>edit</em></button>
+   <button class="bn bedit" data-ed="${i}" aria-label="Open and edit ${esc(o.n||"this")}"><span>${esc(o.n||"anon")}${isPlan(o)?"":`<small class="brole"> &middot; ${esc(labOf(ROLE,o.role).toLowerCase())}</small>`}</span><em>edit</em></button>
    <button class="x" data-rm="${i}" aria-label="Remove ${esc(o.n||"this")}">&times;</button></div>`).join("")}</div>
  <p class="hint" style="margin:-6px 0 14px">Tap a name to open those answers and change them &mdash; useful
  when someone is sitting next to you, or has asked you to fix something for them. Edits are saved straight
@@ -2171,40 +2214,93 @@ function triSVG(rgT){
  });
  return o+`</svg>`;
 }
-let POSTER=null;
+let POSTER=null, POSTER_H=1350;
+/* The shareable image, as cards (31 Oct 2026, the organiser's choice over a single long
+   list): a score band across the top, then cards two to a row, with counts drawn as bars
+   rather than listed. Like the rest of the results it covers the planning committee - the
+   names, the footer and every number - except "Who's in", which counts everybody. The
+   height fits whatever it holds; nothing is cut off the bottom. */
 function posterSVG(){
- const W=1080,H=1620,P=70;let y=0,o="";
- const MONO="ui-monospace,Menlo,Consolas,monospace";
- const T=(x,yy,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${yy}" font-size="${sz}" fill="${col}"
-   font-family="${fam||"Georgia,serif"}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t).slice(0,72))}</text>`;
- o+=`<rect width="${W}" height="${H}" fill="#EAEDE8"/>`;
- y=P+52; o+=T(P,y,"Where we stand",54,"#131E1B");
- y+=38; o+=T(P,y,POSTER.names.join("  \u00B7  ").toUpperCase(),19,"#22423A",MONO);
- y+=26; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
- y+=100; o+=T(P,y,POSTER.score,108,"#131E1B");
- o+=T(P+200,y-52,"ALIGNED",20,"#22423A",MONO);
- o+=T(P+200,y-16,POSTER.verdict,24,"#22423A");
- y+=44;
- POSTER.sections.forEach(([lab,v])=>{
-  o+=T(P,y+14,lab,23,"#131E1B");
-  o+=`<rect x="${W-P-320}" y="${y}" width="300" height="14" rx="7" fill="#131E1B" fill-opacity=".1"/>`;
-  o+=`<rect x="${W-P-320}" y="${y}" width="${(300*v/100).toFixed(0)}" height="14" rx="7"
-    fill="${v>=70?"#35748A":v>=45?"#8A6A2F":"#7C2E3E"}"/>`;
-  o+=T(W-P,y+13,v,20,"#22423A",MONO,"end");
-  y+=40;});
- y+=22; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
- const block=(title,col,items)=>{
-  y+=50; o+=T(P,y,title.toUpperCase(),20,col,MONO,"start","bold");
-  (items.length?items.slice(0,5):["none yet"]).forEach(t=>{y+=34;o+=T(P,y,"\u2014 "+t,25,"#131E1B");});};
- block("Locked in","#35748A",POSTER.locked);
- block("Could be's","#7C2E3E",POSTER.fight);
- block("Where","#22423A",POSTER.regions);
- if(POSTER.pins.length)block("Where exactly","#22423A",POSTER.pins);
- if(POSTER.trial.length)block("A year renting first","#35748A",POSTER.trial);
- if(POSTER.same.length)block("Same town first","#35748A",POSTER.same);
- if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
- o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
- return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
+ const W=1080,P=60,G=24,PAD=26,CW=(W-2*P-G)/2;
+ const MONO="ui-monospace,Menlo,Consolas,monospace",SERIF="Georgia,serif";
+ const INK="#131E1B",PINE="#22423A",GLAC="#35748A",GOLD="#8A6A2F",WINE="#7C2E3E",MIST="#C5CBC7";
+ const T=(x,y,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${y}" font-size="${sz}" fill="${col}"
+   font-family="${fam||SERIF}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t))}</text>`;
+ const wrap=(t,n)=>{const out=[];let cur="";String(t).split(/\s+/).forEach(w=>{
+   const nx=(cur+" "+w).trim(); if(nx.length>n&&cur){out.push(cur);cur=w;}else cur=nx;}); if(cur)out.push(cur); return out;};
+ const two=(t,n)=>{const l=wrap(t,n);if(l.length>2){l.length=2;l[1]=l[1].replace(/\s*\S*$/,"")+"\u2026";}return l;};
+ let o="",y=P+50;
+ o+=T(P,y,"Where we stand",54,INK);
+ /* names wrap onto further lines rather than being cut off */
+ let line="";const nl=[];
+ POSTER.names.map(n=>String(n).toUpperCase()).forEach(n=>{const nx=line?line+"  \u00B7  "+n:n;
+  if(nx.length>76&&line){nl.push(line);line=n;}else line=nx;});
+ if(line)nl.push(line);
+ nl.forEach(l=>{y+=32;o+=T(P,y,l,19,PINE,MONO);});
+ y+=30;
+ const box=(x,yy,w,h)=>`<rect x="${x}" y="${yy}" width="${w}" height="${h}" rx="16" fill="#F5F7F3" stroke="${INK}" stroke-opacity=".08"/>`;
+ /* the score band */
+ {const y0=y, rows=POSTER.sections, xr=P+400;
+  let s2=T(P+PAD,y0+PAD+92,POSTER.score,108,INK);
+  s2+=T(P+PAD,y0+PAD+128,"ALIGNED",18,PINE,MONO,"start","bold");
+  const vl=wrap(POSTER.verdict,26); vl.forEach((l,i)=>{s2+=T(P+PAD,y0+PAD+160+i*28,l,22,PINE);});
+  rows.forEach(([lab,v],i)=>{const yy=y0+PAD+22+i*32, bx=W-P-PAD-230;
+   s2+=T(xr,yy,lab,19,INK);
+   s2+=`<rect x="${bx}" y="${yy-12}" width="180" height="12" rx="6" fill="${INK}" fill-opacity=".1"/>`;
+   s2+=`<rect x="${bx}" y="${yy-12}" width="${(180*v/100).toFixed(0)}" height="12" rx="6" fill="${v>=70?GLAC:v>=45?GOLD:WINE}"/>`;
+   s2+=T(W-P-PAD,yy,v,19,PINE,MONO,"end");});
+  const h=Math.max(PAD+160+vl.length*28+PAD-10, PAD+22+rows.length*32+PAD-10);
+  o+=box(P,y0,W-2*P,h)+s2; y=y0+h+G;}
+ /* card bodies draw in local coordinates from 0 and return their height */
+ const stacked=(parts,w)=>{const tot=parts.reduce((a,x)=>a+x[1],0)||1;let s3="",x=0,h=0;
+  parts.forEach(([lab,n,col])=>{const sw=Math.max(4,w*n/tot);
+   s3+=`<rect x="${x.toFixed(1)}" y="0" width="${Math.max(2,sw-3).toFixed(1)}" height="22" rx="4" fill="${col}"/>`;x+=sw;});
+  h=22+14;
+  parts.forEach(([lab,n,col])=>{h+=30;s3+=`<circle cx="7" cy="${h-7}" r="7" fill="${col}"/>`;
+   s3+=`<text x="24" y="${h}" font-size="21" fill="${INK}" font-family="${SERIF}"><tspan font-weight="bold">${n}</tspan> ${esc(lab)}</text>`;});
+  return {s:s3,h:h+4};};
+ const hbars=(rows,w,col)=>{const mx=Math.max(1,...rows.map(r=>r[1]));let s3="",h=0;
+  rows.slice(0,6).forEach(([lab,n])=>{h+=34;
+   s3+=T(0,h,lab.length>17?lab.slice(0,16).trim()+"\u2026":lab,21,INK);
+   const bw=(w-230-36)*n/mx;
+   s3+=`<rect x="200" y="${h-15}" width="${Math.max(4,bw).toFixed(0)}" height="16" rx="5" fill="${col}"/>`;
+   s3+=T(w,h,n,20,PINE,MONO,"end");});
+  return {s:s3,h:h+6};};
+ const list=(items,n)=>{let s3="",h=0;(items.length?items:["none yet"]).forEach(t=>{
+   two(t,n).forEach((l,i)=>{h+=i?27:31;s3+=T(0,h,l,21,items.length?INK:PINE);});h+=4;});
+  return {s:s3,h:h+2};};
+ const cards=[];
+ const card=(title,col,span,body)=>cards.push({title,col,span,body});
+ const ROLECOL={plan:PINE,follow:GLAC,visit:GOLD};
+ if(POSTER.crowd.length)card("Who's in",PINE,1,w=>stacked(POSTER.crowd.map(([k,a,n])=>[a.toLowerCase(),n,ROLECOL[k]||MIST]),w));
+ card("Where",PINE,1,w=>{const r=POSTER.where.length?hbars(POSTER.where,w,WINE):list([],34);
+  if(POSTER.named.length){two("Named instead: "+POSTER.named.join(", "),36).forEach(l=>{r.h+=28;
+   r.s+=`<text x="0" y="${r.h}" font-size="19" fill="${PINE}" font-family="${SERIF}" font-style="italic">${esc(l)}</text>`;});r.h+=6;}
+  return r;});
+ if(POSTER.pins.length)card("Where exactly",PINE,1,w=>list(POSTER.pins.slice(0,5),34));
+ const STARTCOL={unsure:MIST,must:GLAC,want:GLAC,good:"#7FA9B5",fine:"#7FA9B5",skip:"#D2A7AF",against:WINE};
+ if(POSTER.trial.length)card("A year renting first",GLAC,1,w=>stacked(POSTER.trial.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
+ if(POSTER.same.length)card("Same town first",GLAC,1,w=>stacked(POSTER.same.map(([k,a,n])=>[a,n,STARTCOL[k]||MIST]),w));
+ card("Locked in",GLAC,1,w=>list(POSTER.locked,34));
+ card("Could be's",WINE,1,w=>list(POSTER.fight,34));
+ if(POSTER.stops.length)card("What would stop us",WINE,2,w=>{let s3="",h=0;
+  POSTER.stops.slice(0,6).forEach(([nm,t])=>{const l=two(t,74-String(nm).length);
+   l.forEach((ln,i)=>{h+=i?27:31;s3+=`<text x="0" y="${h}" font-size="21" fill="${INK}" font-family="${SERIF}">${
+     i?"":`<tspan font-weight="bold" fill="${PINE}">${esc(nm)}</tspan>  `}${esc(ln)}</text>`;});h+=6;});
+  const more=POSTER.stops.length-6;
+  if(more>0){h+=30;s3+=`<text x="0" y="${h}" font-size="19" fill="${PINE}" font-family="${SERIF}" font-style="italic">and ${more} more on the results page</text>`;h+=6;}
+  return {s:s3,h:h};});
+ const draw=(c,x,yy,w,hh)=>box(x,yy,w,hh)+T(x+PAD,yy+PAD+16,c.title.toUpperCase(),18,c.col,MONO,"start","bold")+
+   `<g transform="translate(${x+PAD},${yy+PAD+32})">${c.r.s}</g>`;
+ const ch=c=>PAD+32+c.r.h+PAD-6;
+ for(let i=0;i<cards.length;){
+  const a=cards[i],b=cards[i+1];
+  if(a.span===2||!b||b.span===2){a.r=a.body(W-2*P-2*PAD);const h=ch(a);o+=draw(a,P,y,W-2*P,h);y+=h+G;i++;}
+  else{a.r=a.body(CW-2*PAD);b.r=b.body(CW-2*PAD);const h=Math.max(ch(a),ch(b));
+   o+=draw(a,P,y,CW,h)+draw(b,P+CW+G,y,CW,h);y+=h+G;i+=2;}}
+ y+=26; o+=T(P,y,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,PINE,MONO);
+ const H=Math.max(1080,y+50); POSTER_H=H;
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#EAEDE8"/>${o}</svg>`;
 }
 function svgDataURL(){return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(posterSVG());}
 function makePoster(cb){
@@ -2216,8 +2312,8 @@ function makePoster(cb){
   const img=new Image();
   img.onload=()=>{
    try{
-    const cv=document.createElement("canvas");cv.width=1080;cv.height=1620;
-    const cx=cv.getContext("2d");cx.fillStyle="#EAEDE8";cx.fillRect(0,0,1080,1620);
+    const cv=document.createElement("canvas");cv.width=1080;cv.height=POSTER_H;
+    const cx=cv.getContext("2d");cx.fillStyle="#EAEDE8";cx.fillRect(0,0,1080,POSTER_H);
     cx.drawImage(img,0,0);
     const png=cv.toDataURL("image/png");
     clearTimeout(t);finish(png.length>2000?"png":"svg",png.length>2000?png:svgURL);
@@ -2255,14 +2351,42 @@ async function upgradeMap(rgT){
  }
 }
 
+/* "Who's in": everybody, by how involved they want to be, each count tappable for names. */
+function whoIn(){
+ return roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>`<span${insAttr(a,
+   l.map(c=>[c.n||"anon","#22423A",a.toLowerCase()]))}><b>${l.length}</b> ${esc(a.toLowerCase())}</span>`)
+  .join(" &middot; ");}
+/* Fewer than two on the committee: there is nothing to compare - the same rule as the board's
+   "two are needed before the picture will draw" - so the page says who is in and stops. */
+function resultNoPlanners(){
+ app.innerHTML=`<div class="kicker">${crowd.length} of you</div><h2>Under the Party Tree</h2>
+  <div class="sum"><div class="sr"><span class="sk">Who's in</span><span class="sv">${whoIn()}</span></div></div>
+  <p class="lede">${codes.length?"Only one person here is":"Nobody here is"} on the planning committee yet,
+   so there is nothing to compare.</p>
+  <button class="btn ghost noprint" id="more">Add more codes</button>
+  <button class="btn ghost noprint" id="hm">Home</button>`;
+ wireInspector();
+ document.getElementById("more").onclick=()=>{mode="combine";render();};
+ document.getElementById("hm").onclick=()=>{mode="home";render();};
+}
+/* Only the planning committee answered the questions the results compare, so every chart and
+   score is drawn from them. Everybody - planning, following, visiting - is counted once, in
+   the "Who's in" line at the top, and travels in the shared link and the combined code.
+   result() narrows codes to the planners while it draws (drawing helpers outside this function
+   read the global), and keeps the full list in crowd; re-entering with the same narrowed list
+   keeps crowd as it was. */
+let crowd=[], planFor=null;
+const roleTally=list=>ROLE.map(([k,a])=>[k,a,list.filter(c=>(c.role||"plan")===k)]);
 function result(){
+ if(codes!==planFor){crowd=codes;codes=crowd.filter(isPlan);planFor=codes;}
+ if(codes.length<2)return resultNoPlanners();
  const N=codes.length,avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
  const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(x=>(x-m)**2)));};
  const who=i=>codes[i].n||("#"+(i+1));
  const spv=(c,k)=>(c.sp&&c.sp[k])||0, tov=(c,k)=>(c.t&&c.t[k]!==undefined)?c.t[k]:2;
  /* pins re-keyed through rgNow, so a renamed region lines up with itself */
  const pinMap=c=>{const m={};if(!PINS_ON)return m;Object.entries(c.pn||{}).forEach(([r,p])=>{if(p)m[rgNow(r)]=p;});return m;};
- try{history.replaceState(null,"","#c="+encode(codes));}catch(e){}
+ try{history.replaceState(null,"","#c="+encode(crowd));}catch(e){}
  let secList=[];
  /* h3, not a div: these are the only structure over twenty-odd screens, and a screen
     reader navigating by heading used to get one stop for the whole page. .sec already sets
@@ -2312,6 +2436,8 @@ function result(){
  const sumRows=[];
  const srow=(k,v)=>sumRows.push(`<div class="sr"><span class="sk">${esc(k)}</span>
    <span class="sv">${v}</span></div>`);
+ const T=crowd.length;
+ srow("Who's in",whoIn());
  /* Regions: ranked among those on the shortlist, with picks from the earlier list
     counted separately rather than ranked against regions nobody can choose now. */
  {const t={};codes.forEach(c=>rgOf(c).forEach(x=>{t[x]=(t[x]||0)+1;}));
@@ -2360,10 +2486,11 @@ function result(){
   srow("Stoppers",st?`<b>${st}</b> of ${N} named a deal-breaker`:
    `<em>nobody named a deal-breaker</em>`);}
 
- let h=`<div class="kicker">${N} of you</div><h2>Under the Party Tree</h2>
+ let h=`<div class="kicker">${T} of you</div><h2>Under the Party Tree</h2>
   ${sec("Where this leaves us")}<div class="sum">
-   <p class="lede2"><b>${N} answer${N===1?"":"s"} so far.</b> Every line is a count of those
-   ${nword(N)}, not of the group.</p>${sumRows.join("")}</div>
+   <p class="lede2"><b>${T} answer${T===1?"":"s"} so far.</b> ${T>N?`Every line after the first counts
+   only the ${nword(N)} on the planning committee`:`Every line is a count of those ${nword(N)}`}, not of the
+   group.</p>${sumRows.join("")}</div>
   <p class="who">${codes.map((c,i)=>`<span style="color:${PAL[i%PAL.length]}">&#9679;</span> ${esc(who(i))}`).join(" &nbsp; ")}</p>
   <p class="hint" style="margin-top:-8px">Tap any bar, bubble or dot to see who is behind it.</p>
   ${N>PAL.length?`<p class="hint">With more than ${PAL.length} of you, a couple of colors repeat above &mdash; go by the names, not just the dots.</p>`:""}`;
@@ -2832,17 +2959,17 @@ function result(){
   const kid=codes.filter(c=>c.hh==="kids").length;
   if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children, which puts
    school and hospital distance on the list.</p>`;}
- /* Passports and countries decide what is legally possible before any preference does, so
-    this reports what was actually said and stays quiet about what it implies. */
- const from=codes.filter(c=>(c.cz&&c.cz.trim())||(c.lv&&c.lv.trim()));
+ /* Where somebody lives decides what is legally possible before any preference does, so
+    this reports what was actually said and stays quiet about what it implies. Passports are
+    no longer asked or shown (31 Oct 2026); any already in a code stay there. */
+ const from=codes.filter(c=>c.lv&&c.lv.trim());
  if(from.length){h+=`${sec("Where we are coming from")}
   <p class="hint">What is possible legally is decided by these before any preference on this
   page. ${from.length}/${N} answered.</p>`;
   from.forEach(c=>h+=`<div class="res"><div class="t"><b>${esc(c.n||"anon")}</b>
-   <em>${esc([c.cz&&c.cz.trim(),c.lv&&c.lv.trim()?"in "+c.lv.trim():""].filter(Boolean).join(" \u00b7 "))}</em></div></div>`);
-  const noCz=N-codes.filter(c=>c.cz&&c.cz.trim()).length;
-  if(noCz)h+=`<p class="hint" style="margin-top:8px">${noCz} ${noCz===1?"has":"have"} not said,
-   and every property outside Norway needs this settled before an offer.</p>`;}
+   <em>${esc("in "+c.lv.trim())}</em></div></div>`);
+  const noLv=N-from.length;
+  if(noLv)h+=`<p class="hint" style="margin-top:8px">${noLv} ${noLv===1?"has":"have"} not said.</p>`;}
  const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
    who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
  if(skT.some(x=>x.n)){h+=`${sec("What you bring")}
@@ -3000,22 +3127,19 @@ function result(){
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
  document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
+  /* everybody, by role - the one part of the image that is not planners only */
+  crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>[k,a,l.length]):[],
   sections:secLive.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
-  locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
-  regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
-    .map(([r,n])=>r+" \u2014 "+n+(RETIRED.indexOf(r)>=0?" (earlier list)":""))
-    .concat(codes.filter(c=>c.rw&&String(c.rw).trim())
-      .map(c=>"\u201c"+String(c.rw).trim()+"\u201d \u2014 "+(c.n||"anon"))),
+  locked:locked.slice(0,5).map(p=>p.label),fight:fight.slice(0,5).map(p=>p.label),
+  where:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
+    .map(([r,n])=>[r===OFFLIST?"Somewhere else":(SHORT[r]||r)+(RETIRED.indexOf(r)>=0?" (earlier list)":""),n]),
+  named:codes.filter(c=>c.rw&&String(c.rw).trim()).map(c=>String(c.rw).trim()),
   pins:(PINS_ON?allPins(codes):[]).map(x=>nameOf(x.i)+" \u2014 "+(subArea(x.p)||x.rg)),
-  trial:(()=>{const t=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
-    if(!t.length)return [];
-    return TRIAL.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;
-      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
-  same:(()=>{const t=codes.filter(c=>c.same&&c.same!==SAMETOWN[0][0]);
-    if(!t.length)return [];
-    return SAMETOWN.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.same===k).length;
-      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
-  stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
+  /* the two "how we'd start" questions as counts per answer, "no view" included, over the
+     codes that were asked; empty when nobody has moved off "no view" */
+  trial:codes.some(c=>c.tr&&c.tr!==TRIAL[0][0])?TRIAL.map(([k,a])=>[k,a,codes.filter(c=>c.tr===k).length]).filter(x=>x[2]):[],
+  same:codes.some(c=>c.same&&c.same!==SAMETOWN[0][0])?SAMETOWN.map(([k,a])=>[k,a,codes.filter(c=>c.same===k).length]).filter(x=>x[2]):[],
+  stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>[c.n||"anon",c.st.trim()])};
  wireInspector();
  const tip1=document.querySelector("#app .res[data-items]");
  if(tip1)tip1.classList.add("tip1");
@@ -3034,9 +3158,9 @@ function result(){
     <img class="poster" src="${src}" alt="Where we stand \u2014 summary">
     <a class="btn ghost" href="${src}" download="where-we-stand.${kind}" target="_blank" rel="noopener">Open it full size</a>`;
    box.scrollIntoView({behavior:"smooth",block:"start"});});};
- document.getElementById("shr2").onclick=()=>{const pk=encode(codes);
+ document.getElementById("shr2").onclick=()=>{const pk=encode(crowd);
   const box=document.getElementById("sharebox");
-  box.innerHTML=`<p class="hint" style="margin:14px 0 6px">One code holding all ${N} answers. Anyone who pastes
+  box.innerHTML=`<p class="hint" style="margin:14px 0 6px">One code holding all ${crowd.length} answers. Anyone who pastes
    it into <b>Combine</b> sees this exact page. Sending it through a chat app is fine \u2014 the spaces below
    are ignored when it's pasted back in.</p>
    <div class="code" id="pk">${esc(grp(pk))}</div><button class="btn ghost" id="pkcp">Copy it</button>`;
