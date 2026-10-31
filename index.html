@@ -2,12 +2,12 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
+<meta name="description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://kaffeconway.github.io/Bergensers-commons/">
 <meta property="og:title" content="Build your commons">
 <meta property="og:site_name" content="Bergensers Commons">
-<meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where to buy a place together in Europe.">
+<meta property="og:description" content="Eleven steps, saved as you go: stop anywhere and come back for your code later. Fifteen friends working out where in Europe to build a life together.">
 <meta name="twitter:card" content="summary">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
@@ -419,10 +419,22 @@ const RUNEUR=[[0,50],[50,150],[150,400],[400,800],null,[400,600],[600,900],[900,
    editing it in place silently rewrites what every existing code means. C2 decodes against it. */
 const REGIONS_V2=["Vestland, Norway \u2014 the fjords","German & Austrian northern Alps","French Alps & Vercors",
  "Vosges & Alsace","Ardennes & Eifel","Pyrenees","Northern Germany & Denmark","Somewhere not on this list"];
-/* Live list. The questionnaire and every new code (format C3) use this one. */
-const REGIONS=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
+/* Frozen 31 Oct 2026. Every C3 and C4 code was written against this five-item list and
+   stores a bit POSITION into it, so it is never edited again. C3 and C4 decode against it. */
+const REGIONS_V3=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
  "Pyrenees","Somewhere not on this list"];
+/* Live list, written by C5. Oslo was APPENDED, never inserted, so every earlier region keeps
+   its bit and this list begins with REGIONS_V3 exactly - WIDTHS, further down, refuses to
+   encode if that ever stops being true. The version byte is needed all the same: an older
+   saved copy of this page reading a C5 code has to refuse it, not drop the sixth bit on the
+   floor. A literal array on purpose, because the property search reads it with a regex. */
+const REGIONS=["Vestland, Norway \u2014 the fjords","French Alps, Vercors & Chartreuse","Italian Alps",
+ "Pyrenees","Somewhere not on this list","Oslo & eastern Norway"];
 const OFFLIST="Somewhere not on this list";
+/* Storage order is not display order. "Somewhere not on this list" goes last on screen
+   whatever slot it holds in storage, and the newest region sits just before it rather than
+   first: no region is offered as the default, and none is promoted for arriving last. */
+const RGSHOW=REGIONS.filter(r=>r!==OFFLIST).concat([OFFLIST]);
 /* The Europe map frame. Doubles as the quantisation range for pins, so it is declared
    here with the content rather than down in the map section. */
 const MAPWIN={la0:34,la1:71,lo0:-11,lo1:32};
@@ -432,10 +444,11 @@ const RCWIN={
  "Vestland, Norway \u2014 the fjords":{la0:58.6,la1:62.4,lo0:3.6,lo1:10.2},
  "French Alps, Vercors & Chartreuse":{la0:43.7,la1:46.4,lo0:4.4,lo1:7.6},
  "Italian Alps":{la0:44.4,la1:47.2,lo0:6.2,lo1:14.0},
- "Pyrenees":{la0:41.9,la1:43.6,lo0:-1.8,lo1:3.4}};
+ "Pyrenees":{la0:41.9,la1:43.6,lo0:-1.8,lo1:3.4},
+ "Oslo & eastern Norway":{la0:58.9,la1:61.7,lo0:8.3,lo1:12.6}};
 const PINLABEL={"Vestland, Norway \u2014 the fjords":"Vestland",
  "French Alps, Vercors & Chartreuse":"the French Alps","Italian Alps":"the Italian Alps",
- "Pyrenees":"the Pyrenees"};
+ "Pyrenees":"the Pyrenees","Oslo & eastern Norway":"eastern Norway"};
 const RCTOWN={
  "Vestland, Norway \u2014 the fjords":[["Bergen",60.39,5.32],["Voss",60.63,6.42],
   ["Sogndal",61.23,7.10],["Odda",60.07,6.55],["F\u00f8rde",61.45,5.86],["Stryn",61.91,6.72]],
@@ -444,7 +457,9 @@ const RCTOWN={
  "Italian Alps":[["Turin",45.07,7.69],["Milan",45.46,9.19],["Sondrio",46.17,9.87],
   ["Trento",46.07,11.12],["Bolzano",46.50,11.35],["Belluno",46.14,12.22],["Udine",46.06,13.24]],
  "Pyrenees":[["Pau",43.30,-0.37],["Tarbes",43.23,0.08],["Saint-Girons",42.98,1.15],
-  ["Foix",42.96,1.61],["Andorra",42.51,1.52],["Perpignan",42.70,2.90]]};
+  ["Foix",42.96,1.61],["Andorra",42.51,1.52],["Perpignan",42.70,2.90]],
+ "Oslo & eastern Norway":[["Oslo",59.91,10.75],["Drammen",59.74,10.20],["Kongsberg",59.67,9.65],
+  ["Fredrikstad",59.22,10.93],["Hamar",60.79,11.07],["Lillehammer",61.11,10.47]]};
 /* Rough sub-areas, first match wins, so the order matters where boxes touch. Only used
    to put a readable name on a pin - never to move one. */
 const SUBAREA=[
@@ -457,7 +472,9 @@ const SUBAREA=[
  ["the Veneto Dolomites",45.9,46.6,11.9,12.6],["Friuli",45.8,46.7,12.6,14.0],
  ["B\u00e9arn & the western Pyrenees",42.7,43.5,-1.8,-0.35],["Hautes-Pyr\u00e9n\u00e9es",42.65,43.5,-0.35,0.75],
  ["Comminges & the Couserans",42.7,43.3,0.75,1.25],["Ari\u00e8ge",42.55,43.3,1.25,2.05],
- ["Cerdanya & the eastern Pyrenees",42.25,42.85,2.05,3.4]];
+ ["Cerdanya & the eastern Pyrenees",42.25,42.85,2.05,3.4],
+ ["Oslo & the Marka",59.80,60.20,10.30,11.20],["the Oslofjord",58.90,59.80,9.70,11.40],
+ ["Mj\u00f8sa & the inland valleys",60.40,61.70,9.80,12.60],["Kongsberg & Numedal",59.40,60.40,8.30,9.80]];
 const subArea=p=>{if(!p)return "";
  for(const [nm,a0,a1,o0,o1] of SUBAREA)if(p[0]>=a0&&p[0]<=a1&&p[1]>=o0&&p[1]<=o1)return nm;
  return "";};
@@ -486,6 +503,24 @@ const TRIAL=[["unsure","No view yet","Happy to go with whatever the rest of you 
  ["good","A good idea, if it is practical","Worth doing unless it costs us the right place"],
  ["skip","Not necessary","I would rather go straight to buying"],
  ["against","Against it","A year of renting would drain money and momentum"]];
+/* How we start: the second proposal, asked beside the first rather than folded into it.
+   The trial year is about renting TOGETHER; this is about each of us in a place of our own
+   in one town, sorting out living together as people are ready. A field of its own rather
+   than a sixth answer on TRIAL, because TRIAL's answers - "Essential", "Not necessary" -
+   each judge one proposal and would lose their meaning under a broader question. Same
+   shape as TRIAL so the two read side by side, and every answer carries a reason of equal
+   weight, the case against included. Index 0 is the default. Positional: append only. */
+const SAMETOWN=[["unsure","No view yet","Happy to go with whatever the rest of you decide"],
+ ["want","The way I would want to start","Nobody has to be ready at the same moment"],
+ ["fine","Fine, if it is practical","Worth doing unless it slows the rest of it down"],
+ ["skip","Not necessary","I would rather we moved in together from the start"],
+ ["against","Against it","Separate flats in one town can simply stay separate"]];
+/* Whether somebody would move to the chosen town before anything is bought. It matters
+   under either proposal, and a slow start depends on it entirely. Positional: append only. */
+const EARLY=[["unsure","Can't say yet",""],
+ ["yes","Yes","I could move there before there is a shared place"],
+ ["depends","It depends on the town",""],
+ ["later","Not until there is a shared place","I would come once there is somewhere to live together"]];
 /* The four states of an activity chip, in one place: the legend above the grid, the glyph
    carried on the chip itself and the state a screen reader is told all read from here, so
    they cannot drift apart. The glyph is the non-colour cue - neutral and "nice to have"
@@ -502,6 +537,12 @@ const TOL=[["tour","Tourism","Empty all year","Busy in summer is fine"],
  ["lang","New language","Prefer to get by","Happy to learn properly"],
  ["far","Distance to hospital & school","Want them close","Far is acceptable"],
  ["rough","Unfinished for years","Want it liveable now","Happy to build slowly"]];
+/* Tolerances added after C4. A separate list, never appended to TOL: TOL.length is part of
+   BITS_CORE, so lengthening it would move the fixed block of every C1-C4 code ever sent.
+   It pairs with "Winter darkness", which is the cost of going north; this is the cost of
+   going south. Asked as a tolerance like the others, so it states no direction itself. */
+const TOLX=[["heat","Hotter summers","I want to stay clear of heat, drought and fire",
+ "Hotter, drier summers would not put me off"]];
 
 /* ---------- state & storage ---------- */
 let S=blank(), step=0, codes=[], mode="home", msg="";
@@ -515,9 +556,9 @@ let pend=[], pendBoth=false;
    with no confirmation while clearing the whole board asks twice, so the guard was on the
    less likely action - and a row is somebody's answers, which may be the only copy. */
 let undoRow=null;
-function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],pin:{}};
+function blank(){const o={n:"",style:"",sp:{},act:{},tol:{},use:"",hh:"",hz:"",stop:"",why:"",sk:{},cap:5,run:4,debt:"",rg:[],ow:"",rw:"",cz:"",lv:"",tr:TRIAL[0][0],same:SAMETOWN[0][0],early:EARLY[0][0],pin:{}};
  SKILLS.forEach(([k])=>o.sk[k]=0);
- SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.forEach(([k])=>o.tol[k]=2); return o;}
+ SPEND.forEach(([k])=>o.sp[k]=0); ALLACTS.forEach(([k])=>o.act[k]=0); TOL.concat(TOLX).forEach(([k])=>o.tol[k]=2); return o;}
 const MEM={};
 /* Storage can refuse quietly - private browsing, a content blocker, a full quota - and
    the fallback below is a plain object that dies with the tab. Somebody collecting codes
@@ -555,12 +596,13 @@ function autosave(){
    cannot drift apart. Takes a decoded record, returns questionnaire state. */
 function stateFrom(o){
  const z=blank();
- return Object.assign(z,{n:o.n||"",style:o.s||"",sp:o.sp||z.sp,act:o.a||z.act,tol:o.t||z.tol,
+ return Object.assign(z,{n:o.n||"",style:o.s||"",sp:o.sp||z.sp,act:o.a||z.act,tol:Object.assign({},z.tol,o.t||{}),
   use:o.u||"",cap:typeof o.cp==="number"?o.cp:5,run:typeof o.rn==="number"?o.rn:4,
   hh:o.hh||"",hz:o.hz||"",stop:o.st||"",why:o.wy||"",sk:Object.assign({},z.sk,o.sk||{}),
   debt:o.d||"",rg:(o.rg||[]).map(rgNow),ow:(o.ow||[]).join("\n"),rw:o.rw||"",
   cz:o.cz||"",lv:o.lv||"",
-  tr:o.tr||TRIAL[0][0],pin:Object.assign({},o.pn||{})});
+  tr:o.tr||TRIAL[0][0],same:o.same||SAMETOWN[0][0],early:o.early||EARLY[0][0],
+  pin:Object.assign({},o.pn||{})});
 }
 
 const BOARD="commons:board";
@@ -761,11 +803,18 @@ const uU8=t=>{try{return decodeURIComponent(escape(t));}catch(e){return t;}};
 const IDX=(list,v)=>{const i=list.findIndex(x=>x[0]===v);return i<0?0:i;};
 /* ---- fixed-block widths ----
    C2 and C3 stop after the region mask. C4 appends the trial-year answer and up to two
-   map pins, so its records are longer and N_FIX moves. Version-specific, never shared. */
+   map pins, and C5 appends four more answers after that, so each is longer than the last
+   and N_FIX moves. Version-specific, never shared. */
 const BITS_CORE=3+2+2+2+3+3+2+SPEND.length*4+ALLACTS.length*2+TOL.length*3+SKILLS.length+8;
 const PIN_BITS=1+10+10;               /* present flag, then latitude and longitude */
 const BITS_C4=BITS_CORE+3+PIN_BITS*2;
+/* C5: the same-town answer (3), whether you would move early (3), the hotter-summers
+   tolerance (3), and one bit each for whether USES, HOUSE and HORIZON were answered at all
+   (3). Spelled out as numbers rather than TOLX.length: a list that sets a width is a list
+   somebody can lengthen without noticing the width has moved. */
+const BITS_C5=BITS_C4+3+3+3+3;
 const NFIX=b=>Math.ceil(b/8);
+const fixBits=ext=>ext===2?BITS_C5:ext?BITS_C4:BITS_CORE;
 /* Pins are quantised across the map window: 1023 steps over 37 degrees of latitude is
    about 4 km, and over 43 degrees of longitude about 3.3 km at 45 N. Ample for telling
    the western Italian Alps from the eastern ones, and it costs 21 bits. */
@@ -787,7 +836,21 @@ function rPin(r){
    re-keyed by region name on the way out. Never positional in state. */
 const rgPicks=o=>(o.rg||[]).filter(r=>REGIONS.indexOf(r)>=0)
  .sort((a,b)=>REGIONS.indexOf(a)-REGIONS.indexOf(b)).slice(0,2);
+/* Every positional answer travels in a fixed number of bits. A list grown past what its
+   bits hold would write the extra option as a smaller number, and it would read back as a
+   different answer with nothing to say so. CLAUDE.md said a guard for this existed; nothing
+   in the page did it. This does: encode() refuses rather than writes something false, and
+   the review and code screens already say so when a code cannot be written. STYLES stops at
+   seven because the eighth value is its blank. REGIONS must also still begin with the frozen
+   REGIONS_V3, or every C3 and C4 code would quietly read against the wrong list. */
+const WIDTHS=[["STYLES",STYLES,7],["USES",USES,4],["HOUSE",HOUSE,4],["HORIZON",HORIZON,4],
+ ["CAP",CAP,8],["RUN",RUN,8],["TRIAL",TRIAL,8],["SAMETOWN",SAMETOWN,8],["EARLY",EARLY,8],
+ ["REGIONS",REGIONS,8]];
+const OVERFULL=WIDTHS.filter(([,l,m])=>l.length>m).map(x=>x[0])
+ .concat(REGIONS_V3.every((r,i)=>REGIONS[i]===r)?[]:["REGIONS no longer begins with REGIONS_V3"])
+ .concat(TOLX.length===1?[]:["TOLX is not one item long, so BITS_C5 is wrong"]);
 function recBin(o){
+ if(OVERFULL.length)throw new Error("too many options for the code to hold: "+OVERFULL.join(", "));
  const w=new BW();
  /* IDX returns 0 for anything it cannot find, so a question left unanswered used to be
     written into the code as its FIRST option - the code came back saying "Separate houses"
@@ -798,8 +861,8 @@ function recBin(o){
     existing code decodes exactly as before. An older saved copy of this page reading a new
     code falls back to its old guess, which is where it started.
     USES, HOUSE and HORIZON have no spare value - four options in two bits - so a blank there
-    still travels as the first option. The review screen says so out loud rather than letting
-    it pass; only a C5 could actually fix it. */
+    is still written as the first option here. C5 fixes that further down, with one
+    answered-or-not bit each, rather than by widening the fields and moving the layout. */
  w.w(o.s?IDX(STYLES,o.s):7,3); w.w(IDX(USES,o.u),2); w.w(IDX(HOUSE,o.hh),2); w.w(IDX(HORIZON,o.hz),2);
  w.w(typeof o.cp==="number"?o.cp:5,3); w.w(typeof o.rn==="number"?o.rn:4,3);
  const di=["Yes","Maybe","No"].indexOf(o.d); w.w(di<0?3:di,2);
@@ -812,6 +875,10 @@ function recBin(o){
  w.w(mask,8);
  w.w(IDX(TRIAL,o.tr),3);
  for(let i=0;i<2;i++)wPin(w,(o.pn&&picks[i])?o.pn[picks[i]]:null);
+ /* C5 */
+ w.w(IDX(SAMETOWN,o.same),3); w.w(IDX(EARLY,o.early),3);
+ TOLX.forEach(([k])=>w.w(Math.min(7,(o.t&&o.t[k]!==undefined)?o.t[k]:2),3));
+ w.w(o.u?1:0,1); w.w(o.hh?1:0,1); w.w(o.hz?1:0,1);
  const bytes=w.done();
  /* Seven \u001f-joined free-text fields. An older code carries four or five; the missing
     parts[n] come back undefined and default to "". The fixed block is untouched, so N_FIX
@@ -821,7 +888,7 @@ function recBin(o){
  return bytes.map(b=>String.fromCharCode(b)).join("")+tail;
 }
 function recRead(str,REG,ext){
- const N_FIX=NFIX(ext?BITS_C4:BITS_CORE);
+ const N_FIX=NFIX(fixBits(ext));
  const bytes=[];for(let i=0;i<N_FIX;i++)bytes.push(str.charCodeAt(i)&255);
  const r=new BR(bytes),o={sp:{},a:{},t:{},sk:{},rg:[]};
  const si=r.r(3); o.s=STYLES[si]?STYLES[si][0]:""; o.u=(USES[r.r(2)]||USES[0])[0];
@@ -837,6 +904,15 @@ function recRead(str,REG,ext){
   o.tr=(TRIAL[r.r(3)]||TRIAL[0])[0];
   for(let i=0;i<2;i++){const p=rPin(r);if(p&&o.rg[i])o.pn[o.rg[i]]=p;}
  }
+ /* C5 only. A record older than these questions leaves the keys ABSENT rather than filling
+    in a default, because absent means "never asked" and that is not "No view yet". The
+    trial year is the warning: its default cannot be told apart from a real answer, and
+    still cannot. */
+ if(ext===2){
+  o.same=(SAMETOWN[r.r(3)]||SAMETOWN[0])[0]; o.early=(EARLY[r.r(3)]||EARLY[0])[0];
+  TOLX.forEach(([k])=>o.t[k]=r.r(3));
+  if(!r.r(1))o.u=""; if(!r.r(1))o.hh=""; if(!r.r(1))o.hz="";
+ }
  const parts=uU8(str.slice(N_FIX)).split("\u001f");
  o.n=parts[0]||""; o.st=parts[1]||""; o.wy=parts[2]||"";
  o.ow=(parts[3]||"").split("\u001e").filter(Boolean);
@@ -844,9 +920,12 @@ function recRead(str,REG,ext){
  o.cz=parts[5]||""; o.lv=parts[6]||"";
  return o;
 }
-/* C4: the C3 layout plus a trial-year answer and up to two map pins. */
-function packC4(list){
- let out=String.fromCharCode(4)+String.fromCharCode(Math.min(255,list.length));
+/* C5: the C4 layout - the C3 layout plus a trial-year answer and up to two map pins - and
+   then the same-town answer, whether you would move early, the hotter-summers tolerance
+   and three answered-or-not flags. There is no C4 writer any more: recBin writes the C5
+   layout, so a C4 header in front of it would describe the record wrongly. */
+function packC5(list){
+ let out=String.fromCharCode(5)+String.fromCharCode(Math.min(255,list.length));
  list.forEach(o=>{const b=recBin(o);
   out+=String.fromCharCode((b.length>>8)&255)+String.fromCharCode(b.length&255)+b;});
  return out;
@@ -854,7 +933,7 @@ function packC4(list){
 /* Strict on purpose: a wrong record length or a leftover byte throws rather than
    producing garbage or phantom "anon" rows. Do not loosen. */
 function unpackRecs(str,REG,ext){
- const N_FIX=NFIX(ext?BITS_C4:BITS_CORE);
+ const N_FIX=NFIX(fixBits(ext));
  const n=str.charCodeAt(1)&255;
  if(!n||str.length<3)throw new Error("empty pack");
  let i=2;const out=[];
@@ -867,8 +946,9 @@ function unpackRecs(str,REG,ext){
  return out;
 }
 const unpackC2=str=>unpackRecs(str,REGIONS_V2,false);
-const unpackC3=str=>unpackRecs(str,REGIONS,false);
-const unpackC4=str=>unpackRecs(str,REGIONS,true);
+const unpackC3=str=>unpackRecs(str,REGIONS_V3,false);
+const unpackC4=str=>unpackRecs(str,REGIONS_V3,true);
+const unpackC5=str=>unpackRecs(str,REGIONS,2);
 const bin64=t=>btoa(t).replace(/\+/g,".").replace(/\//g,"_").replace(/=+$/,"");
 const unbin64=c=>{
  c=String(c).trim().replace(/\s+/g,"");
@@ -879,10 +959,12 @@ const unbin64=c=>{
 const b64=t=>btoa(unescape(encodeURIComponent(t))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const unb64=c=>{c=String(c).trim().replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/");
  while(c.length%4)c+="="; return decodeURIComponent(escape(atob(c)));};
-const encode=o=>bin64(packC4(Array.isArray(o)?o:[o]));
-/* Fallback chain, newest first: C4, C3, C2 (frozen eight-region list), C1, then raw JSON. */
+const encode=o=>bin64(packC5(Array.isArray(o)?o:[o]));
+/* Fallback chain, newest first: C5, C4 and C3 (frozen five-region list), C2 (frozen
+   eight-region list), C1, then raw JSON. */
 const decode=c=>{
  let bin=null; try{bin=unbin64(c);}catch(e){}
+ if(bin&&bin.charCodeAt(0)===5){const rows=unpackC5(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===4){const rows=unpackC4(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===3){const rows=unpackC3(bin);return rows.length===1?rows[0]:rows;}
  if(bin&&bin.charCodeAt(0)===2){const rows=unpackC2(bin);return rows.length===1?rows[0]:rows;}
@@ -915,7 +997,8 @@ const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S
  sk:S.sk,wy:cut(S.why,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
  rw:liveRg().indexOf(OFFLIST)>=0?cut(String(S.rw||"").trim(),60):"",
  cz:cut(String(S.cz||"").trim(),40),lv:cut(String(S.lv||"").trim(),40),
- tr:S.tr||TRIAL[0][0],pn:Object.assign({},S.pin||{})});
+ tr:S.tr||TRIAL[0][0],same:S.same||SAMETOWN[0][0],early:S.early||EARLY[0][0],
+ pn:Object.assign({},S.pin||{})});
 /* Everything a person can TYPE, captured before the screen is rebuilt under them. The name
    was missing from this list because, until the review screen existed, step 0 was only ever
    left through its own save(). It can now be left by "Back to my answers" and by "Home"
@@ -1058,7 +1141,7 @@ const STEPS=[
  save:()=>{grabOwn();return null;}},
 
 {t:"How much can you take?",k:"Slide toward whichever end feels true.",
- r:()=>TOL.map(([k,a,lo,hi])=>`<div class="sl"><label for="tol-${esc(k)}">${esc(a)}</label>
+ r:()=>TOL.concat(TOLX).map(([k,a,lo,hi])=>`<div class="sl"><label for="tol-${esc(k)}">${esc(a)}</label>
    <input type="range" min="0" max="4" id="tol-${esc(k)}" value="${S.tol[k]}" data-tol="${esc(k)}"
     data-fk="${esc("tol:"+k)}" aria-valuetext="${esc(tolSay(lo,hi,S.tol[k]))}">
    <div class="ends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`).join(""),
@@ -1085,16 +1168,28 @@ const STEPS=[
    </div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
-{t:"When, and what would stop you",k:"Timing splits groups more often than taste does.",
+{t:"How we'd start, and when",k:"Timing splits groups more often than taste does.",
  r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first.</b> Living somewhere
    together for a year before any money goes into land.</p>
    <div role="group" aria-labelledby="q-tr">`+
   TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+`</div>`+
   `<details class="more" data-more="trial" ${moreOpen.trial?"open":""} style="margin-top:14px">
-   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came out of the September call. It was
-   the strongest proposal in the room and nobody has actually been asked about it, so this is the question
-   doing the most work on this page.</div></details>
-   <p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
+   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came out of the September call, where
+   it was the strongest proposal in the room. Nobody had actually been asked about it until now.</div></details>
+   <p class="hint" id="q-same" style="margin-top:24px"><b>Or: the same town first.</b> Each of us finds
+   a place of our own in one town and we start there, sorting out living together as people are ready.</p>
+   <div role="group" aria-labelledby="q-same">`+
+  SAMETOWN.map(([k,a,b])=>opt(S.same===k,"same",k,a,b)).join("")+`</div>`+
+  `<details class="more" data-more="same" ${moreOpen.same?"open":""} style="margin-top:14px">
+   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came up
+   after the September call, as a way of making the start the most flexible part: people arrive when they
+   can, and nobody has to be ready at once. It is a proposal, not a plan. It sits beside the trial year
+   rather than replacing it, and you can like both, or neither.</div></details>
+   <p class="hint" id="q-early" style="margin-top:24px"><b>Would you move to the chosen town before
+   anything is bought?</b> Into a place of your own, once the group has settled on where.</p>
+   <div role="group" aria-labelledby="q-early">`+
+  EARLY.map(([k,a,b])=>opt(S.early===k,"early",k,a,b)).join("")+`</div>`+
+  `<p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
    <div role="group" aria-labelledby="q-hz">`+
   HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`+
   `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
@@ -1124,8 +1219,8 @@ const STEPS=[
    renovation, and where each region's climate is heading. Orders of magnitude for calibration, not quotes,
    and the climate lines are direction of travel rather than forecasts.
    <span class="row"><b>Pyrenees</b> (Ari&egrave;ge, Hautes-Pyr&eacute;n&eacute;es) &middot; &euro;120&ndash;300k
-    <span class="clim">Cheapest of the four per square metre &mdash; houses run about &euro;1,400/m&sup2; in
-    Ari&egrave;ge. It also carries the strongest drying and heat signal of the four: about +1.2&#176;C in
+    <span class="clim">Cheapest of the five per square metre &mdash; houses run about &euro;1,400/m&sup2; in
+    Ari&egrave;ge. It also carries the strongest drying and heat signal of the five: about +1.2&#176;C in
     fifty years against 0.85&#176;C globally, half the glaciers gone, and less snow projected at every
     elevation.</span></span>
    <span class="row"><b>Italian Alps</b> &middot; &euro;100&ndash;450k in the western and eastern valleys,
@@ -1140,10 +1235,18 @@ const STEPS=[
     Chartreuse. Full alpine warming: a rising snowline and drier summers, felt first at lower
     elevation.</span></span>
    <span class="row"><b>Vestland, Norway</b> &middot; &euro;215&ndash;520k
-    <span class="clim">Building and renovation costs are the highest of the four. Wetter and milder, and the
-    least exposed of the four to heat and drought &mdash; annual rainfall is projected up 5&ndash;30% by 2100
-    and the growing season one to two months longer, with dark winters and a short season as the standing
-    cost today.</span></span>
+    <span class="clim">Building and renovation costs are Norway's, the highest on this list. Wetter and
+    milder, and the least exposed of the five to heat and drought &mdash; annual rainfall is projected up
+    5&ndash;30% by 2100 and the growing season one to two months longer, with dark winters and a short season
+    as the standing cost today.</span></span>
+   <span class="row"><b>Oslo &amp; eastern Norway</b> &middot; no range gathered yet
+    <span class="clim">Detached houses in Oslo itself averaged about NOK 68,900/m&sup2; in 2025, around
+    &euro;6,400, and about NOK 41,000 across Akershus, the county round it. Prices fall a long way further
+    out, and a figure for a house with land within reach of the city has not been gathered, so there is no
+    range here yet rather than a guessed one. Building costs are Norway's. Projected to warm by about
+    4&#176;C by the end of the century on a high-emissions path, most of it in winter and spring, with about
+    15% more rain a year and more heavy downpours &mdash; but possibly drier summers, and occasional
+    drought.</span></span>
    <span class="cmphead">Not on the shortlist &middot; kept for comparison</span>
    <span class="row cmp"><b>Dolomites &amp; South Tyrol</b> &middot; &euro;600k and up
     <span class="clim">The expensive end of "Italian Alps", and the reason that name needs
@@ -1155,8 +1258,10 @@ const STEPS=[
    Norway, where building costs are among Europe's highest. Take a mid-range example at &euro;500k all-in:
    five households means &euro;100k each, fifteen means &euro;33k each.</span>
    <span class="src">Prices: french-property.com, notaires de l'Is&egrave;re, immobiliare.it, idealista.it,
-   ssb.no, Statistik Austria. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement
-   Climatique, Klima i Norge 2100.</span></div></details>`,
+   ssb.no, Statistik Austria; Oslo and Akershus from SSB figures as quoted by smartepenger.no and
+   boligtrend.no. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement Climatique,
+   Klima i Norge 2100, Klimaprofil Oslo og Akershus (Norsk klimaservicesenter),
+   Milj&oslash;direktoratet.</span></div></details>`,
  save:()=>S.debt?null:"Answer the borrowing question too."},
 
 {t:"What could you bring?",k:"Not what you own \u2014 what you can do. A commons runs on skills more than money.",
@@ -1170,9 +1275,9 @@ const STEPS=[
  r:()=>{const stale=staleRg(),live=liveRg();
   return (stale.length?`<div class="note"><b>Your earlier ${stale.length>1?"picks have":"pick has"} gone from the list.</b>
     ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more &mdash;
-    the group narrowed to four regions on the September call, mostly on price. Choose again below;
+    the group narrowed the list on the September call, mostly on price. Choose again below;
     ${stale.length>1?"those picks":"that pick"} will not be carried into your code.</div>`:"")+
-   REGIONS.map(p=>opt(live.indexOf(p)>=0,"rg",p,p)).join("")+
+   RGSHOW.map(p=>opt(live.indexOf(p)>=0,"rg",p,p)).join("")+
    (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
      <label for="rgw"><b>Where were you thinking?</b></label>
      <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
@@ -1266,12 +1371,16 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
    S.hz=b.dataset.hz;autosave();render();});
  q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
    S.tr=b.dataset.tr;autosave();render();});
+ q("[data-same]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+   S.same=b.dataset.same;autosave();render();});
+ q("[data-early]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+   S.early=b.dataset.early;autosave();render();});
  q("[data-cap]",b=>b.onclick=()=>{S.cap=+b.dataset.cap;autosave();render();});
  q("[data-run]",b=>b.onclick=()=>{S.run=+b.dataset.run;autosave();render();});
  q("[data-debt]",b=>b.onclick=()=>{S.debt=b.dataset.debt;autosave();render();});
  q("[data-act]",b=>b.onclick=()=>{grabOwn();const k=b.dataset.act;S.act[k]=(S.act[k]+1)%4;autosave();paintChip(b);});
  q("[data-tol]",r=>r.oninput=()=>{const k=r.dataset.tol;S.tol[k]=+r.value;
-   const t=TOL.filter(x=>x[0]===k)[0];
+   const t=TOL.concat(TOLX).filter(x=>x[0]===k)[0];
    if(t)r.setAttribute("aria-valuetext",tolSay(t[2],t[3],S.tol[k]));
    autosave();});
  q("[data-pinrg]",sv=>sv.onclick=ev=>{
@@ -1321,16 +1430,16 @@ function home(){
  const saved=lsKeys();
  app.innerHTML=`<div class="kicker">A commons, in the making</div>
  <h1>A life with friends</h1>
- <p class="lede">Some of us have been talking about buying somewhere together \u2014 a shared place in the
- countryside, somewhere in Europe, to actually live in rather than visit. Before anyone argues about
- <em>where</em>, it seemed worth finding out what each of us is actually picturing.</p>
- <p class="lede">So: ${nword(STEPS.length)} steps, on your own, no right answers. ${lsFailed?
+ <p class="lede">Some of us have been talking about building a life closer together, somewhere in
+ Europe, and one day perhaps a shared place of our own to live in. Nothing about it is settled: not
+ where, not how, not when.</p>
+ <p class="lede">The first thing to settle is <em>where</em>, because the rest depends on it. It will shape
+ each of our lives, so everyone gets a say before anyone argues for an answer.</p>
+ <p class="lede">${nword(STEPS.length).replace(/^./,c=>c.toUpperCase())} steps, on your own, no right answers. ${lsFailed?
  `Nothing saves on this device \u2014 see below \u2014 so do it in one sitting and copy your code at the end.`:
- `It saves as you go \u2014 stop anywhere and come back for your code later.`} You build your own version:
- what shape it takes, what has to be possible there, what you could put in, when. At the end you get a
- short code. Send it back and we can see where we already agree and where we quietly don't.</p>
- <p class="lede">Answering does not commit you to anything. Saying "someday, no timeline" or naming a
- deal-breaker is just as useful as saying yes.</p>
+ `It saves as you go \u2014 stop anywhere and come back for your code later.`} At the end you get a short
+ code; send it back and we can all see where we already agree and where we don't. Answering commits
+ you to nothing, and "someday" or a deal-breaker is as useful as a yes.</p>
  ${msg?`<div class="ok">${esc(msg)}</div>`:""}
  ${storeWarn()}
  <button class="btn" id="start">Start building</button>
@@ -1386,11 +1495,7 @@ function resume(){
    saying something the person did not say, that is put on the screen rather than handed over
    as a code to send. */
 let rvJump=-1;
-/* Two bits holds exactly the four options these three questions offer, so there is no spare
-   value for "not answered" and a blank is written as the first option. Only a C5 could fix
-   that; until then the screen says it out loud. */
-const RVGUESS=[["u",USES,"How would you use it",5],["hh",HOUSE,"Who would be coming with you",5],
- ["hz",HORIZON,"Realistically, when",6]];
+
 const RVREQ=[["n","First name",0],["s","What shape is it",1],["u","How would you use it",5],
  ["hh","Who would be coming with you",5],["hz","Realistically, when",6],["d","Would you borrow",7]];
 const labOf=(list,k)=>{const x=list.filter(y=>y[0]===k)[0];return x?x[1]:"";};
@@ -1401,14 +1506,15 @@ const NOANS='<span class="no">not answered</span>';
    default, so the line says so - but only when the value is the ambiguous one, or it would
    be a caveat on a page of answers that do not need one. */
 const RVLEFT="This is where the question starts, so it may mean it was left there.";
+/* The two questions about how we start arrived with C5, so on the board a row from an older
+   code cannot have answered them at all - its "No view yet" is stateFrom's default, and the
+   line says that rather than presenting it as their view. */
+const RVFIRST=onBoard=>onBoard?"This is where the question starts, so it may mean they left it there \u2014 or that their code was sent before the question existed.":RVLEFT;
 /* The two bands that were split stay in the arrays so older codes still decode to exactly
    what the person said, and they are shown marked wherever they appear - on the form, on
    the results page, and here. Never silently, and never moved into a band nobody picked. */
 const RVSPLIT="This band has since been split \u2014 tap to say which half.";
-/* Nothing was chosen, and unlike the four above, a code has no way to carry that: four
-   options in two bits leaves no spare value, so it writes the first one. The note at the
-   top of the screen says so once; the row says it where the answer is. */
-const RVMADE="Not chosen \u2014 a code cannot carry a blank here, so it says this.";
+
 /* Everything that reaches the markup is escaped here, once, so no caller can forget. */
 function rvRow(key,jump,plain,sub){
  const has=plain!==undefined&&plain!==null&&String(plain)!=="";
@@ -1441,15 +1547,16 @@ function rvCheck(p,d){
  const none="not answered";
  if(!eq(p.n,d.n))add("First name",p.n||none,d.n||none,0);
  if(!eq(p.s,d.s))add("What shape is it",labOf(STYLES,p.s)||none,labOf(STYLES,d.s)||none,1);
- /* These three have no spare bit value for "not answered", so an unanswered one always
-    comes back as the first option. That is not a fault in the code and it is already said,
-    quietly and by name, in the "no answer yet" note - raising the alarm box for it as well
-    would put a red panel in front of everybody who simply has not finished. A real
-    disagreement, where the question WAS answered and the code says otherwise, still fires. */
- if(p.u&&!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,5);
- if(p.hh&&!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,5);
- if(p.hz&&!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,6);
+ /* Compared flat. Until C5 an unanswered one of these three had no blank to travel as and
+    came back as the first option, so a blank had to be let through here or everybody who
+    had not finished got a red panel. A C5 code carries the blank, so a difference of any
+    kind is now a real one. */
+ if(!eq(p.u,d.u))add("How would you use it",labOf(USES,p.u)||none,labOf(USES,d.u)||none,5);
+ if(!eq(p.hh,d.hh))add("Who would be coming",labOf(HOUSE,p.hh)||none,labOf(HOUSE,d.hh)||none,5);
+ if(!eq(p.hz,d.hz))add("Realistically, when",labOf(HORIZON,p.hz)||none,labOf(HORIZON,d.hz)||none,6);
  if(!eq(p.tr,d.tr))add("Renting together first",labOf(TRIAL,p.tr)||none,labOf(TRIAL,d.tr)||none,6);
+ if(!eq(p.same,d.same))add("The same town first",labOf(SAMETOWN,p.same)||none,labOf(SAMETOWN,d.same)||none,6);
+ if(!eq(p.early,d.early))add("Would you move early",labOf(EARLY,p.early)||none,labOf(EARLY,d.early)||none,6);
  if(!eq(p.d,d.d))add("Would you borrow",p.d||none,d.d||none,7);
  if(p.cp!==d.cp)add("Up-front capital",CAP[p.cp]||none,CAP[d.cp]||none,7);
  if(p.rn!==d.rn)add("Monthly running cost",RUN[p.rn]||none,RUN[d.rn]||none,7);
@@ -1457,7 +1564,7 @@ function rvCheck(p,d){
   if(x!==y)add("Tokens on "+a,String(x),String(y),2);});
  ALLACTS.forEach(([k,a])=>{const x=(p.a&&p.a[k])||0,y=(d.a&&d.a[k])||0;
   if(x!==y)add(a,ACTSTATE[x][1],ACTSTATE[y][1],3);});
- TOL.forEach(([k,a,lo,hi])=>{const x=(p.t&&p.t[k]!==undefined)?p.t[k]:2,
+ TOL.concat(TOLX).forEach(([k,a,lo,hi])=>{const x=(p.t&&p.t[k]!==undefined)?p.t[k]:2,
    y=(d.t&&d.t[k]!==undefined)?d.t[k]:2;
   if(x!==y)add(a,tolSay(lo,hi,x),tolSay(lo,hi,y),4,x,y);});
  SKILLS.forEach(([k,a])=>{const x=(p.sk&&p.sk[k])?1:0,y=(d.sk&&d.sk[k])?1:0;
@@ -1497,7 +1604,7 @@ function review(){
     though it covers all of them, so there is no guard: the line says the ambiguity instead.) */
  const missing=RVREQ.filter(([k])=>!String(pay[k]||"").trim());
  const noTokens=SPEND.reduce((a,[k])=>a+((pay.sp&&pay.sp[k])||0),0)===0;
- const guessed=RVGUESS.filter(([k])=>!String(pay[k]||"").trim());
+
 
  const sec=t=>`<h3 class="sec">${esc(t)}</h3>`;
  const sp=SPEND.map(([k,a])=>({a:a,v:(r.sp&&r.sp[k])||0})).sort((x,y)=>y.v-x.v);
@@ -1539,8 +1646,8 @@ function review(){
  }
  if(missing.length||noTokens){
   const list=missing.map(x=>x[1]).concat(noTokens?["Spend your twenty"]:[]);
-  /* Which three of these a code cannot leave blank, and what it says instead, is on the
-     rows themselves now - saying it twice on one screen is once too many. */
+  /* A C5 code carries a blank, so an unanswered question reads "not answered" on its own
+     row as well; this note is the one place they are gathered. */
   h+=`<div class="note"><b>${list.length===1?"One question has":list.length+" questions have"}
    no answer yet.</b> ${list.map(x=>esc(x)).join(", ")}. Tap the line to answer.</div>`;
  }
@@ -1566,8 +1673,8 @@ function review(){
    picks.some(rg=>(r.pn||{})[rg])?"A pin is stored to about four kilometres, so it moves a little.":
     (picks.length?"A pin is optional \u2014 the region alone is a real answer.":""))+
   sec("Being there")+
-  rvRow("How would you use it",5,labOf(USES,r.u),pay.u?"":RVMADE)+
-  rvRow("Who would be coming with you",5,labOf(HOUSE,r.hh),pay.hh?"":RVMADE)+
+  rvRow("How would you use it",5,labOf(USES,r.u))+
+  rvRow("Who would be coming with you",5,labOf(HOUSE,r.hh))+
   sec("What matters")+
   rvRow("Spend your twenty",2,spTot?sp.slice(0,3).map(x=>x.a+" "+x.v).join(", "):"",
    spTot?"Then "+sp.slice(3).map(x=>x.a+" "+x.v).join(", ")+"."+
@@ -1579,14 +1686,17 @@ function review(){
     ". "+byState[0].length+" left neutral.")+
   rvRow("Anything you added",3,(r.ow||[]).join(", "))+
   rvRow("How much you can take",4,
-   TOL.map(([k,a,lo,hi])=>a+": "+tolSay(lo,hi,(r.t&&r.t[k]!==undefined)?r.t[k]:2)).join(" \u00b7 "),
-   TOL.some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
+   TOL.concat(TOLX).map(([k,a,lo,hi])=>a+": "+tolSay(lo,hi,(r.t&&r.t[k]!==undefined)?r.t[k]:2)).join(" \u00b7 "),
+   TOL.concat(TOLX).some(([k])=>((r.t&&r.t[k]!==undefined)?r.t[k]:2)===2)?
     "A middle reading is also where the slider starts, so it may mean it was left there.":"")+
-  sec("Timing, and what would stop you")+
+  sec("How we'd start, when, and what would stop you")+
   rvRow("Renting together first",6,labOf(TRIAL,r.tr),
    r.tr!==TRIAL[0][0]?"":
    (onBoard?"This is where the question starts, so it may mean they left it there \u2014 or that their code was sent before the question existed.":RVLEFT))+
-  rvRow("Realistically, when",6,labOf(HORIZON,r.hz),pay.hz?"":RVMADE)+
+  rvRow("The same town first",6,labOf(SAMETOWN,r.same),r.same!==SAMETOWN[0][0]?"":RVFIRST(onBoard))+
+  rvRow("Would you move before anything is bought",6,labOf(EARLY,r.early),
+   r.early!==EARLY[0][0]?"":RVFIRST(onBoard))+
+  rvRow("Realistically, when",6,labOf(HORIZON,r.hz))+
   rvRow("What would make you walk away",6,r.st)+
   sec("Money")+
   rvRow("Up-front capital",7,CAP[r.cp]||"",
@@ -1848,12 +1958,12 @@ function combine(){
 }
 
 /* ================= Europe map ================= */
-/* The four live regions only. Retired picks have no dot; they are listed under the map instead,
+/* The live regions only. Retired picks have no dot; they are listed under the map instead,
    so they are neither hidden nor drawn as if they were still on the shortlist. */
 const RCPOS={"Vestland, Norway \u2014 the fjords":[60.6,6.4],"French Alps, Vercors & Chartreuse":[45.0,5.8],
- "Italian Alps":[46.0,10.5],"Pyrenees":[42.7,1.5]};
+ "Italian Alps":[46.0,10.5],"Pyrenees":[42.7,1.5],"Oslo & eastern Norway":[59.91,10.75]};
 const SHORT={"Vestland, Norway \u2014 the fjords":"Vestland","French Alps, Vercors & Chartreuse":"French Alps",
- "Italian Alps":"Italian Alps","Pyrenees":"Pyrenees"};
+ "Italian Alps":"Italian Alps","Pyrenees":"Pyrenees","Oslo & eastern Norway":"Oslo"};
 /* Where each region's name sits, and which side it anchors to - the same device the
    triangle uses, and for the same reason. The names used to be printed directly above
    their bubbles, which works only while the bubbles are small: the radius grows with
@@ -1866,7 +1976,12 @@ const MAPLAB={
  "Vestland, Norway \u2014 the fjords":      [6,104,"start"],
  "French Alps, Vercors & Chartreuse":      [6,249,"start"],
  "Pyrenees":                               [6,302,"start"],
- "Italian Alps":                         [334,243,"end"]
+ "Italian Alps":                         [334,243,"end"],
+ /* Oslo's bubble sits about 20 units east of Vestland's, closer than any other pair, so
+    its name goes on the opposite side: Vestland's leader runs west, Oslo's runs east, and
+    the two can never cross. map test: every split of 15 and of 30 votes, no label in a
+    bubble, no leader through one. */
+ "Oslo & eastern Norway":                [334,112,"end"]
 };
 const D2R=Math.PI/180, tt=p=>Math.tan(Math.PI/4+p/2);
 const MP1=42*D2R, MP2=64*D2R, MP0=53*D2R, ML0=10*D2R;
@@ -2147,6 +2262,7 @@ function posterSVG(){
  block("Where","#22423A",POSTER.regions);
  if(POSTER.pins.length)block("Where exactly","#22423A",POSTER.pins);
  if(POSTER.trial.length)block("A year renting first","#35748A",POSTER.trial);
+ if(POSTER.same.length)block("Same town first","#35748A",POSTER.same);
  if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
  o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
@@ -2235,7 +2351,7 @@ function result(){
  if(knownM<2) cards.push(["Stated versus revealed",`<b>Somewhere we know</b> scored only ${knownM.toFixed(1)} of 20. Sentiment about a place tends to rank high in conversation and low when it costs something. Worth being honest about.`,"split"]);
 
  /* ---------- where this leaves us ----------
-    Five lines about the thing the group exists to decide, at the top of a page that
+    Six lines about the thing the group exists to decide, at the top of a page that
     otherwise opens with findings about the questionnaire. Every line is a count or a pool
     the page already computes further down; nothing here is interpretation, and there is no
     adjective in it. A tie prints as a tie rather than picking a winner, and a question
@@ -2257,10 +2373,10 @@ function result(){
  const sumRows=[];
  const srow=(k,v)=>sumRows.push(`<div class="sr"><span class="sk">${esc(k)}</span>
    <span class="sv">${v}</span></div>`);
- /* Regions: ranked among the four on the shortlist, with picks from the earlier list
+ /* Regions: ranked among those on the shortlist, with picks from the earlier list
     counted separately rather than ranked against regions nobody can choose now. */
  {const t={};codes.forEach(c=>rgOf(c).forEach(x=>{t[x]=(t[x]||0)+1;}));
-  const liveL=leadTxt(lead(REGIONS.map(r=>[SHORT[r]||r,t[r]||0])));
+  const liveL=leadTxt(lead(RGSHOW.map(r=>[SHORT[r]||r,t[r]||0])));
   const gone=RETIRED.map(r=>[r,t[r]||0]).filter(x=>x[1]);
   srow("Where",(liveL||"<em>nobody picked a region</em>")+
    (gone.length?` <em>&middot; ${gone.reduce((a,x)=>a+x[1],0)} for regions since dropped</em>`:""));}
@@ -2274,6 +2390,20 @@ function result(){
    `<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
    `<em>${N===2?"both of you":"all "+nword(N)+" of you"} left it at "no view", which is
     also where it starts</em>`);}
+ /* The second proposal, in the same form as the first and directly beneath it, so neither
+    is read as the default. Only codes that were asked count: one sent before the question
+    existed is "not asked", which is neither for nor against, and is said as such. */
+ {const asked=codes.filter(c=>c.same!==undefined), A=asked.length;
+  const f=asked.filter(c=>c.same==="want"||c.same==="fine").length,
+    ag=asked.filter(c=>c.same==="skip"||c.same==="against").length, nv=A-f-ag;
+  const mv=asked.filter(c=>c.early==="yes").length, dp=asked.filter(c=>c.early==="depends").length;
+  srow("Same town first",!A?`<em>not asked yet &mdash; ${N===1?"this code was":"every code here was"}
+    sent before the question existed</em>`:
+   ((f||ag)?`<b>${f}</b> for, <b>${ag}</b> against${nv?`, <em>${nv} no view either way</em>`:""}`:
+    `<em>${A===N?(N===2?"both of you":"all "+nword(N)+" of you"):A+" of "+N} left it at "no view",
+     which is also where it starts</em>`)+
+   ((mv||dp)?` <em>&middot; ${mv} would move before anything is bought${dp?`, ${dp} depending on the town`:""}</em>`:"")+
+   (A&&A<N?` <em>&middot; ${N-A} not asked</em>`:""));}
  {const t={};codes.forEach(c=>{if(c.hz)t[c.hz]=(t[c.hz]||0)+1;});
   srow("When",leadTxt(lead(HORIZON.map(([k,a])=>[a,t[k]||0])))||"<em>nobody gave a timeframe</em>");}
  /* Pooled from CAPEUR / RUNEUR, the same ranges the two rows further down use. */
@@ -2330,6 +2460,9 @@ function result(){
   ["Shape of the place",catAgr(codes.map(c=>c.s))],
   ["Land & buildings",avg(SPEND.map(([k])=>agr(codes.map(c=>spv(c,k)),8)))],
   ["What's possible",avg(ACTS.flatMap(([g,it])=>it.map(([k])=>agr(codes.map(c=>desire((c.a&&c.a[k])||0)),1.5))))],
+  /* TOL only. Hotter summers arrived with C5 and only some codes carry it; folding a
+     partial answer into a published score would move the number for reasons that have
+     nothing to do with agreement. Revisit once everyone has been asked it. */
   ["Tolerances",avg(TOL.map(([k])=>agr(codes.map(c=>tov(c,k)),4)))],
   ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
   ["Money & commitment",avgSome([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
@@ -2500,7 +2633,7 @@ function result(){
  if(retired.length){const rn=retired.reduce((a,x)=>a+x[1],0);
   h+=`<div class="retired"><b>From the earlier list, no longer on the shortlist.</b>
    ${retired.map(([r,v])=>`${esc(r)} &middot; ${v}`).join(" &nbsp; ")}
-   \u2014 ${rn===1?"this pick was":"these picks were"} made before the group narrowed to four regions,
+   \u2014 ${rn===1?"this pick was":"these picks were"} made before the group narrowed the list,
    so ${retired.length>1?"they have":"it has"} no bubble on the map. Kept here rather than dropped or
    folded into "somewhere not on this list".</div>`;}
  const renamedN=codes.filter(c=>(c.rg||[]).some(r=>RENAMED[r])).length;
@@ -2530,7 +2663,9 @@ function result(){
   <i>around</i> a house, which is a different question, so the two are kept apart. A dot's
   place is the balance between the three, not the level of any one. Two things to hold
   against it: the priorities behind those averages are four answers, not fifteen, and
-  renovation is blank on all but one listing, so nearly every price shown is a floor.</p>`;
+  renovation is blank on all but one listing, so nearly every price shown is a floor.
+  <b>Oslo &amp; eastern Norway</b> is not on this chart: the property search has no listings there
+  yet, so there is nothing to average.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);
@@ -2588,8 +2723,14 @@ function result(){
  h+=`${sec("How much you can each take")}
   <p class="hint">One dot per person. Bunched means agreed; spread means somebody is compromising.</p>`;
  const bigN=N>6, dotR=N<=6?6.5:N<=10?5:4, perRow=N<=6?1:N<=10?2:3;
- TOL.forEach(([k,a,lo,hi])=>{
-  const v=codes.map(c=>tov(c,k)), sp2=Math.max(...v)-Math.min(...v);
+ /* Hotter summers is drawn with the rest, but only from the codes that were asked it: a code
+    sent before it existed has no value, and plotting the slider's starting point for them
+    would invent an answer. ix maps each dot back to its person, for name and colour. */
+ TOL.concat(TOLX).forEach(([k,a,lo,hi])=>{
+  const isX=TOLX.some(x=>x[0]===k);
+  const ix=codes.map((c,i)=>i).filter(i=>!isX||(codes[i].t&&codes[i].t[k]!==undefined));
+  if(!ix.length)return;
+  const v=ix.map(i=>tov(codes[i],k)), sp2=Math.max(...v)-Math.min(...v);
   const counts={};v.forEach(x=>counts[x]=(counts[x]||0)+1);
   const stackH=Math.ceil(Math.max(...Object.values(counts))/perRow);
   const SW=320,SH=26+stackH*(dotR*2+1.5)+16, base=SH-24;
@@ -2597,22 +2738,23 @@ function result(){
   st+=`<line x1="14" y1="${base}" x2="${SW-14}" y2="${base}" stroke="#131E1B" stroke-opacity=".14" stroke-width="2.5" stroke-linecap="round"/>`;
   for(let i=0;i<=4;i++){const x=14+(SW-28)*i/4;
    st+=`<circle cx="${x.toFixed(1)}" cy="${base}" r="1.6" fill="#131E1B" fill-opacity=".18"/>`;}
-  const mean=v.reduce((p,q)=>p+q,0)/N, mx2=14+(SW-28)*mean/4;
+  const mean=v.reduce((p,q)=>p+q,0)/v.length, mx2=14+(SW-28)*mean/4;
   if(bigN)st+=`<line x1="${mx2.toFixed(1)}" y1="${base-6}" x2="${mx2.toFixed(1)}" y2="${base+6}"
    stroke="#131E1B" stroke-opacity=".4" stroke-width="1.5"/>`;
   const seen={};
-  v.forEach((val,i)=>{const n=(seen[val]=(seen[val]||0)+1)-1;
+  v.forEach((val,n0)=>{const i=ix[n0], n=(seen[val]=(seen[val]||0)+1)-1;
    const row=Math.floor(n/perRow), col=n%perRow;
    const spread=perRow>1?(col-(perRow-1)/2)*(dotR*2+1):0;
    const x=14+(SW-28)*val/4+spread, y=base-row*(dotR*2+1.5);
    st+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(dotR,8)}" fill="${PAL[i%PAL.length]}"
-     fill-opacity=".9" stroke="#EAEDE8" stroke-width="1.2"${insAttr(a,v.map((vv,j)=>[nameOf(j),PAL[j%PAL.length],
+     fill-opacity=".9" stroke="#EAEDE8" stroke-width="1.2"${insAttr(a,v.map((vv,j)=>[nameOf(ix[j]),PAL[ix[j]%PAL.length],
       vv<=1?lo.toLowerCase():vv>=3?hi.toLowerCase():"middling"]))}><title>${esc(who(i))}</title></circle>`;
    if(!bigN)st+=`<text x="${x.toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="7" fill="#fff">${esc((who(i)[0]||"?").toUpperCase())}</text>`;});
   st+=`<text x="14" y="${SH-4}" font-family="ui-monospace,monospace" font-size="7.5" fill="#22423A" opacity=".65">${esc(lo)}</text>`;
   st+=`<text x="${SW-14}" y="${SH-4}" text-anchor="end" font-family="ui-monospace,monospace" font-size="7.5" fill="#22423A" opacity=".65">${esc(hi)}</text>`;
   st+=`</svg>`;
-  h+=`<div class="res"><div class="t"><b>${a}</b><em>${sp2===0?`<span class="tag agree">identical</span>`:sp2>=3?`<span class="tag split">far apart</span>`:""}</em></div>${st}</div>`;});
+  h+=`<div class="res"><div class="t"><b>${esc(a)}</b><em>${isX&&ix.length<N?`${ix.length} of ${N} asked `:""}${
+   ix.length<2?"":sp2===0?`<span class="tag agree">identical</span>`:sp2>=3?`<span class="tag split">far apart</span>`:""}</em></div>${st}</div>`;});
 
  /* ---------- who is closest to whom ---------- */
  const TOLW={};TOL.forEach(([k,a,lo,hi])=>TOLW[k]=[lo,hi]);
@@ -2734,6 +2876,25 @@ function result(){
    h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.tr===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}><div class="t"><b>${a}</b>
     <em>${codes.filter(c=>c.tr===k).map(c=>esc(c.n||"anon")).join(", ")}</em></div>
     <div class="bar"><span style="width:${c2/N*100}%;background:${k==="must"||k==="good"?"var(--glacier)":k==="unsure"?"var(--rule)":"var(--madder)"}"></span></div></div>`;});
+ }
+ /* ---------- the same town first ---------- */
+ /* Same layout as the trial year above, deliberately: two proposals, shown alike. No card
+    and no verdict - the page reports. Bars are out of those who were asked. */
+ const smAsked=codes.filter(c=>c.same!==undefined), SA=smAsked.length;
+ if(smAsked.some(c=>c.same!==SAMETOWN[0][0]||(c.early&&c.early!==EARLY[0][0]))){
+  h+=`${sec("Same town first")}
+   <p class="hint">The other proposal: each of us in a place of our own in one town, sorting out living
+   together as people are ready.${SA<N?` ${N-SA} of you sent a code before this was asked, and are
+   left out of the counts here.`:""}</p>`;
+  const bar=(list,k,a,col,key)=>{const w2=list.filter(c=>c[key]===k);if(!w2.length)return "";
+   return `<div class="res"${insAttr(a,codes.map((c,i)=>c[key]===k?[nameOf(i),PAL[i%PAL.length],"said this"]:null).filter(Boolean))}>
+    <div class="t"><b>${esc(a)}</b><em>${w2.map(c=>esc(c.n||"anon")).join(", ")}</em></div>
+    <div class="bar"><span style="width:${w2.length/SA*100}%;background:${col}"></span></div></div>`;};
+  SAMETOWN.forEach(([k,a])=>{h+=bar(smAsked,k,a,k==="want"||k==="fine"?"var(--glacier)":
+   k==="unsure"?"var(--rule)":"var(--madder)","same");});
+  /* One colour for all four: moving later is a timing, not an objection. */
+  h+=`<div class="grp">Would move before anything is bought</div>`;
+  EARLY.forEach(([k,a])=>{h+=bar(smAsked,k,a,k==="unsure"?"var(--rule)":"var(--glacier)","early");});
  }
  const hhs=codes.filter(c=>c.hh).length;
  if(hhs){h+=sec("Who is coming");
@@ -2879,6 +3040,10 @@ function result(){
   trial:(()=>{const t=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
     if(!t.length)return [];
     return TRIAL.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.tr===k).length;
+      return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
+  same:(()=>{const t=codes.filter(c=>c.same&&c.same!==SAMETOWN[0][0]);
+    if(!t.length)return [];
+    return SAMETOWN.slice(1).map(([k,a])=>{const c2=codes.filter(c=>c.same===k).length;
       return c2?a+" \u2014 "+c2:null;}).filter(Boolean);})(),
   stops:codes.filter(c=>c.st&&c.st.trim()).map(c=>(c.n||"anon")+": "+c.st)};
  wireInspector();
