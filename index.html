@@ -1254,7 +1254,7 @@ const STEPS=[
     narrowing.</span></span>
    <span class="row cmp"><b>German &amp; Austrian northern Alps</b> &middot; &euro;600k&ndash;1.2M
     <span class="clim">Dropped on price in September. Houses in Tyrol average roughly &euro;4,800/m&sup2;.
-    Left here because deleting the expensive end makes the other four look arbitrary.</span></span>
+    Left here because deleting the expensive end makes the other five look arbitrary.</span></span>
    <span class="tail">Renovation typically adds 30&ndash;100% on top &mdash; cheapest in France, dearest in
    Norway, where building costs are among Europe's highest. Take a mid-range example at &euro;500k all-in:
    five households means &euro;100k each, fifteen means &euro;33k each.</span>
@@ -1285,9 +1285,8 @@ const STEPS=[
      <p class="hint" style="margin:7px 0 0">Up to 60 characters. It travels inside your code, so the group
      can see what you had in mind.</p></div>`:"")+
    (live.length?`<div class="grp">Whereabouts, more precisely</div>
-     <p class="hint" style="margin:0 0 10px">"Italian Alps" covers a third-of-the-price difference between
-     its western and eastern ends, so a rough pin says more than the name does. Skip it if you have not
-     got that far.</p>`+live.map(r=>pinPicker(r)).join(""):"");},
+     <p class="hint" style="margin:0 0 10px">A region name can cover a lot of ground, so a rough pin says
+     more than the name does. Skip it if you have not got that far.</p>`+live.map(r=>pinPicker(r)).join(""):"");},
  save:()=>{grabOwn();
   /* Retired picks are kept only until the person has actually chosen again. Once they
      have a live pick, the warning has served its purpose and the stale one goes. */
