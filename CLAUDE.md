@@ -126,7 +126,10 @@ the build.
 
   **C7 (31 Oct 2026) adds 3 bits: where to begin** (`begin`, `BEGIN`: 0 is unanswered, then
   the `BEGIN` index + 1). `ext` level `4`, `BITS_C7 = BITS_C6 + 3`. A record older than C7
-  leaves `begin` **absent**, shown as "not asked yet". It replaced three questions on page 8 —
+  leaves `begin` **absent**, shown as "not asked yet". C7 also **appended a seventh region,
+  "Black Forest, Germany"** (the organiser's choice, "just for the sake of it"), so the six-item
+  list is frozen as `REGIONS_V4` and C5 and C6 decode against it; an older page has to refuse a
+  C7 code rather than drop the seventh bit. It replaced three questions on page 8 —
   the trial year (`tr`), the same-town idea (`same`) and moving early (`early`) — which are no
   longer asked, shown or scored. Their fields are still written and read, so answers already
   given stay in people's codes; nothing that was said is dropped.
@@ -166,7 +169,8 @@ the build.
   meaning a *different* region than the person picked. That is why the old eight-item list
   is frozen as **`REGIONS_V2`** and never touched. **C1 and C2 codes are decoded against
   `REGIONS_V2`; C3 and C4 against `REGIONS_V3`, the five-item list frozen when C5 arrived;
-  C5 against the current `REGIONS`.** If the region list ever changes again, freeze the
+  C5 and C6 against `REGIONS_V4`, the six frozen when C7 arrived; C7 against the current
+  `REGIONS`.** If the region list ever changes again, freeze the
   current array the same way and add a C6 — do not edit `REGIONS` in place.
 
   **Oslo & eastern Norway** was added in C5 by *appending* it, never inserting, so every
@@ -204,6 +208,15 @@ the build.
   changed**: the share-code format still carries pins, a pin already in somebody's code is
   kept when they re-save (just not shown), and the picker code below is intact. Setting
   `PINS_ON = true` brings all of it back exactly as it was — ask him before doing that.
+
+- **The money step is switched off** (31 Oct 2026, the organiser's decision: most of the
+  group are students and the amounts are guesses for now — "not because it's taboo").
+  `MONEY_ON = false` beside `PINS_ON` removes the step, the money rows on the review, the money
+  line and section on the results, and money from the alignment score, whose "Money &
+  commitment" part becomes **"How you'd use it"** (agreement on use alone) — also the group's
+  name on the results. Amounts already in a code are kept and survive a re-save.
+  `MONEY_ON = true` brings it all back exactly as it was — ask him first. The property search's
+  monthly target (€275) came from these answers; it stays at its last value until money returns.
 
 - **Map pins (`pn`) are keyed by region name, never by position.** In state and in a decoded
   record `pn` is `{"Italian Alps": [lat, lon]}`. On the wire they are written in `REGIONS`
@@ -296,7 +309,10 @@ the build.
   30 units clear of the others on its side, and re-run that check. Oslo's bubble sits about 20
   units from Vestland's, closer than any other pair, so its label is on the opposite side
   (Vestland's leader runs west, Oslo's east) and the two bubbles overlap at high counts. That
-  is the real geography at this scale, and the counts are in the labels.
+  is the real geography at this scale, and the counts are in the labels. **The Black Forest**
+  (C7) sits about 23 units from the Italian Alps and 31 from the French Alps, so its label is on
+  the left between Vestland and the French Alps, and its bubble overlaps both Alps bubbles at
+  high counts. With six mapped regions the check walks 340,136 splits; it passed on 31 Oct 2026.
   The vote count rides **in the label**, as `Italian Alps · 7`, not inside the bubble: individual pins are drawn after the bubbles, so a cluster of them covered the
   numeral at four people as well as fifteen. A pin is somebody's actual answer about *where*
   in a region; it wins, and the number moves out of its way.
@@ -420,9 +436,15 @@ happy seeing everyone at Bergensers reunions"). An answer is required to go on. 
 continues through the questionnaire. The other two finish there with a code ("Thank you.
 Here is your code"), so they are counted without being asked about land and money; their
 review shows only name and role, and changing the role to planning from the review brings
-the full questionnaire back. Because the step sits second, every review row and integrity
-check refers to later steps by index one higher than before — use the step's position, and
-re-check those numbers whenever a step is added.
+the full questionnaire back. **"Gut feeling on where" is step 3** (31 Oct 2026, the organiser's
+decision: "it's quite the essential question"), right after this one, so it is the planners'
+first real answer; followers and visitors still finish at step 2.
+
+**Steps are found by name, never by number.** Each step has an `id`, and the review, its
+required-answer list and its read-back checks use `SI("where")` and the like. They used to
+say "step 7", so every step added, moved or hidden silently pointed them at the wrong page; it
+happened twice on 31 Oct 2026 before this. A hidden step (`MONEY_ON`) returns -1 and its rows
+are left out.
 
 **Results.** Everybody is counted once, in a "Who's in" line at the top of the summary, each
 count tappable for names; the kicker counts everyone, and the shared link and combined code
@@ -459,7 +481,8 @@ is now its own group.
 alignment gauge (with at most three headline cards) are open at the top. Every other section
 sits in one of nine closed groups, each summary line showing how aligned the group is on that
 part: Where · How we'd start, and when · What matters most · What has to be possible · How
-much you can take · Shape of the place · Money & commitment · Lone voices · In your own words. Those percentages are the same per-part scores the overall number averages, so the
+much you can take · Shape of the place · Money & commitment (called "How you'd use it" while
+money is switched off) · Lone voices · In your own words. Those percentages are the same per-part scores the overall number averages, so the
 two cannot disagree; a group with nothing to score says "not scored", and one with fewer than
 two answers says "too few answers" rather than showing a number. The grouping is done after
 the page is built, by cutting it at its `h3.sec` headings (`RGRP` in `result()`), so a new
