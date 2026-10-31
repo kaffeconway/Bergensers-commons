@@ -211,6 +211,20 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
    as the entity is - the pure-ASCII rule needs the right escape for the language, not the
    same escape everywhere. */
 .more[open]>summary .mk::before{content:"\2212"}
+/* Results groups: a summary line per part, with how aligned you are on it, and the detail
+   folded underneath. 44px tall so the whole row is the tap target. */
+.rg{border-top:1px solid var(--rule)}
+.rg:last-of-type{border-bottom:1px solid var(--rule);margin-bottom:26px}
+.rg>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:10px;
+ min-height:44px;padding:15px 2px 13px}
+.rg>summary::-webkit-details-marker{display:none}
+.rg>summary .mk{width:12px;flex:none;text-align:center;color:var(--pine)}
+.rg>summary .mk::before{content:"+";font-size:16px;line-height:1}
+.rg[open]>summary .mk::before{content:"\2212"}
+.rgt{flex:1;font-family:var(--serif);font-size:20px;line-height:1.25;color:var(--ink)}
+.rgp{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;white-space:nowrap}
+.rgp.ns{color:var(--pine);opacity:.6}
+.rgb{padding:0 0 20px}
 .more[open]>summary{border-bottom:1px solid var(--rule)}
 .more>summary:hover{color:var(--ink)}
 /* The note keeps its own inner typography (.row / .clim / .cmphead / .tail / .src) and
@@ -1092,9 +1106,7 @@ function pinPicker(rg){
  const known=!!RCWIN[rg];
  return `<div class="pinbox">
   <div class="ph"><b>Roughly where in ${esc(PINLABEL[rg]||"Europe")}?</b><em>optional</em></div>
-  <p class="sub">${known?`Tap the map. It only has to be roughly right &mdash; enough to tell one end
-   of the region from the other, which the name alone cannot.`:`Tap the map if you have somewhere
-   in mind. Towns are there to steer by, not as suggestions.`}</p>
+  <p class="sub">Tap the map. Roughly is fine.</p>
   ${pinSVG(rg)}
   <div class="pf"><span>${p?`${area?`<b>${esc(area)}</b> &middot; `:""}${p[0].toFixed(2)}&#176;N,
     ${p[1].toFixed(2)}&#176;E`:`Nothing placed yet.`}</span>
@@ -1103,7 +1115,7 @@ function pinPicker(rg){
 
 /* ---------- steps ---------- */
 const STEPS=[
-{t:"Who's this?",k:"A first name, so the group can see whose is whose \u2014 and so you can come back and edit later.",
+{t:"Who's this?",k:"",
  r:()=>`<input type="text" id="nm" value="${esc(S.n)}" aria-label="Your first name"
    placeholder="First name" autocomplete="given-name">
   <p class="hint" style="margin-top:14px">${lsFailed?
@@ -1112,11 +1124,11 @@ const STEPS=[
    `Your answers save on this device under this name. Nothing is uploaded anywhere.`}</p>`,
  save:()=>setName(document.getElementById("nm").value)},
 
-{t:"What shape is it?",k:"Not where \u2014 what kind of place. Pick the one closest to how you picture it.",
+{t:"What shape is it?",k:"Pick the one closest to how you picture it.",
  r:()=>STYLES.map(([k,a,b])=>opt(S.style===k,"style",k,a,b)).join(""),
  save:()=>S.style?null:"Pick one."},
 
-{t:"Spend your twenty",k:"Twenty tokens, eight things worth having. You cannot have them all \u2014 that's the point.",
+{t:"Spend your twenty",k:"Spread twenty tokens across what matters most to you.",
  r:()=>`<div class="bank">Tokens left: <b id="left">${BANK-spent()}</b> of ${BANK}</div>`+
   SPEND.map(([k,a,b])=>`<div class="tok">
    <button data-sp="${esc(k)}" data-d="-1" data-fk="${esc("sp-"+k)}"
@@ -1128,17 +1140,14 @@ const STEPS=[
     aria-label="${esc("One more token on "+a)}" ${spent()>=BANK?"disabled":""}>+</button></div>`).join(""),
  save:()=>spent()===0?"Spend at least a few.":null},
 
-{t:"What has to be possible?",k:"Tap once for nice to have, twice for essential. A third tap rules it out \u2014 only if you really mean it.",
+{t:"What has to be possible?",k:"Tap once for nice to have, twice for essential, three times to rule out.",
  r:()=>`<div class="key">${ACTSTATE.map(([g,a])=>
     `<span><i aria-hidden="true">${g}</i>${esc(a)}</span>`).join("")}</div>`+
   ACTS.map(([g,items])=>`<div class="grp">${esc(g)}</div><div class="chips">`+
    items.map(([k,a])=>chipHTML(k,a)).join("")+`</div>`).join("")+
-  `<p class="hint" style="margin-top:12px">Leaving something neutral is fine. Most people rule out very little.</p>
-   <div class="grp">Something we've missed?</div>
+  `<div class="grp">Something we've missed?</div>
    <textarea id="own" aria-label="Anything we have missed \u2014 one per line"
-    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>
-   <p class="hint" style="margin-top:8px">These travel inside your code and show up in the group picture,
-   so anything several of you add can go on the list properly next time.</p>`,
+    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>`,
  save:()=>{grabOwn();return null;}},
 
 {t:"How much can you take?",k:"Slide toward whichever end feels true.",
@@ -1148,19 +1157,18 @@ const STEPS=[
    <div class="ends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`).join(""),
  save:()=>null},
 
-{t:"How would you use it?",k:"Be honest rather than aspirational.",
+{t:"How would you use it?",k:"",
  r:()=>`<p class="vh" id="q-use">How would you use it?</p>
    <div role="group" aria-labelledby="q-use">`+
   USES.map(([k,a])=>opt(S.use===k,"use",k,a)).join("")+
   `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
    <div role="group" aria-labelledby="q-hh">`+
   HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
-  /* The reason for asking stays above the inputs: why somebody's personal data is wanted
-     is not reference material and does not belong behind a disclosure, whatever it costs in
-     fold. It is 30 words now instead of 85, which is the part that was actually wrong. */
-  `<p class="hint" id="q-from" style="margin-top:22px"><b>And where are you coming from?</b>
-   Which passport you hold and which country you live in decide what is legally possible.
-   Both optional.</p>
+  /* The reason for asking stays, in the open, above the inputs: why somebody's personal data
+     is wanted is not reference material and never goes behind a disclosure or into the
+     research file. It survived the October cut that took everything else, at one line. */
+  `<p class="hint" id="q-from" style="margin-top:22px"><b>Where are you coming from?</b> Optional.
+   Passport and country decide what is legally possible.</p>
    <div role="group" aria-labelledby="q-from">
    <div class="sl"><label for="cz">Passport, or passports</label>
     <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
@@ -1169,110 +1177,48 @@ const STEPS=[
    </div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
-{t:"How we'd start, and when",k:"Timing splits groups more often than taste does.",
- r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first.</b> Living somewhere
-   together for a year before any money goes into land.</p>
+{t:"How we'd start, and when",k:"",
+ r:()=>`<p class="hint" id="q-tr" style="margin:0 0 12px"><b>Renting together first:</b> a year living
+   together before any money goes into land.</p>
    <div role="group" aria-labelledby="q-tr">`+
   TRIAL.map(([k,a,b])=>opt(S.tr===k,"tr",k,a,b)).join("")+`</div>`+
-  `<details class="more" data-more="trial" ${moreOpen.trial?"open":""} style="margin-top:14px">
-   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came out of the September call, where
-   it was the strongest proposal in the room. Nobody had actually been asked about it until now.</div></details>
-   <p class="hint" id="q-same" style="margin-top:24px"><b>Or: the same town first.</b> Each of us finds
-   a place of our own in one town and we start there, sorting out living together as people are ready.</p>
+  `<p class="hint" id="q-same" style="margin-top:24px"><b>Or the same town first:</b> each of us in a
+   place of our own in one town, moving in together as people are ready.</p>
    <div role="group" aria-labelledby="q-same">`+
   SAMETOWN.map(([k,a,b])=>opt(S.same===k,"same",k,a,b)).join("")+`</div>`+
-  `<details class="more" data-more="same" ${moreOpen.same?"open":""} style="margin-top:14px">
-   <summary><span class="mk" aria-hidden="true"></span>Where this idea came from</summary><div class="note">It came up
-   after the September call, as a way of making the start the most flexible part: people arrive when they
-   can, and nobody has to be ready at once. It is a proposal, not a plan. It sits beside the trial year
-   rather than replacing it, and you can like both, or neither.</div></details>
-   <p class="hint" id="q-early" style="margin-top:24px"><b>Would you move to the chosen town before
-   anything is bought?</b> Into a place of your own, once the group has settled on where.</p>
+  `<p class="hint" id="q-early" style="margin-top:24px"><b>Would you move to the chosen town before
+   anything is bought?</b></p>
    <div role="group" aria-labelledby="q-early">`+
   EARLY.map(([k,a,b])=>opt(S.early===k,"early",k,a,b)).join("")+`</div>`+
   `<p class="hint" id="q-hz" style="margin-top:20px"><b>Realistically, when?</b></p>
    <div role="group" aria-labelledby="q-hz">`+
   HORIZON.map(([k,a])=>opt(S.hz===k,"hz",k,a)).join("")+`</div>`+
-  `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line. A job, a person,
-   a place you cannot leave, a number you cannot reach. Deal-breakers are worth more than preferences.</p>
+  `<p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line.</p>
    <textarea id="stop" aria-label="What would make you walk away"
-    placeholder="Nothing yet, or... ">${esc(S.stop||"")}</textarea>`,
+    placeholder="A job, a person, a number you can't reach... or nothing yet">${esc(S.stop||"")}</textarea>`,
  save:()=>{const q=document.getElementById("stop");if(q)S.stop=cut(q.value,240);
   return S.hz?null:"Pick a rough timeframe.";}},
 
-{t:"Money, roughly",k:"Bands, not commitments. Rough prices and climate per region sit under the questions.",
- r:()=>`  <p class="hint" id="q-cap" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 a one-time contribution
-   toward buying and fixing the place.</p><div role="group" aria-labelledby="q-cap">`+
+{t:"Money, roughly",k:"Rough bands, not commitments.",
+ r:()=>`  <p class="hint" id="q-cap" style="margin-top:2px"><b>1. Up-front capital</b> \u2014 one-off</p>
+   <div role="group" aria-labelledby="q-cap">`+
   bandBtns(CAP,CAPOFFER,CAPSPLIT,S.cap,"cap")+
-  `</div><p class="hint" id="q-run" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your share of
-   insurance, heating, maintenance, tax, repairs. This continues forever, and it is what usually breaks
-   these projects.</p><div role="group" aria-labelledby="q-run">`+
+  `</div><p class="hint" id="q-run" style="margin-top:18px"><b>2. Monthly running cost</b> \u2014 your
+   share, every month</p><div role="group" aria-labelledby="q-run">`+
   bandBtns(RUN,RUNOFFER,RUNSPLIT,S.run,"run")+
   `</div><p class="hint" id="q-debt" style="margin-top:18px"><b>3. Would you borrow to take part?</b></p>
    <div role="group" aria-labelledby="q-debt">`+
-  ["Yes","Maybe","No"].map(d=>opt(S.debt===d,"debt",d,d)).join("")+`</div>`+
-  /* 417 of this step's 475 words used to stand between the person and the first control they
-     could answer with. The content calibrates the answer and is worth keeping whole, so it
-     moves rather than shrinks: a disclosure directly beneath the questions, closed to begin
-     with, announced by the lede so nobody has to discover it. */
-  `<details class="more" data-more="money" ${moreOpen.money?"open":""} style="margin-top:24px">
-   <summary><span class="mk" aria-hidden="true"></span>What do these numbers mean?</summary><div class="note">Rough all-in cost of a house with some land, before
-   renovation, and where each region's climate is heading. Orders of magnitude for calibration, not quotes,
-   and the climate lines are direction of travel rather than forecasts.
-   <span class="row"><b>Pyrenees</b> (Ari&egrave;ge, Hautes-Pyr&eacute;n&eacute;es) &middot; &euro;120&ndash;300k
-    <span class="clim">Cheapest of the five per square metre &mdash; houses run about &euro;1,400/m&sup2; in
-    Ari&egrave;ge. It also carries the strongest drying and heat signal of the five: about +1.2&#176;C in
-    fifty years against 0.85&#176;C globally, half the glaciers gone, and less snow projected at every
-    elevation.</span></span>
-   <span class="row"><b>Italian Alps</b> &middot; &euro;100&ndash;450k in the western and eastern valleys,
-    past &euro;600k in South Tyrol and the Dolomites
-    <span class="clim">This region has to be narrowed before the number means anything. Piedmont and Friuli
-    sit near &euro;1,600/m&sup2;; Trentino-Alto Adige averages about &euro;3,300/m&sup2;, but the province of
-    Bolzano hit a record &euro;4,746/m&sup2; in August 2026 and the city is nearer &euro;4,900 &mdash; which
-    puts the Dolomites in the same bracket as the German and Austrian Alps. Full alpine warming plus southern
-    exposure, and water stress in the valleys.</span></span>
-   <span class="row"><b>French Alps, Vercors &amp; Chartreuse</b> &middot; &euro;200&ndash;450k
-    <span class="clim">Median around &euro;2,050/m&sup2; in the Vercors and &euro;2,210/m&sup2; in the
-    Chartreuse. Full alpine warming: a rising snowline and drier summers, felt first at lower
-    elevation.</span></span>
-   <span class="row"><b>Vestland, Norway</b> &middot; &euro;215&ndash;520k
-    <span class="clim">Building and renovation costs are Norway's, the highest on this list. Wetter and
-    milder, and the least exposed of the five to heat and drought &mdash; annual rainfall is projected up
-    5&ndash;30% by 2100 and the growing season one to two months longer, with dark winters and a short season
-    as the standing cost today.</span></span>
-   <span class="row"><b>Oslo &amp; eastern Norway</b> &middot; no range gathered yet
-    <span class="clim">Detached houses in Oslo itself averaged about NOK 68,900/m&sup2; in 2025, around
-    &euro;6,400, and about NOK 41,000 across Akershus, the county round it. Prices fall a long way further
-    out, and a figure for a house with land within reach of the city has not been gathered, so there is no
-    range here yet rather than a guessed one. Building costs are Norway's. Projected to warm by about
-    4&#176;C by the end of the century on a high-emissions path, most of it in winter and spring, with about
-    15% more rain a year and more heavy downpours &mdash; but possibly drier summers, and occasional
-    drought.</span></span>
-   <span class="cmphead">Not on the shortlist &middot; kept for comparison</span>
-   <span class="row cmp"><b>Dolomites &amp; South Tyrol</b> &middot; &euro;600k and up
-    <span class="clim">The expensive end of "Italian Alps", and the reason that name needs
-    narrowing.</span></span>
-   <span class="row cmp"><b>German &amp; Austrian northern Alps</b> &middot; &euro;600k&ndash;1.2M
-    <span class="clim">Dropped on price in September. Houses in Tyrol average roughly &euro;4,800/m&sup2;.
-    Left here because deleting the expensive end makes the other five look arbitrary.</span></span>
-   <span class="tail">Renovation typically adds 30&ndash;100% on top &mdash; cheapest in France, dearest in
-   Norway, where building costs are among Europe's highest. Take a mid-range example at &euro;500k all-in:
-   five households means &euro;100k each, fifteen means &euro;33k each.</span>
-   <span class="src">Prices: french-property.com, notaires de l'Is&egrave;re, immobiliare.it, idealista.it,
-   ssb.no, Statistik Austria; Oslo and Akershus from SSB figures as quoted by smartepenger.no and
-   boligtrend.no. Climate: CREA Mont-Blanc, Observatoire Pyr&eacute;n&eacute;en du Changement Climatique,
-   Klima i Norge 2100, Klimaprofil Oslo og Akershus (Norsk klimaservicesenter),
-   Milj&oslash;direktoratet.</span></div></details>`,
+  ["Yes","Maybe","No"].map(d=>opt(S.debt===d,"debt",d,d)).join("")+`</div>`,
  save:()=>S.debt?null:"Answer the borrowing question too."},
 
-{t:"What could you bring?",k:"Not what you own \u2014 what you can do. The Bergenshire runs on skills more than money.",
+{t:"What could you bring?",k:"What you can do, not what you own.",
  r:()=>`<div class="chips">`+SKILLS.map(([k,a])=>
    `<button class="chip plain ${S.sk[k]?"must":""}" data-sk="${esc(k)}" data-fk="${esc("sk:"+k)}"
     aria-pressed="${S.sk[k]?"true":"false"}"><span class="l">${esc(a)}</span></button>`).join("")+`</div>
   `,
  save:()=>null},
 
-{t:"Gut feeling on where",k:"Almost done. Pick up to two regions, without thinking too hard.",
+{t:"Gut feeling on where",k:"Pick up to two.",
  r:()=>{const stale=staleRg(),live=liveRg();
   return (stale.length?`<div class="note"><b>Your earlier ${stale.length>1?"picks have":"pick has"} gone from the list.</b>
     ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more &mdash;
@@ -1281,12 +1227,8 @@ const STEPS=[
    RGSHOW.map(p=>opt(live.indexOf(p)>=0,"rg",p,p)).join("")+
    (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
      <label for="rgw"><b>Where were you thinking?</b></label>
-     <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place">
-     <p class="hint" style="margin:7px 0 0">Up to 60 characters. It travels inside your code, so the group
-     can see what you had in mind.</p></div>`:"")+
-   (live.length?`<div class="grp">Whereabouts, more precisely</div>
-     <p class="hint" style="margin:0 0 10px">A region name can cover a lot of ground, so a rough pin says
-     more than the name does. Skip it if you have not got that far.</p>`+live.map(r=>pinPicker(r)).join(""):"");},
+     <input type="text" id="rgw" maxlength="60" value="${esc(S.rw||"")}" placeholder="Name the place"></div>`:"")+
+   (live.length?`<div class="grp">Whereabouts, more precisely</div>`+live.map(r=>pinPicker(r)).join(""):"");},
  save:()=>{grabOwn();
   /* Retired picks are kept only until the person has actually chosen again. Once they
      have a live pick, the warning has served its purpose and the stale one goes. */
@@ -1295,12 +1237,7 @@ const STEPS=[
 
 {t:"Last one, and it's optional",k:"In one line: why do you want this at all?",
  r:()=>`<textarea id="why" aria-label="Why do you want this at all"
-   placeholder="Because...">${esc(S.why||"")}</textarea>
-   <details class="more" data-more="why" ${moreOpen.why?"open":""} style="margin-top:14px">
-   <summary><span class="mk" aria-hidden="true"></span>Why this one is here</summary><div class="note">Nothing to do with the questions above
-   \u2014 this one is about the whole idea. Skip it if you'd rather; nothing depends on it. If you do
-   write something it gets quoted back to the group, and it tends to be the part people actually
-   remember.</div></details>`,
+   placeholder="Because...">${esc(S.why||"")}</textarea>`,
  save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,180);return null;}}
 ];
 
@@ -1326,7 +1263,7 @@ function paint(){
     <button class="exit" id="notyou">${boardEdit>=0?"Back to the board":"Not you?"}</button></span>`:""}
    <span class="stepno">${one?"Changing one answer":`Step ${step+1} of ${STEPS.length}`}</span></div>
   ${one?"":`<div class="dots">${STEPS.map((_,i)=>`<i class="${i<=step?"on":""}"></i>`).join("")}</div>`}
-  <h2>${st.t}</h2><p class="lede">${st.k}</p>${st.r()}
+  <h2>${st.t}</h2>${st.k?`<p class="lede">${st.k}</p>`:""}${st.r()}
   <button class="btn" id="next">${one?"Save and go back":
     step===STEPS.length-1?"Check my answers":"Next"}</button>
   ${(step>0||one)?`<button class="btn ghost" id="back">${one?"Back to my answers":"Back"}</button>`:""}
@@ -1440,25 +1377,16 @@ function home(){
   <circle cx="31" cy="31" r="1.2" style="fill:var(--paper)" fill-opacity=".55"/></svg>
  <div class="kicker">The Bergenshire</div>
  <h1>A life with friends</h1>
- <p class="lede">Some of us have been talking about building a life closer together, somewhere in
- Europe, and one day perhaps a shared place of our own to live in. Nothing about it is settled: not
- where, not how, not when.</p>
- <p class="lede">The first thing to settle is <em>where</em>, because the rest depends on it. It will shape
- each of our lives, so everyone gets a say before anyone argues for an answer.</p>
- <p class="lede">${nword(STEPS.length).replace(/^./,c=>c.toUpperCase())} steps, on your own, no right answers. ${lsFailed?
- `Nothing saves on this device \u2014 see below \u2014 so do it in one sitting and copy your code at the end.`:
- `It saves as you go \u2014 stop anywhere and come back for your code later.`} At the end you get a short
- code; send it back and we can all see where we already agree and where we don't. Answering commits
- you to nothing, and "someday" or a deal-breaker is as useful as a yes.</p>
+ <p class="lede">${nword(STEPS.length).replace(/^./,c=>c.toUpperCase())} steps on where and how we might
+ live together. ${lsFailed?`Nothing saves on this device, so do it in one sitting.`:`It saves as you go.`}
+ At the end you get a short code to send back.</p>
  ${msg?`<div class="ok">${esc(msg)}</div>`:""}
  ${storeWarn()}
  <button class="btn" id="start">Start building</button>
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
  <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
- <p class="foot">No account, no sign-in, nothing installed, nothing uploaded. Everything stays on this
- device, under your first name.</p>
  <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
- call</a> &mdash; a short recap of what changed.</p>`;
+ call</a></p>`;
  msg="";
  document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";pend=[];pendBoth=false;
   rvJump=-1;S=blank();mode="build";step=0;render();};
@@ -1630,11 +1558,7 @@ function review(){
   <span class="stepno">${onBoard?"Their answers":"Check your answers"}</span></div>
   <div class="kicker">${onBoard?"The board":"Nearly there"}${nm?" &middot; "+esc(nm):""}</div>
   <h2>${onBoard?`What ${esc(nm||"this row")} now says`:"Check your answers"}</h2>
-  <p class="lede">${onBoard?
-   `This is what the board holds for ${esc(nm||"them")}, read back out of their code. Tap any line
-    to change it.`:
-   `Read back out of the code itself, so this is exactly what the group will see. Tap any line
-    to change it.`}</p>`;
+  <p class="lede">Tap any line to change it.</p>`;
 
  const nameSaid=!!nameRefused;
  if(nameRefused){
@@ -1736,8 +1660,7 @@ function review(){
   <p class="foot">${onBoard?
    `Every tap already wrote itself back to ${nm?esc(nm)+(nm.slice(-1)==="s"?"'":"'s"):"their"} row,
     so there is nothing here left to save \u2014 this is what it now says.`:
-   `Nothing has been sent anywhere. The code on the next screen is the only thing that leaves
-    this device.`}</p>`;
+   `Nothing has been sent anywhere yet.`}</p>`;
  app.innerHTML=h;
  /* A live region inserted with its text already in it is not announced - the same rule
     say() was built for, and this screen was breaking it. The box stays where it is. */
@@ -1774,9 +1697,8 @@ function done(){
  }
  try{history.replaceState(null,"","#c="+code);}catch(e){}
  app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>Here is your code</h2>
- <p class="lede">Copy it and send it to the group chat. That's the whole thing.</p>
+ <p class="lede">Copy it and send it to the group chat.</p>
  <button class="btn" id="cl">Copy my link \u2014 easiest</button>
- <p class="hint" style="margin-top:8px">A link stays on one line in a chat and whoever is collecting just taps it.</p>
  <div class="code" id="cd">${grp(code)}</div>
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
  <button class="btn ghost" id="again">Check or change my answers</button>
@@ -1788,8 +1710,7 @@ function done(){
  now \u2014 it is the only copy.</div>`:
  `<p class="foot">${boardEdit>=0?`Saved straight back to the board under <b>${esc(S.n)}</b>, so the results
  page already reflects this. Send the code above back to ${esc(S.n)} if they want it for their own device.`:
- `Saved on this device under <b>${esc(S.n)}</b>. You can close the page and get your code back
- from <b>Open or edit mine</b> on the first screen \u2014 no need to answer everything again.`}</p>`}`;
+ `Saved on this device under <b>${esc(S.n)}</b>. Get it back any time from <b>Open or edit mine</b>.`}</p>`}`;
  const flash=t=>{document.getElementById("st").textContent=t;};
  async function copy(txt,label,forChat){
   if(forChat)txt=grp(txt);
@@ -2466,6 +2387,16 @@ function result(){
  const avgSome=xs=>{const a=xs.filter(v=>v!==null&&v!==undefined&&!isNaN(v));
   return a.length?avg(a):null;};
  const desire=v=>v===2?1:v===1?.5:v===3?-.5:0;
+ /* agr() over only the values that exist, and catAgr() without adding to catSkipped: the
+    questions about how we start have a real "no view" answer and a "never asked" state, and
+    neither is the unanswered question the gauge's note is about. */
+ const agrSome=(vals,range)=>{const a=vals.filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+  if(a.length<2)return null;let t=0,c=0;
+  for(let i=0;i<a.length;i++)for(let j=i+1;j<a.length;j++){t+=Math.abs(a[i]-a[j]);c++;}
+  return Math.max(0,Math.min(1,1-(t/c)/range));};
+ const catQ=vals=>{const a=vals.filter(v=>v);if(a.length<2)return null;
+  const t={};a.forEach(v=>t[v]=(t[v]||0)+1);return (Math.max(...Object.values(t))-1)/(a.length-1);};
+ const side=(v,yes,no)=>yes.indexOf(v)>=0?"for":no.indexOf(v)>=0?"against":"";
  const secScores=[
   ["Shape of the place",catAgr(codes.map(c=>c.s))],
   ["Land & buildings",avg(SPEND.map(([k])=>agr(codes.map(c=>spv(c,k)),8)))],
@@ -2474,7 +2405,18 @@ function result(){
      partial answer into a published score would move the number for reasons that have
      nothing to do with agreement. Revisit once everyone has been asked it. */
   ["Tolerances",avg(TOL.map(([k])=>agr(codes.map(c=>tov(c,k)),4)))],
-  ["Timing",agr(codes.map(c=>Math.max(0,HORIZON.findIndex(x=>x[0]===c.hz))),3)],
+  /* How we'd start, and when. Added Oct 2026 on Joseph's decision, which moved the overall
+     score for answers already given. The timing part used to be agr() over every code with
+     a blank "when" counted as "Within two years" - harmless while a blank could not exist,
+     wrong once C5 could carry one - so it is now over those who answered. The trial year and
+     the same-town idea are compared as for / against, so "Essential" and "A good idea" agree
+     with each other; "No view yet" and a code sent before the question existed are left out,
+     like any other non-answer, and do not count toward the note under the gauge. */
+  ["How we'd start, and when",avgSome([
+    agrSome(codes.map(c=>c.hz?HORIZON.findIndex(x=>x[0]===c.hz):null),3),
+    catQ(codes.map(c=>side(c.tr,["must","good"],["skip","against"]))),
+    catQ(codes.map(c=>side(c.same,["want","fine"],["skip","against"]))),
+    catQ(codes.map(c=>c.early&&c.early!=="unsure"?c.early:""))])],
   ["Money & commitment",avgSome([agr(codes.map(c=>typeof c.cp==="number"?c.cp:5),5),
     agr(codes.map(c=>typeof c.rn==="number"?c.rn:4),4),catAgr(codes.map(c=>c.u)),catAgr(codes.map(c=>c.d))])],
   /* Region overlap, discounted by how far apart the pins are inside a shared region.
@@ -2517,9 +2459,8 @@ function result(){
    as agreement with everyone else who did not answer it, so ${catSkipped===1?"one answer is":
    catSkipped+" answers are"} not in the number above.`:""}</p>
   ${cardHTML}`;
- secLive.slice().sort((a,b)=>b[1]-a[1]).forEach(([lab,v])=>{
-  h+=`<div class="res"><div class="t"><b>${lab}</b><em>${Math.round(v*100)}</em></div>
-   <div class="bar"><span style="width:${(v*100).toFixed(0)}%;background:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}"></span></div></div>`;});
+ /* The per-part bars that used to sit here are the group headings below now - each group
+    shows its own part's score, so listing them twice was the page saying everything twice. */
 
  /* ---------- radar of the token spend ---------- */
  const MX=Math.max(4,...codes.flatMap(c=>SPEND.map(([k])=>spv(c,k))));
@@ -2841,7 +2782,7 @@ function result(){
  }
 
  /* ---------- shape, commitment, money ---------- */
- h+=sec("Shape &amp; commitment");
+ h+=sec("Shape of the place");
  STYLES.forEach(([k,a])=>{const n=codes.filter(c=>c.s===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.s===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--pine)"></span></div></div>`;});
@@ -2853,6 +2794,7 @@ function result(){
     noS.map(c=>{const i=codes.indexOf(c);return [nameOf(i),PAL[i%PAL.length],"no answer"];}))}>
    <div class="t"><b class="no">Did not answer</b><em>${noS.length}/${N}</em></div>
    <div class="bar"><span style="width:${noS.length/N*100}%;background:var(--rule)"></span></div></div>`;}
+ h+=sec("How you would use it");
  USES.forEach(([k,a])=>{const n=codes.filter(c=>c.u===k).length;if(!n)return;
   h+=`<div class="res"${insAttr(a,codes.map((c,i)=>c.u===k?[nameOf(i),PAL[i%PAL.length],"chose this"]:null).filter(Boolean))}><div class="t"><b>${a}</b><em>${n}/${N}${n===N?` <span class="tag agree">all of you</span>`:""}</em></div>
    <div class="bar"><span style="width:${n/N*100}%;background:var(--glacier)"></span></div></div>`;});
@@ -2945,6 +2887,7 @@ function result(){
   stops.forEach(c=>h+=`<div class="card split"><div class="ct">${esc(c.n||"anon")}</div><p>${esc(c.st)}</p></div>`);}
  /* Keyed off CAPEUR, not a bare index cutoff: the old "c.cp < 5" test would have counted
     the two appended top bands as "did not answer" and quietly left them out of the pool. */
+ h+=sec("Money");
  const said=codes.filter(c=>typeof c.cp==="number"&&CAPEUR[c.cp]);
  if(said.length){const lo=said.reduce((a,c)=>a+CAPEUR[c.cp][0],0),hi=said.reduce((a,c)=>a+CAPEUR[c.cp][1],0);
   h+=`<div class="res"><div class="t"><b>Pooled up-front capital</b><em>${said.length}/${N} answered</em></div>
@@ -2981,6 +2924,47 @@ function result(){
  if(ow.length){h+=sec("Added by hand");
   ow.forEach(o=>h+=`<div class="res"><div class="t"><b>${esc(o.label)}</b><em>${esc(o.who.join(", "))}${o.n>1?` <span class="tag agree">${o.n} of you</span>`:""}</em></div></div>`);}
 
+ /* ---------- grouped, and folded ----------
+    Twenty-odd sections in a row is more than anybody reads before deciding anything, and too
+    much at once works against a decision rather than for it. So the summary and the overall
+    score stay open at the top, and the rest folds into groups that each show how aligned you
+    are on that part - the same per-part scores the overall number averages, so the two cannot
+    disagree. A part with nothing to score (free text, who is close to whom) says so rather
+    than showing a number. Sections are cut out of the finished page at their headings and put
+    back in group order, so no section's own code had to move; a section no group names is kept,
+    unfolded, after the groups rather than dropped. */
+ {{
+   const body=h, rest="";
+   const bits=body.split(/(?=<h3 class="sec" id="sec\d+">)/);
+   const lead=bits.shift(), chunk={}, order=[];
+   bits.forEach(b=>{const m=b.match(/^<h3 class="sec" id="sec\d+">([\s\S]*?)<\/h3>/);
+    if(m){chunk[m[1]]=b;order.push(m[1]);}});
+   const score=lab=>{const x=secScores.filter(y=>y[0]===lab)[0];return x?x[1]:null;};
+   const RGRP=[
+    ["Where",score("Where"),["Gut feeling, mapped","Where exactly"]],
+    ["How we'd start, and when",score("How we'd start, and when"),["When","Renting together first","Same town first"]],
+    ["What matters most",score("Land & buildings"),["What you would trade for what","The whole picture in one chart"]],
+    ["What has to be possible",score("What's possible"),["What has to be possible","Added by hand"]],
+    ["How much you can take",score("Tolerances"),["How much you can each take"]],
+    ["Shape of the place",score("Shape of the place"),["Shape of the place","Who is coming"]],
+    ["Money &amp; commitment",score("Money & commitment"),["How you would use it","Money"]],
+    ["Who is closest to whom",undefined,["Who is closest to whom","Lone voices"]],
+    ["In your own words",undefined,["Where we are coming from","What you bring","Why, in your own words","What would stop you"]]];
+   const TOP=["Where this leaves us","How aligned are you"];
+   const used=new Set(TOP);
+   let out=lead+TOP.filter(t=>chunk[t]).map(t=>chunk[t]).join("");
+   RGRP.forEach(([title,v,labs])=>{
+    const have=labs.filter(l=>chunk[l]);if(!have.length)return;
+    have.forEach(l=>used.add(l));
+    /* a group holding one section of its own name does not need that name twice */
+    const inner=have.map(l=>(have.length===1&&(l===title||labs.length===1))?
+     chunk[l].replace(/^<h3 class="sec" id="sec\d+">[\s\S]*?<\/h3>/,""):chunk[l]).join("");
+    const pct=v===undefined?`<span class="rgp ns">not scored</span>`:
+     (v===null||isNaN(v))?`<span class="rgp ns">too few answers</span>`:
+     `<span class="rgp" style="color:${v>=.7?"#35748A":v>=.45?"#8A6A2F":"#7C2E3E"}">${Math.round(v*100)}% aligned</span>`;
+    out+=`<details class="rg"><summary><span class="mk" aria-hidden="true"></span><span class="rgt">${title}</span>${pct}</summary><div class="rgb">${inner}</div></details>`;});
+   out+=order.filter(l=>!used.has(l)).map(l=>chunk[l]).join("");
+   h=out+rest;}}
  h+=`<p class="foot">A picture of where you are, not a decision. With only ${N} of you, read the labels as
   prompts rather than findings.</p>
   <button class="btn noprint" id="png">Make a shareable image</button>
@@ -2989,7 +2973,9 @@ function result(){
   <button class="btn ghost noprint" id="hm">Home</button>
   <div id="sharebox" class="noprint"></div>
   <button id="totop" class="noprint" aria-label="Back to top">&uarr;</button>`;
- const navHTML=secList.length?`<div class="secnav noprint">${secList.map(s=>`<a href="#${s.id}">${s.label}</a>`).join("")}</div>`:"";
+ /* The chip strip that jumped between twenty-odd sections is gone: the folded groups are the
+    contents list now, and a chip pointing into a closed group would jump to nothing. */
+ const navHTML="";
  app.innerHTML=h.replace("__RADAR__",window.__radar(null)).replace("__SECNAV__",navHTML);
  const pairsAllBtn=document.getElementById("pairsAll");
  if(pairsAllBtn)pairsAllBtn.onclick=()=>{document.getElementById("pairsBox").innerHTML=pairs.map(pairRow).join("");pairsAllBtn.remove();};

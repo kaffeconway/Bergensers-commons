@@ -12,8 +12,8 @@ Everything — HTML, CSS, JS — lives in that one file. Keep it that way unless
 asked to split it up; the whole point is that anyone can open it with no server.
 
 **On screen it is called The Bergenshire** (renamed 31 Oct 2026): the page title, the link
-previews, the line above the home heading, and "The Bergenshire runs on skills more than
-money". The repo, the web address and the `commons:` storage prefix keep the old name on
+previews and the line above the home heading. The repo, the web address and the `commons:`
+storage prefix keep the old name on
 purpose — renaming the repo breaks every link already shared, and changing the storage key
 would orphan every saved draft and the collector's board. Two Shire touches were agreed
 with the group's organiser before they went in: Bilbo's round green door on the home screen
@@ -21,6 +21,20 @@ with the group's organiser before they went in: Bilbo's round green door on the 
 Party Tree" as the results heading. Any further ones go past him first, and they stay
 **hobbit-only** — "the hobbits lived in the Shire, not the elves or dwarves or anyone else":
 no runes, no Elvish script, no wizards, no rings.
+
+**The questionnaire is deliberately minimal** (31 Oct 2026, the organiser's decision: "too
+much information all at once is paradoxically harmful, not helpful, to a decision"). Each step
+shows its question, its answers and at most one short instruction line — no explanations,
+context, background or reference material, and the home screen is one line. Everything that
+came off, and the research behind the questions, lives in **`RESEARCH.md` in the private repo
+`kaffeconway/bergensers-property-search`** — read it before changing what a question asks or
+why. It is private because it holds group answers and names; nothing from it is copied here,
+since this repo is public on the web. Do not add explanatory text back to the quiz; put it
+there. What stays on screen regardless: the one-line reason for asking passport and country
+(a consent reason, never hidden behind a disclosure), every storage-failure warning
+(`lsFailed`), retired-pick and split-band notices, and every alarm on the review screen.
+Answer options and their one-line reasons were **not** cut: rewording an option changes what
+everyone who already chose it said, so that is a decision per option, not a tidy-up.
 
 `where-we-landed.html` sits beside it: a static recap of the September call, quietly
 linked from the home screen. It is a separate file, has no shared code with `index.html`,
@@ -256,15 +270,21 @@ the build.
   the two repos cannot drift, then rescaled across the four regions so each axis spans the
   range they actually differ over. Rescaling changes spacing, never order. The listing
   counts are uneven and are printed in the caption, **with the date they were computed**:
-  as of 15 Sept 2026, 30 listings — French Alps 12, Vestland 8, Pyrenees 6, Italian Alps 4.
+  as of 25 Sept 2026, 32 scored listings — French Alps 13, Vestland 9, Pyrenees 6, Italian
+  Alps 4. (The 15 Sept run was 30: 12, 8, 6, 4.) The values are produced by
+  `tools/triangle_regions.py` in the property repo, whose `--check` reproduces the 15 Sept run
+  exactly; nothing here is computed by hand any more.
 
   **The date is there because the numbers drift faster than anyone expects.** The tracker
   gained eleven listings in six days. When that first happened the dots had barely moved
   (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
   of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
-  A test pins the current total and counts, so a re-run fails until the caption is brought
-  with it, and two further assertions check the counts sum to the stated total and that a
-  date is present at all.
+  Until 25 Sept 2026 this file said a test pinned those counts; none existed. One does now, in
+  the property repo's `tools/test_charts.py`: it reads this file's caption from the default
+  branch and compares the counts, their sum, the date and the renovation sentence with the
+  tracker. It reports drift without failing the build until `CAPTION_DRIFT_IS_FATAL` is
+  switched on, which should happen once the current caption is live. It counts SCORED
+  listings, as the caption does — an unassessed property is not a low-scoring one.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
@@ -335,6 +355,26 @@ one of us knows the Pyrenees, which now hold six listings and its top-ranked pro
 Passport and country-lived-in were the fourth, and are now asked.
 
 ## Results page
+
+**Folded into groups since 31 Oct 2026.** Only the counts-only summary and the overall
+alignment gauge (with at most three headline cards) are open at the top. Every other section
+sits in one of nine closed groups, each summary line showing how aligned the group is on that
+part: Where · How we'd start, and when · What matters most · What has to be possible · How
+much you can take · Shape of the place · Money & commitment · Who is closest to whom · In your
+own words. Those percentages are the same per-part scores the overall number averages, so the
+two cannot disagree; a group with nothing to score says "not scored", and one with fewer than
+two answers says "too few answers" rather than showing a number. The grouping is done after
+the page is built, by cutting it at its `h3.sec` headings (`RGRP` in `result()`), so a new
+section must be named in a group — one that is not is kept, unfolded, after the groups rather
+than dropped. The per-part bars and the chip navigation strip were removed: the group lines
+are the overview, and a chip pointing into a closed group jumps to nothing.
+
+The alignment score's timing part became **"How we'd start, and when"** on 31 Oct 2026, on the
+organiser's decision and knowing it moves scores already given: timing over those who
+answered, plus the trial year and the same-town idea compared as for / against, plus whether
+people would move early. "No view yet" and a code that never had the question are left out,
+not counted as agreement, and do not add to the gauge's unanswered-question note. "Hotter
+summers" is still kept out of the score until most respondents have been asked it.
 
 The page explains itself once, not per row. "Tap for names" is a `::after` on `.res.tip1`,
 and that class is applied in JS to the first inspectable row on the page — it used to be
