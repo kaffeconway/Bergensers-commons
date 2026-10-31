@@ -36,9 +36,14 @@ there. What stays on screen regardless: the one-line reason for asking passport 
 Answer options and their one-line reasons were **not** cut: rewording an option changes what
 everyone who already chose it said, so that is a decision per option, not a tidy-up.
 
-`where-we-landed.html` sits beside it: a static recap of the September call, quietly
-linked from the home screen. It is a separate file, has no shared code with `index.html`,
-and is **not** under the pure-ASCII rule below.
+`where-we-landed.html` sits beside it: a static recap of the September call. Since 31 Oct
+2026 nothing in the survey links to it (the organiser's decision); it stays published, so
+anyone holding its address can still open it. It is a separate file, has no shared code with
+`index.html`, and is **not** under the pure-ASCII rule below.
+
+**The survey does not mention the September call on screen** (31 Oct 2026, the organiser's
+decision). What came out of that call stays — the trial-year question, the narrowed region
+list, the retired-pick note — but none of it says where it came from. Code comments may.
 
 ## Deploy
 
@@ -157,7 +162,8 @@ the build.
   `REGIONS` stays a literal array because the property search reads it with a regex.
   Storage order is not display order: `RGSHOW` puts "Somewhere not on this list" last and the
   newest region just before it, so no region is offered first by default. Oslo has no row on
-  the triangle — the property search has no listings there — and the caption says so.
+  the triangle — the property search has no listings there. The caption no longer says so
+  (it was cut to a few lines on 31 Oct 2026); `RESEARCH.md` in the property repo does.
 
   `RENAMED` maps a region that was only relabelled (`French Alps & Vercors` →
   `French Alps, Vercors & Chartreuse`) onto its new name. It is applied at display and
@@ -274,13 +280,21 @@ the build.
 - **The triangle under the map** (`TRI` / `triSVG`) plots the four regions against land &
   space, affordability, and being easy to reach. **Two of the three axes now come from the
   property tracker in `kaffeconway/bergensers-property-search`, and one deliberately does
-  not** — the caption says which, and it has to keep saying it.
+  not** — the caption says so, and it has to keep saying it.
+
+  **The caption is deliberately short (31 Oct 2026, the organiser's decision).** It says the
+  dots are placed from real listings the property search is tracking *and from train times*,
+  gives one line per corner, and ends "The nearer a corner, the more a region leans that
+  way." Those two are the parts that cannot go: naming train times stops anyone reading all
+  three corners as listings, and the last line is what stops a high dot reading as "best
+  overall". The listing counts, their date and the caveats came off screen. The counts and
+  date now live in `TRI_BASIS`, one line of strict JSON beside `TRI`, and nowhere on screen.
 
   *Land & space* and *affordable* are the mean of the live listings in that tracker,
   computed with its own `load()`, cost model and axis formulas (`tools/make_charts.py`) so
   the two repos cannot drift, then rescaled across the four regions so each axis spans the
   range they actually differ over. Rescaling changes spacing, never order. The listing
-  counts are uneven and are printed in the caption, **with the date they were computed**:
+  counts are uneven, and `TRI_BASIS` records them **with the date they were computed**:
   as of 25 Sept 2026, 32 scored listings — French Alps 13, Vestland 9, Pyrenees 6, Italian
   Alps 4. (The 15 Sept run was 30: 12, 8, 6, 4.) The values are produced by
   `tools/triangle_regions.py` in the property repo, whose `--check` reproduces the 15 Sept run
@@ -288,14 +302,15 @@ the build.
 
   **The date is there because the numbers drift faster than anyone expects.** The tracker
   gained eleven listings in six days. When that first happened the dots had barely moved
-  (the closest pair went 22.8px to 23.4px) while the caption's counts were wrong on three
+  (the closest pair went 22.8px to 23.4px) while the stated counts were wrong on three
   of the four regions — so the failure mode is a stale *claim*, not a visibly wrong chart.
   Until 25 Sept 2026 this file said a test pinned those counts; none existed. One does now, in
-  the property repo's `tools/test_charts.py`: it reads this file's caption from the default
-  branch and compares the counts, their sum, the date and the renovation sentence with the
-  tracker. It reports drift without failing the build until `CAPTION_DRIFT_IS_FATAL` is
-  switched on, which should happen once the current caption is live. It counts SCORED
-  listings, as the caption does — an unassessed property is not a low-scoring one.
+  the property repo's `tools/test_charts.py`: it reads `TRI_BASIS` from this file on `main`
+  (the long caption, before it was cut) and compares the counts, their sum and the date with
+  the tracker. Since 31 Oct 2026 `CAPTION_DRIFT_IS_FATAL` is on, so a mismatch fails that
+  repo's build: when a property is scored or unscored there, re-run `triangle_regions.py` and
+  update `TRI` and `TRI_BASIS` here together. It counts SCORED listings — an unassessed
+  property is not a low-scoring one.
 
   *Easy to reach* is **not** from the listings. It is rail hours from Amsterdam on the
   fastest service, scored as `1/hours` — not straight-line distance, which flatters Norway
@@ -316,7 +331,8 @@ the build.
   order between those two.** The chart shows balance rather than level, and at that distance
   the honest reading is that they score alike.
 
-  The tracker's own caveats travel with the numbers and are in the caption: the priority
+  The tracker's own caveats travel with the numbers. They were in the caption until it was
+  cut on 31 Oct 2026, and are recorded in the property repo's `RESEARCH.md` now: the priority
   weights behind them are the mean token spend of **four** questionnaire answers out of
   roughly fifteen, renovation is blank on every listing so every price is a floor, the axis
   scores are desk reads of listing text, and the Italian average rests on three listings
@@ -330,8 +346,8 @@ the build.
   underlying listing averages or rail figures change.
 
   A dot's position is the *balance* between the three, not the level of any one. The
-  caption says this, and it needs to keep saying it, or a high dot reads as a claim that
-  the region is best overall.
+  caption's last line says this ("leans that way"), and it needs to keep saying it, or a high
+  dot reads as a claim that the region is best overall.
 
 - **Map data**: tries to fetch real Natural Earth coastline/border data from a CDN at
   runtime (`upgradeGeo`/`upgradeMap` functions) and falls back to a hand-drawn simplified
@@ -367,12 +383,17 @@ Passport and country-lived-in were the fourth, and are now asked.
 
 ## Results page
 
+**"Who is closest to whom" is gone** (31 Oct 2026, the organiser's decision): it ranked every
+pair of people from most alike to furthest apart, and was more likely to seed resentment than
+to help the decision. Do not bring back anything that ranks people against each other without
+asking him. **Lone voices stays, named, by his choice** — it was asked about separately — and
+is now its own group.
+
 **Folded into groups since 31 Oct 2026.** Only the counts-only summary and the overall
 alignment gauge (with at most three headline cards) are open at the top. Every other section
 sits in one of nine closed groups, each summary line showing how aligned the group is on that
 part: Where · How we'd start, and when · What matters most · What has to be possible · How
-much you can take · Shape of the place · Money & commitment · Who is closest to whom · In your
-own words. Those percentages are the same per-part scores the overall number averages, so the
+much you can take · Shape of the place · Money & commitment · Lone voices · In your own words. Those percentages are the same per-part scores the overall number averages, so the
 two cannot disagree; a group with nothing to score says "not scored", and one with fewer than
 two answers says "too few answers" rather than showing a number. The grouping is done after
 the page is built, by cutting it at its `h3.sec` headings (`RGRP` in `result()`), so a new
