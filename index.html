@@ -345,11 +345,6 @@ textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical
  .res,.card,.chartwrap{break-inside:avoid}
  body{background:#fff}
 }
-.diffs{margin-top:8px;padding-left:10px;border-left:2px solid var(--rule)}
-.dl{display:block;margin:5px 0;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
-.dl .dk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--pine);opacity:.65}
-.dl .dv{color:var(--ink);opacity:.9}
-.dl.agreeln{opacity:.75}
 .stack{display:flex;height:9px;margin-top:6px;background:var(--rule2);border-radius:5px;overflow:hidden}
 .stack span{display:block;height:9px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}html{scroll-behavior:auto}}
@@ -1221,8 +1216,8 @@ const STEPS=[
 {t:"Gut feeling on where",k:"Pick up to two.",
  r:()=>{const stale=staleRg(),live=liveRg();
   return (stale.length?`<div class="note"><b>Your earlier ${stale.length>1?"picks have":"pick has"} gone from the list.</b>
-    ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more &mdash;
-    the group narrowed the list on the September call, mostly on price. Choose again below;
+    ${stale.map(x=>esc(x)).join(" and ")} ${stale.length>1?"are":"is"} not on the shortlist any more.
+    Choose again below;
     ${stale.length>1?"those picks":"that pick"} will not be carried into your code.</div>`:"")+
    RGSHOW.map(p=>opt(live.indexOf(p)>=0,"rg",p,p)).join("")+
    (live.indexOf(OFFLIST)>=0?`<div class="sl" style="margin:10px 0 0">
@@ -1385,8 +1380,7 @@ function home(){
  <button class="btn" id="start">Start building</button>
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
  <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
- <p class="foot"><a href="where-we-landed.html" style="color:var(--pine)">Where we landed after the September
- call</a></p>`;
+`;
  msg="";
  document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";pend=[];pendBoth=false;
   rvJump=-1;S=blank();mode="build";step=0;render();};
@@ -2065,8 +2059,8 @@ function mapSVG(rgT){
    RE-RUN THESE RATHER THAN NUDGING THEM. The tracker gained eleven listings in six days,
    and the first drift was caught only because the caption's counts had gone stale: the
    dots had barely moved (the closest pair went 22.8px to 23.4px) while the stated counts
-   were wrong on three of four regions. The caption carries the date for that reason - a
-   number with a date on it can be seen to be old.
+   were wrong on three of four regions. TRI_BASIS carries the date for that reason (the
+   caption did until 31 Oct 2026) - a number with a date on it can be seen to be old.
 
    It happened again, and nothing caught it. Two listings were added on 24-25 Sept 2026 and
    this caption went on saying 30 listings and Vestland 8 for a day. The CLAIM that a test
@@ -2119,6 +2113,12 @@ const TRI=[
  ["French Alps, Vercors & Chartreuse",  .802, .470,1.00,306,166,"end"],
  ["Vestland, Norway \u2014 the fjords", .600, .536,.28,  14, 92,"start"]
 ];
+/* What the two measured axes rest on: the run date and SCORED listing counts behind TRI.
+   Not shown on screen since 31 Oct 2026 - the caption is a few lines now - but the property
+   search's tools/test_charts.py reads this line from main and compares it with its tracker,
+   and fails its build when they disagree. So: strict JSON, one line, and re-run
+   tools/triangle_regions.py and update it together with TRI, never one without the other. */
+const TRI_BASIS={"date":"2026-09-25","total":32,"counts":{"French Alps":13,"Vestland":9,"Pyrenees":6,"Italian Alps":4}};
 const TRIW=320, TRIH=214;
 const TRIA=[160,34], TRIB=[24,190], TRIC=[296,190];   /* apex, bottom left, bottom right */
 function triSVG(rgT){
@@ -2599,24 +2599,19 @@ function result(){
  else if(off) h+=`<p class="hint">Nobody wrote in where \u2014 worth asking.</p>`;
 
  /* The same four regions, against the three things you want at once.
-    Which chart is the group's own answers and which brings in outside numbers is settled
-    at the top of the section, before either is looked at - a reader who has already read
-    the dots cannot be told afterwards what they meant. Keep it there, and keep it saying
-    "two of its three axes": the third is rail time, and a claim that the whole triangle
-    measures listings would put Vestland's local access under a label about the journey
-    from home. The circle sizes are votes, in both charts. */
+    Cut to a few lines on 31 Oct 2026, on the organiser's decision: where the numbers come
+    from, one line per corner, and how to read a dot. The listing counts, the date and the
+    caveats (four answers behind the weights, renovation mostly blank, Oslo absent for want
+    of listings) came off screen; they live in TRI_BASIS beside the triangle's weights, in
+    the comment above TRI, and in RESEARCH.md in the property repo. Two things the short
+    version must keep: it names train times as a source, so nobody reads all three corners
+    as coming from listings, and its last line says a dot shows which way a region LEANS,
+    or a high dot reads as a claim that the region is best overall. */
  h+=`<div class="chartwrap" style="margin-top:14px">${triSVG(rgT)}</div>
-  <p class="hint">The two measured axes are <b>land &amp; space</b> and <b>affordable</b>:
-  the average of 32 tracked listings as of 25 September, scored by the search's own cost
-  model &mdash; French Alps 13, Vestland 9, Pyrenees 6, Italian Alps 4, so the averages do
-  not rest on equal ground. <b>Easy to reach</b> is not one of them: it is rail hours from the Netherlands,
-  about 7&frac12; to Grenoble and about 27 to Bergen. The listings score access
-  <i>around</i> a house, which is a different question, so the two are kept apart. A dot's
-  place is the balance between the three, not the level of any one. Two things to hold
-  against it: the priorities behind those averages are four answers, not fifteen, and
-  renovation is blank on all but one listing, so nearly every price shown is a floor.
-  <b>Oslo &amp; eastern Norway</b> is not on this chart: the property search has no listings there
-  yet, so there is nothing to average.</p>`;
+  <p class="hint">Placed from real listings the property search is tracking, and from train
+  times.<br><b>Land &amp; space</b>: how much ground and building you get.<br><b>Affordable</b>:
+  what it costs.<br><b>Easy to reach</b>: hours by train from the Netherlands.<br>The nearer a
+  corner, the more a region leans that way.</p>`;
 
  /* ---------- pins: where inside the region, and how far apart ---------- */
  const pins=allPins(codes);
@@ -2707,8 +2702,11 @@ function result(){
   h+=`<div class="res"><div class="t"><b>${esc(a)}</b><em>${isX&&ix.length<N?`${ix.length} of ${N} asked `:""}${
    ix.length<2?"":sp2===0?`<span class="tag agree">identical</span>`:sp2>=3?`<span class="tag split">far apart</span>`:""}</em></div>${st}</div>`;});
 
- /* ---------- who is closest to whom ---------- */
- const TOLW={};TOL.forEach(([k,a,lo,hi])=>TOLW[k]=[lo,hi]);
+ /* ---------- lone voices ----------
+    "Who is closest to whom" used to rank every pair of people from most alike to furthest
+    apart. Removed 31 Oct 2026 on the organiser's decision: a table of who is furthest from
+    whom is more likely to seed resentment than to help the decision. Lone voices stays, by
+    his choice, as its own group. Do not bring the pairs back without asking him. */
  const feats=c=>{
   const f=[];
   SPEND.forEach(([k,a])=>f.push({k:"sp:"+k,label:a,raw:spv(c,k),norm:spv(c,k)/8,
@@ -2720,37 +2718,8 @@ function result(){
       say:v===2?"essential":v===1?"nice":v===3?"ruled out":"neutral"});}));
   return f;};
  const FV=codes.map(feats);
- const dist=(i,j)=>Math.sqrt(FV[i].reduce((s,f,n)=>s+(f.norm-FV[j][n].norm)**2,0));
- let pairs=[],pairRow=null;
  if(N>=3){
-  pairs=[];
-  for(let i=0;i<N;i++)for(let j=i+1;j<N;j++)pairs.push({i,j,d:dist(i,j)});
-  pairs.sort((a,b)=>a.d-b.d);
-  pairs.forEach((p,i)=>p.rank=i);
-  const mxd=pairs[pairs.length-1].d||1;
-  pairRow=p=>{
-   const diffs=FV[p.i].map((f,n)=>({label:f.label,a:f.say,b:FV[p.j][n].say,gap:Math.abs(f.norm-FV[p.j][n].norm)}))
-     .filter(d=>d.gap>0.001).sort((x,y)=>y.gap-x.gap).slice(0,3);
-   const same=FV[p.i].map((f,n)=>({label:f.label,say:f.say,both:f.norm===FV[p.j][n].norm,strength:f.norm}))
-     .filter(d=>d.both&&d.strength>=.5).sort((x,y)=>y.strength-x.strength).slice(0,2);
-   return `<div class="res"><div class="t"><b>${esc(who(p.i))} &amp; ${esc(who(p.j))}</b>
-     <em>${p.rank===0?"most alike":p.rank===pairs.length-1?"furthest apart":""}</em></div>
-     <div class="bar"><span style="width:${(p.d/mxd*100).toFixed(0)}%;background:var(--gold)"></span></div>
-     ${diffs.length?`<div class="diffs">${diffs.map(d=>`<div class="dl"><span class="dk">${esc(d.label)}</span>
-       <span class="dv"><b style="color:${PAL[p.i%PAL.length]}">${esc(who(p.i))}</b> ${esc(d.a)}
-       &nbsp;\u00b7&nbsp; <b style="color:${PAL[p.j%PAL.length]}">${esc(who(p.j))}</b> ${esc(d.b)}</span></div>`).join("")}
-       ${same.length?`<div class="dl agreeln"><span class="dk">Both</span><span class="dv">${same.map(x=>esc(x.label.toLowerCase())+" \u2014 "+esc(x.say)).join("; ")}</span></div>`:""}
-     </div>`:""}</div>`;};
-  const PAIRCAP=8;
-  const bigPairs=pairs.length>PAIRCAP*2;
-  const shownPairs=bigPairs?[...pairs.slice(0,PAIRCAP),...pairs.slice(-PAIRCAP)]:pairs;
-  h+=`${sec("Who is closest to whom")}
-   <p class="hint">Shorter bar means more alike. Underneath each pair: the sharpest disagreements, ready-made
-   for the conversation.${bigPairs?` ${pairs.length} pairs from ${N} people \u2014 showing the ${PAIRCAP} most alike and ${PAIRCAP} furthest apart.`:""}</p>`;
-  h+=`<div id="pairsBox">${shownPairs.map(pairRow).join("")}</div>`;
-  if(bigPairs)h+=`<button class="btn ghost noprint" id="pairsAll">Show all ${pairs.length} pairs</button>`;
-
-  /* lone voices: where one person sits apart from everyone else */
+  /* where one person sits apart from everyone else */
   const lone=[];
   FV[0].forEach((_,n)=>{
    const v=FV.map(f=>f[n].norm);
@@ -2812,8 +2781,7 @@ function result(){
  const trAns=codes.filter(c=>c.tr&&c.tr!==TRIAL[0][0]);
  if(trAns.length){
   h+=`${sec("Renting together first")}
-   <p class="hint">The proposal from the September call: a year living together somewhere before
-   any money goes into land.</p>`;
+   <p class="hint">A year living together somewhere before any money goes into land.</p>`;
   const yes=codes.filter(c=>c.tr==="must"||c.tr==="good").length;
   const no=codes.filter(c=>c.tr==="skip"||c.tr==="against").length;
   const hard=codes.filter(c=>c.tr==="must").length, anti=codes.filter(c=>c.tr==="against").length;
@@ -2948,7 +2916,7 @@ function result(){
     ["How much you can take",score("Tolerances"),["How much you can each take"]],
     ["Shape of the place",score("Shape of the place"),["Shape of the place","Who is coming"]],
     ["Money &amp; commitment",score("Money & commitment"),["How you would use it","Money"]],
-    ["Who is closest to whom",undefined,["Who is closest to whom","Lone voices"]],
+    ["Lone voices",undefined,["Lone voices"]],
     ["In your own words",undefined,["Where we are coming from","What you bring","Why, in your own words","What would stop you"]]];
    const TOP=["Where this leaves us","How aligned are you"];
    const used=new Set(TOP);
@@ -2977,8 +2945,6 @@ function result(){
     contents list now, and a chip pointing into a closed group would jump to nothing. */
  const navHTML="";
  app.innerHTML=h.replace("__RADAR__",window.__radar(null)).replace("__SECNAV__",navHTML);
- const pairsAllBtn=document.getElementById("pairsAll");
- if(pairsAllBtn)pairsAllBtn.onclick=()=>{document.getElementById("pairsBox").innerHTML=pairs.map(pairRow).join("");pairsAllBtn.remove();};
  const totop=document.getElementById("totop");
  if(totop)totop.onclick=()=>window.scrollTo({top:0,behavior:"smooth"});
  /* One scroll listener for the whole page: it shows the back-to-top button once there is
