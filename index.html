@@ -2214,13 +2214,14 @@ function triSVG(rgT){
  });
  return o+`</svg>`;
 }
-let POSTER=null;
+let POSTER=null, POSTER_H=1620;
+/* The image grows to fit what it lists. It was a fixed 1620px, and with a full set of
+   answers the last blocks ran off the bottom under the footer; 1620 stays the minimum. */
 function posterSVG(){
- const W=1080,H=1620,P=70;let y=0,o="";
+ const W=1080,P=70;let y=0,o="";
  const MONO="ui-monospace,Menlo,Consolas,monospace";
  const T=(x,yy,t,sz,col,fam,anch,w)=>`<text x="${x}" y="${yy}" font-size="${sz}" fill="${col}"
    font-family="${fam||"Georgia,serif"}" text-anchor="${anch||"start"}" font-weight="${w||"normal"}">${esc(String(t).slice(0,72))}</text>`;
- o+=`<rect width="${W}" height="${H}" fill="#EAEDE8"/>`;
  y=P+52; o+=T(P,y,"Where we stand",54,"#131E1B");
  y+=38; o+=T(P,y,POSTER.names.join("  \u00B7  ").toUpperCase(),19,"#22423A",MONO);
  y+=26; o+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#131E1B" stroke-opacity=".2"/>`;
@@ -2247,8 +2248,9 @@ function posterSVG(){
  if(POSTER.trial.length)block("A year renting first","#35748A",POSTER.trial);
  if(POSTER.same.length)block("Same town first","#35748A",POSTER.same);
  if(POSTER.stops.length)block("What would stop us","#7C2E3E",POSTER.stops);
+ const H=Math.max(1620,y+130); POSTER_H=H;
  o+=T(P,H-52,"From "+POSTER.names.length+" answers \u00B7 a picture, not a decision",19,"#22423A",MONO);
- return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#EAEDE8"/>${o}</svg>`;
 }
 function svgDataURL(){return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(posterSVG());}
 function makePoster(cb){
@@ -2260,8 +2262,8 @@ function makePoster(cb){
   const img=new Image();
   img.onload=()=>{
    try{
-    const cv=document.createElement("canvas");cv.width=1080;cv.height=1620;
-    const cx=cv.getContext("2d");cx.fillStyle="#EAEDE8";cx.fillRect(0,0,1080,1620);
+    const cv=document.createElement("canvas");cv.width=1080;cv.height=POSTER_H;
+    const cx=cv.getContext("2d");cx.fillStyle="#EAEDE8";cx.fillRect(0,0,1080,POSTER_H);
     cx.drawImage(img,0,0);
     const png=cv.toDataURL("image/png");
     clearTimeout(t);finish(png.length>2000?"png":"svg",png.length>2000?png:svgURL);
@@ -3075,7 +3077,7 @@ function result(){
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
  document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
-  crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>l.length+" \u2014 "+a.toLowerCase()):[],
+  crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>l.length+" "+a.toLowerCase()):[],
   sections:secLive.slice().sort((a,b)=>b[1]-a[1]).map(([l,v])=>[l,Math.round(v*100)]),
   locked:locked.slice(0,6).map(p=>p.label),fight:fight.slice(0,6).map(p=>p.label),
   regions:Object.entries(tally(rgOf)).sort((a,b)=>b[1]-a[1])
