@@ -30,8 +30,8 @@ came off, and the research behind the questions, lives in **`RESEARCH.md` in the
 `kaffeconway/bergensers-property-search`** — read it before changing what a question asks or
 why. It is private because it holds group answers and names; nothing from it is copied here,
 since this repo is public on the web. Do not add explanatory text back to the quiz; put it
-there. What stays on screen regardless: the one-line reason for asking passport and country
-(a consent reason, never hidden behind a disclosure), every storage-failure warning
+there. What stays on screen regardless: the one-line reason for asking which country somebody
+is in (a consent reason, never hidden behind a disclosure), every storage-failure warning
 (`lsFailed`), retired-pick and split-band notices, and every alarm on the review screen.
 Answer options and their one-line reasons were **not** cut: rewording an option changes what
 everyone who already chose it said, so that is a decision per option, not a tidy-up.
@@ -398,7 +398,11 @@ its 15%-equity model becomes a cash purchase — a 7x swing in the per-person fi
 **which regions anyone already knows** (its *Somewhere we know* axis is currently assumed —
 Vestland 4 by definition, France and Italy 0–1 — and nobody has been asked whether a single
 one of us knows the Pyrenees, which now hold six listings and its top-ranked property).
-Passport and country-lived-in were the fourth, and are now asked.
+Passport and country-lived-in were the fourth, and were asked from Sept 2026. **The passport
+question was removed on 31 Oct 2026** (the organiser's decision); only the country somebody
+lives in is asked now. So nationality is unknown again for anyone who had not already
+answered — which matters for Italy's reciprocity rule on non-EU buyers. Passports already in
+a code (`cz`, still the sixth field of the tail) are kept there, not shown and not asked.
 
 ## Who is in: planning, following, visiting
 
@@ -422,8 +426,9 @@ board's two-code minimum. The board marks who is following or visiting beside th
 the shareable image adds a "Who's in" block when anyone is not planning.
 
 **The planning WhatsApp.** `PLANCHAT` holds the planning group's invite link, shown on the code
-screen to people who chose planning, and nobody else. It is empty until the organiser sends the
-link. This page and repo are public, so the group must have WhatsApp's **Approve new
+screen to people who chose planning, and nobody else. Added 31 Oct 2026, with the organiser
+confirming the group's approval setting is on; it is the plain invite link, without the
+sharing-tracker parameters the app adds. This page and repo are public, so the group must have WhatsApp's **Approve new
 participants** switched on before a link goes in: whoever finds it can then only ask to join.
 That was the condition the organiser agreed to; do not add a link without it.
 

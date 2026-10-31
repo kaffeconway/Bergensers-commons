@@ -560,8 +560,8 @@ const isPlan=c=>!c||!c.role||c.role==="plan";
 /* The planning committee's WhatsApp invite, shown on the code screen to planners only.
    This page and its repo are public, so the group must have "Approve new participants"
    switched on before a link goes here: whoever finds it can then only ask to join. Empty
-   means nothing is shown. */
-const PLANCHAT="";
+   means nothing is shown. Added 31 Oct 2026, the organiser confirming approval is on. */
+const PLANCHAT="https://chat.whatsapp.com/G3tnaAUOUr8K05uRar4Ytr";
 /* The four states of an activity chip, in one place: the legend above the grid, the glyph
    carried on the chip itself and the state a screen reader is told all read from here, so
    they cannot drift apart. The glyph is the non-colour cue - neutral and "nice to have"
@@ -1202,17 +1202,15 @@ const STEPS=[
   `</div><p class="hint" id="q-hh" style="margin-top:20px"><b>Who would be coming with you?</b></p>
    <div role="group" aria-labelledby="q-hh">`+
   HOUSE.map(([k,a])=>opt(S.hh===k,"hh",k,a)).join("")+`</div>`+
-  /* The reason for asking stays, in the open, above the inputs: why somebody's personal data
+  /* The reason for asking stays, in the open, above the input: why somebody's personal data
      is wanted is not reference material and never goes behind a disclosure or into the
-     research file. It survived the October cut that took everything else, at one line. */
-  `<p class="hint" id="q-from" style="margin-top:22px"><b>Where are you coming from?</b> Optional.
-   Passport and country decide what is legally possible.</p>
-   <div role="group" aria-labelledby="q-from">
-   <div class="sl"><label for="cz">Passport, or passports</label>
-    <input type="text" id="cz" maxlength="40" value="${esc(S.cz||"")}" placeholder="Norwegian"></div>
-   <div class="sl"><label for="lv">Country you live in now</label>
-    <input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"></div>
-   </div>`,
+     research file. It survived the October cut that took everything else, at one line.
+     The passport question was removed on 31 Oct 2026 (the organiser's decision); a passport
+     already in somebody's code (cz) is kept there, not shown and not asked. */
+  `<p class="hint" id="q-from" style="margin-top:22px"><b>Which country are you in now?</b> Optional.
+   Where you live decides what is legally possible.</p>
+   <div class="sl"><input type="text" id="lv" maxlength="40" value="${esc(S.lv||"")}" placeholder="Netherlands"
+    aria-labelledby="q-from"></div>`,
  save:()=>{grabOwn();return S.use?(S.hh?null:"And who is coming with you?"):"Pick one.";}},
 
 {t:"How we'd start, and when",k:"",
@@ -1640,7 +1638,6 @@ function review(){
   sec("Who")+
   rvRow("First name",0,r.n)+
   rvRow("How involved",1,labOf(ROLE,r.role)||"On the planning committee")+
-  rvRow("Passport, or passports",6,r.cz)+
   rvRow("Country you live in now",6,r.lv)+
   sec("The place")+
   rvRow("What shape is it",2,labOf(STYLES,r.s))+
@@ -2910,17 +2907,17 @@ function result(){
   const kid=codes.filter(c=>c.hh==="kids").length;
   if(kid)h+=`<p class="hint" style="margin-top:8px">${kid} of you would bring children, which puts
    school and hospital distance on the list.</p>`;}
- /* Passports and countries decide what is legally possible before any preference does, so
-    this reports what was actually said and stays quiet about what it implies. */
- const from=codes.filter(c=>(c.cz&&c.cz.trim())||(c.lv&&c.lv.trim()));
+ /* Where somebody lives decides what is legally possible before any preference does, so
+    this reports what was actually said and stays quiet about what it implies. Passports are
+    no longer asked or shown (31 Oct 2026); any already in a code stay there. */
+ const from=codes.filter(c=>c.lv&&c.lv.trim());
  if(from.length){h+=`${sec("Where we are coming from")}
   <p class="hint">What is possible legally is decided by these before any preference on this
   page. ${from.length}/${N} answered.</p>`;
   from.forEach(c=>h+=`<div class="res"><div class="t"><b>${esc(c.n||"anon")}</b>
-   <em>${esc([c.cz&&c.cz.trim(),c.lv&&c.lv.trim()?"in "+c.lv.trim():""].filter(Boolean).join(" \u00b7 "))}</em></div></div>`);
-  const noCz=N-codes.filter(c=>c.cz&&c.cz.trim()).length;
-  if(noCz)h+=`<p class="hint" style="margin-top:8px">${noCz} ${noCz===1?"has":"have"} not said,
-   and every property outside Norway needs this settled before an offer.</p>`;}
+   <em>${esc("in "+c.lv.trim())}</em></div></div>`);
+  const noLv=N-from.length;
+  if(noLv)h+=`<p class="hint" style="margin-top:8px">${noLv} ${noLv===1?"has":"have"} not said.</p>`;}
  const skT=SKILLS.map(([k,a])=>({a,n:codes.filter(c=>c.sk&&c.sk[k]).length,
    who:codes.filter(c=>c.sk&&c.sk[k]).map(c=>c.n||"anon")})).sort((x,y)=>y.n-x.n);
  if(skT.some(x=>x.n)){h+=`${sec("What you bring")}
