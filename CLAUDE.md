@@ -469,6 +469,32 @@ sharing-tracker parameters the app adds. This page and repo are public, so the g
 participants** switched on before a link goes in: whoever finds it can then only ask to join.
 That was the condition the organiser agreed to; do not add a link without it.
 
+## The live board
+
+**Since 2 Nov 2026 answers can also go to a shared, password-protected live board** — the
+organiser's decision, so people can see everyone's results as soon as they finish instead of
+sending codes to one collector. It reverses the original "nothing leaves the device" design,
+knowingly; the codes and the board still work exactly as before, as the fallback.
+
+- **Where the answers go**: a Google Sheet the organiser owns, through a small Apps Script
+  published as a web app. The script is `live-board/Code.gs` in this repo and the setup steps
+  are `live-board/SETUP.md`. The page talks to it at `LIVE_URL`; **empty means the whole
+  feature is off** — nothing shown, nothing sent.
+- **The password lives only in the script**, never in this public page. The page asks for it
+  once per phone and remembers it on that phone (`__commons_livepw`, deliberately outside the
+  `commons:` prefix so it is not mistaken for somebody's draft). The script refuses every read
+  and write without it, and refuses everything while its password is still `CHANGE-ME`.
+- **Joining is automatic** when somebody reaches their code (his choice), with one line on the
+  code screen saying the answers also go to the live board. Followers and visitors join too. A
+  collector editing someone else's board row never posts it under their own phone.
+- **One row per phone**: each phone makes a random id (`__commons_device`); saving again from
+  that phone replaces its row. Two phones under one name are **both kept** and the results say
+  so — the same rule as the board's namesake question, since a first name is all this asks
+  for. A row whose code cannot be read is left out and the results say how many.
+- Every outcome is said on screen: joined, wrong password (asked again), or unreachable (the
+  code still works, with a retry). Requests are POST with a plain-text JSON body, which avoids
+  the CORS preflight Apps Script cannot answer.
+
 ## Results page
 
 **"Who is closest to whom" is gone** (31 Oct 2026, the organiser's decision): it ranked every
