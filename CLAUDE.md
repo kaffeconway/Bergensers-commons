@@ -497,6 +497,20 @@ knowingly; the codes and the board still work exactly as before, as the fallback
 - Every outcome is said on screen: joined, wrong password (asked again), or unreachable (the
   code still works, with a retry). Requests are POST with a plain-text JSON body, which avoids
   the CORS preflight Apps Script cannot answer.
+- **The old board is retired while the live board is on** (2 Nov 2026, the organiser's
+  decision): "Combine codes" / "The board" leave the home and code screens, and the code
+  screen says "Keep it as a backup" instead of "send it to the group chat". With `LIVE_URL`
+  empty the old board is back exactly as it was. Nothing stored on a collector's phone is
+  deleted.
+- **Moving codes in**: the live board's "Add codes" screen (from "Add more codes" on the live
+  results, or "Nobody yet") offers a one-time "Move the N codes on this phone" and a paste box;
+  a shared link offers "Add <name> to the live board". All go through `liveImport`, which needs
+  script **version 2** (`live-board/Code.gs`; the page says so if an older one is deployed).
+  Imported people are rows `import:<name>`. **Somebody already on the live board is skipped,
+  not replaced** — their own phone's answer is the newer one — and the screen names who. When
+  that person later saves from their own phone, their answer **takes over** the imported row.
+  The move is safe to run twice. Pasted text goes through `readPasted`, the same reader the old
+  board used (whole paste first, then by line, then by token).
 
 ## Results page
 
