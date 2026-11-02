@@ -58,6 +58,7 @@ h2{font-family:var(--serif);font-weight:500;font-size:23px;line-height:1.15;marg
 .retired b{font-weight:600}
 button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
 .btn{display:block;width:100%;padding:14px 16px;font-size:16px;background:var(--pine);color:var(--paper);border:none;margin-top:10px}
+a.btn{text-align:center;text-decoration:none;box-sizing:border-box}
 .btn:hover{background:#1a352e}
 .btn.ghost{background:none;color:var(--pine);border:1px solid var(--edge)}
 .btn.ghost:hover{border-color:var(--pine)}
@@ -114,7 +115,7 @@ button{font-family:var(--sans);cursor:pointer;border-radius:3px;transition:.12s}
    control on the step. The box is raised to 44 and the track centres inside it, so the
    thumb is unchanged and the reachable area is nearly three times the size. */
 input[type=range]{width:100%;accent-color:var(--pine);height:44px;background:none;margin:0}
-input[type=text],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
+input[type=text],input[type=password],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
  border:1px solid var(--edge);border-radius:3px;color:var(--ink)}
 textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical}
 .dots{display:flex;gap:5px;margin-bottom:18px}
@@ -582,6 +583,23 @@ const BEGIN=[["shared","Look for a shared place to live"],["town","Move to the s
    This page and its repo are public, so the group must have "Approve new participants"
    switched on before a link goes here: whoever finds it can then only ask to join. Empty
    means nothing is shown. Added 31 Oct 2026, the organiser confirming approval is on. */
+/* The live board (2 Nov 2026, the organiser's decision): answers are also saved to a Google
+   Sheet he owns, through a small Apps Script published as a web app (live-board/Code.gs in
+   this repo), and anyone with the group password can open everyone's results from the home
+   screen. Saving is automatic when somebody gets their code. The password lives only in the
+   script, never in this page: the page asks for it once per phone and remembers it on that
+   phone. Saving again from the same phone replaces that phone's earlier answer; two phones
+   under one name are both kept and the results say so. Empty LIVE_URL means the feature is
+   off and nothing is shown or sent. The codes and the board keep working regardless. */
+const LIVE_URL="";
+const LIVE_DEV="__commons_device", LIVE_PW="__commons_livepw";
+const liveDev=()=>{let v=lsGet(LIVE_DEV);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet(LIVE_DEV,v);}return v;};
+/* text/plain, the default for a string body, keeps the request simple: no CORS preflight,
+   which Apps Script cannot answer. */
+async function liveCall(body){
+ const r=await fetch(LIVE_URL,{method:"POST",body:JSON.stringify(body)});
+ return await r.json();}
+let liveNote="";
 const PLANCHAT="https://chat.whatsapp.com/G3tnaAUOUr8K05uRar4Ytr";
 /* The four states of an activity chip, in one place: the legend above the grid, the glyph
    carried on the chip itself and the state a screen reader is told all read from here, so
@@ -1326,6 +1344,7 @@ function paint(){
  if(mode==="result")return result();
  if(mode==="resume")return resume();
  if(mode==="incoming")return incoming();
+ if(mode==="live")return live();
  const st=STEPS[step], one=rvJump>=0;
  /* Opened from the review screen to change one thing: the step says so, and both buttons go
     back there rather than walking on through the other ten. */
@@ -1460,6 +1479,7 @@ function home(){
  ${storeWarn()}
  <button class="btn" id="start">Start building</button>
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
+ ${LIVE_URL?`<button class="btn ghost" id="lv">See the live board</button>`:""}
  <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
 `;
  msg="";
@@ -1467,6 +1487,7 @@ function home(){
   rvJump=-1;S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
  document.getElementById("comb").onclick=()=>{mode="combine";render();};
+ const lvb=document.getElementById("lv"); if(lvb)lvb.onclick=()=>{mode="live";render();};
 }
 function incoming(){
  const o=window.__incoming||{}; const b=boardGet();
@@ -1779,6 +1800,7 @@ function done(){
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
  ${S.role==="plan"&&PLANCHAT?`<a class="btn ghost" href="${esc(PLANCHAT)}" target="_blank" rel="noopener">Join the planning committee's WhatsApp</a>
  <p class="hint">The group's admin lets new people in.</p>`:""}
+ ${LIVE_URL&&boardEdit<0?`<div id="live" class="noprint"></div>`:""}
  <button class="btn ghost" id="again">Check or change my answers</button>
  <button class="btn ghost" id="comb">Combine codes</button>
  <div class="ok" id="st" role="status" aria-live="polite"></div>
@@ -1807,6 +1829,64 @@ function done(){
  document.getElementById("cl").onclick=()=>copy(location.href,"Link");
  document.getElementById("again").onclick=()=>{rvJump=-1;mode="review";window.scrollTo(0,0);render();};
  document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;mode="combine";render();};
+ if(LIVE_URL&&boardEdit<0)liveJoin(code,String(S.n||"").trim());
+}
+/* Joining the live board from the code screen: automatic once the phone knows the password,
+   otherwise one field to type it into. Every outcome is said in the box - joined, wrong
+   password, or unreachable - and the code above stays the way to share either way. */
+function liveJoin(code,name,said){
+ const box=document.getElementById("live"); if(!box)return;
+ const pw=lsGet(LIVE_PW);
+ if(!pw){
+  box.innerHTML=`<p class="hint" style="margin-top:18px"><b>The live board.</b> Your answers also go to the
+   group's live board, which only people with the group password can see.${said?` <b>${esc(said)}</b>`:""}</p>
+   <div class="sl"><input type="password" id="lpw" aria-label="Group password" placeholder="Group password (it's in the WhatsApp)"></div>
+   <button class="btn ghost" id="lgo">Join the live board</button>`;
+  document.getElementById("lgo").onclick=()=>{const v=document.getElementById("lpw").value.trim();
+   if(!v)return; lsSet(LIVE_PW,v); liveJoin(code,name);};
+  return;}
+ box.innerHTML=`<p class="hint" style="margin-top:18px">Adding you to the live board&hellip;</p>`;
+ liveCall({action:"save",pw,id:liveDev(),name,code}).then(j=>{
+  if(j&&j.ok){box.innerHTML=`<div class="ok" role="status">You're on the live board.</div>
+    <button class="btn" id="lsee">See everyone's results</button>`;
+   document.getElementById("lsee").onclick=()=>{mode="live";window.scrollTo(0,0);render();};}
+  else if(j&&j.error==="password"){lsSet(LIVE_PW,"");liveJoin(code,name,"That password didn't work.");}
+  else throw new Error("refused");
+ }).catch(()=>{box.innerHTML=`<div class="warn" role="status">Couldn't reach the live board just now. Your code
+   above still works &mdash; send it as before.</div><button class="btn ghost" id="lretry">Try the live board again</button>`;
+  document.getElementById("lretry").onclick=()=>liveJoin(code,name);});
+}
+/* The live board screen: password once, then everyone's answers straight into the results. */
+function live(){
+ const pw=lsGet(LIVE_PW);
+ const ask=said=>{app.innerHTML=`<div class="kicker">The live board</div><h2>Everyone's answers</h2>
+  <p class="lede">Enter the group password. It's in the WhatsApp.</p>
+  ${said?`<div class="warn" role="status">${esc(said)}</div>`:""}
+  <div class="sl"><input type="password" id="lpw" aria-label="Group password" placeholder="Group password"></div>
+  <button class="btn" id="lgo">Open the live board</button><button class="btn ghost" id="hm">Home</button>`;
+  document.getElementById("lgo").onclick=()=>{const v=document.getElementById("lpw").value.trim();
+   if(!v)return; lsSet(LIVE_PW,v); render();};
+  document.getElementById("hm").onclick=()=>{mode="home";render();};};
+ if(!pw)return ask("");
+ app.innerHTML=`<div class="kicker">The live board</div><h2>Loading everyone's answers&hellip;</h2>`;
+ liveCall({action:"read",pw}).then(j=>{
+  if(j&&j.error==="password"){lsSet(LIVE_PW,"");return ask("That password didn't work.");}
+  if(!j||!j.ok||!Array.isArray(j.rows))throw new Error("refused");
+  const got=[];let bad=0;
+  j.rows.forEach(r=>{try{const v=decode(r.code);(Array.isArray(v)?v:[v]).forEach(o=>{if(o&&typeof o==="object")got.push(o);});}catch(e){bad++;}});
+  const seen={},twice=[];
+  got.forEach(o=>{const k=String(o.n||"").toLowerCase().trim();if(!k)return;if(seen[k]===1)twice.push(o.n);seen[k]=(seen[k]||0)+1;});
+  liveNote=[bad?`${bad} ${bad===1?"answer on the live board could":"answers on the live board could"} not be read and ${bad===1?"is":"are"} left out.`:"",
+   twice.length?`${twice.map(n=>esc(n)).join(", ")} ${twice.length===1?"appears":"appear"} more than once, from different phones; both are shown.`:""].filter(Boolean).join(" ");
+  if(!got.length){app.innerHTML=`<div class="kicker">The live board</div><h2>Nobody yet</h2>
+    <p class="lede">The live board is empty so far.</p><button class="btn ghost" id="hm">Home</button>`;
+   document.getElementById("hm").onclick=()=>{mode="home";render();};return;}
+  codes=got; mode="result"; window.scrollTo(0,0); render();
+ }).catch(()=>{app.innerHTML=`<div class="kicker">The live board</div><h2>Couldn't reach it</h2>
+   <p class="lede">The live board isn't answering just now. The codes and the board on this phone still work.</p>
+   <button class="btn" id="lretry">Try again</button><button class="btn ghost" id="hm">Home</button>`;
+  document.getElementById("lretry").onclick=()=>render();
+  document.getElementById("hm").onclick=()=>{mode="home";render();};});
 }
 /* One collision at a time. Showing what each version actually answered is the only way the
    collector can tell a resend from a namesake - the name alone is what got them here. */
@@ -1925,7 +2005,7 @@ function combine(){
  if(clr)clr.onclick=()=>{undoRow=null;if(clr.dataset.sure){boardSet([]);render();}
   else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
  const go=document.getElementById("go");
- if(go)go.onclick=()=>{undoRow=null;codes=boardGet();mode="result";window.scrollTo(0,0);render();};
+ if(go)go.onclick=()=>{undoRow=null;liveNote="";codes=boardGet();mode="result";window.scrollTo(0,0);render();};
  const shr=document.getElementById("share");
  if(shr)shr.onclick=async()=>{const pk=packBoard();
   try{await navigator.clipboard.writeText(pk);document.getElementById("ok").textContent=
@@ -2510,6 +2590,7 @@ function result(){
    `<em>nobody named a deal-breaker</em>`);}
 
  let h=`<div class="kicker">${T} of you</div><h2>Under the Party Tree</h2>
+  ${liveNote?`<div class="note">${liveNote}</div>`:""}
   ${sec("Where this leaves us")}<div class="sum">
    <p class="lede2"><b>${T} answer${T===1?"":"s"} so far.</b> ${T>N?`Every line after the first counts
    only the ${nword(N)} on the planning committee`:`Every line is a count of those ${nword(N)}`}, not of the
