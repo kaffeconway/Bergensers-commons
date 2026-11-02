@@ -599,7 +599,7 @@ const liveDev=()=>{let v=lsGet(LIVE_DEV);if(!v){v=Math.random().toString(36).sli
 async function liveCall(body){
  const r=await fetch(LIVE_URL,{method:"POST",body:JSON.stringify(body)});
  return await r.json();}
-let liveNote="";
+let liveNote="", liveView=false;
 const PLANCHAT="https://chat.whatsapp.com/G3tnaAUOUr8K05uRar4Ytr";
 /* The four states of an activity chip, in one place: the legend above the grid, the glyph
    carried on the chip itself and the state a screen reader is told all read from here, so
@@ -1345,6 +1345,7 @@ function paint(){
  if(mode==="resume")return resume();
  if(mode==="incoming")return incoming();
  if(mode==="live")return live();
+ if(mode==="liveadd")return liveAdd();
  const st=STEPS[step], one=rvJump>=0;
  /* Opened from the review screen to change one thing: the step says so, and both buttons go
     back there rather than walking on through the other ten. */
@@ -1479,26 +1480,55 @@ function home(){
  ${storeWarn()}
  <button class="btn" id="start">Start building</button>
  ${saved.length?`<button class="btn ghost" id="res">Open or edit mine</button>`:""}
- ${LIVE_URL?`<button class="btn ghost" id="lv">See the live board</button>`:""}
- <button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>
+ ${LIVE_URL?`<button class="btn ghost" id="lv">See the live board</button>`:
+ `<button class="btn ghost" id="comb">${boardGet().length?`The board (${boardGet().length})`:"Combine codes"}</button>`}
 `;
  msg="";
  document.getElementById("start").onclick=()=>{boardEdit=-1;boardEditKey="";pend=[];pendBoth=false;
   rvJump=-1;S=blank();mode="build";step=0;render();};
  const r=document.getElementById("res"); if(r)r.onclick=()=>{mode="resume";render();};
- document.getElementById("comb").onclick=()=>{mode="combine";render();};
+ const cb=document.getElementById("comb"); if(cb)cb.onclick=()=>{mode="combine";render();};
  const lvb=document.getElementById("lv"); if(lvb)lvb.onclick=()=>{mode="live";render();};
+}
+/* Codes out of pasted text: the whole paste as ONE code first - grouped codes contain spaces by
+   design - then line by line, then token by token. Shared by the board and the live board. */
+function readPasted(raw){
+ const out=[],bad=[];
+ const tryOne=t=>{const c=String(t).replace(/^.*#c=/,"").replace(/\s+/g,"");
+  if(!c)return null;
+  try{const o=decode(c);const arr=Array.isArray(o)?o:[o];
+   return (arr.length&&arr.every(x=>x&&x.sp))?arr:null;}catch(e){return null;}};
+ const whole=tryOne(raw);
+ if(whole){whole.forEach(x=>out.push(x));}
+ else{
+  raw.split(/[\r\n]+/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
+   const r=tryOne(l); if(r)r.forEach(x=>out.push(x)); else bad.push(l);});
+  if(!out.length){
+   raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).forEach(tok=>{
+    const r=tryOne(tok); if(r)r.forEach(x=>out.push(x));});
+  }
+ }
+ return {out,bad};
 }
 function incoming(){
  const o=window.__incoming||{}; const b=boardGet();
  app.innerHTML=`<div class="kicker">Someone shared their answers</div>
  <h2>${esc(o.n||"Anonymous")}${(o.n||"").slice(-1)==="s"?"'":"'s"} version</h2>
  <p class="lede">This link holds one person's answers. What do you want to do with it?</p>
- <button class="btn" id="addb">Add ${esc(o.n||"them")} to the board${b.length?` (${b.length} there already)`:""}</button>
+ <button class="btn" id="addb">Add ${esc(o.n||"them")} to the ${LIVE_URL?"live board":`board${b.length?` (${b.length} there already)`:""}`}</button>
+ <div id="lmsg" role="status" aria-live="polite"></div>
  <button class="btn ghost" id="mine">Open it as mine, and edit</button>
  <button class="btn ghost" id="hmx">Ignore it, start fresh</button>`;
  const clean=()=>{try{history.replaceState(null,"",location.pathname);}catch(e){}};
- document.getElementById("addb").onclick=()=>{const sp=nameSplit([o]);
+ document.getElementById("addb").onclick=LIVE_URL?async()=>{
+  const btn=document.getElementById("addb"), m=document.getElementById("lmsg");
+  if(!lsGet(LIVE_PW)){clean();mode="live";render();return;}
+  btn.disabled=true; m.innerHTML=`<div class="note">Adding&hellip;</div>`;
+  try{const r=await liveImport([o]);m.innerHTML=`<div class="ok">${liveImportSay(r)}</div>
+    <button class="btn ghost" id="lsee2">See the live board</button>`;
+   document.getElementById("lsee2").onclick=()=>{clean();mode="live";render();};}
+  catch(e){if(e.message==="password")lsSet(LIVE_PW,"");m.innerHTML=`<div class="warn">${esc(liveErr(e))}</div>`;}
+  btn.disabled=false;}:()=>{const sp=nameSplit([o]);
   if(sp.clashes.length){pend=sp.clashes;pendBoth=false;clean();mode="combine";render();return;}
   boardAppend(sp.fresh);
   msg=`${esc(o.n||"They")} added. ${boardGet().length} on the board.`;
@@ -1794,7 +1824,7 @@ function done(){
  }
  try{history.replaceState(null,"","#c="+code);}catch(e){}
  app.innerHTML=`<div class="kicker">Done \u2014 ${esc(S.n)}</div><h2>${isPlan(S)?"Here is your code":"Thank you. Here is your code"}</h2>
- <p class="lede">Copy it and send it to the group chat.</p>
+ <p class="lede">${LIVE_URL&&boardEdit<0?"Keep it as a backup.":"Copy it and send it to the group chat."}</p>
  <button class="btn" id="cl">Copy my link \u2014 easiest</button>
  <div class="code" id="cd">${grp(code)}</div>
  <button class="btn ghost" id="cp">Copy the raw code instead</button>
@@ -1802,7 +1832,7 @@ function done(){
  <p class="hint">The group's admin lets new people in.</p>`:""}
  ${LIVE_URL&&boardEdit<0?`<div id="live" class="noprint"></div>`:""}
  <button class="btn ghost" id="again">Check or change my answers</button>
- <button class="btn ghost" id="comb">Combine codes</button>
+ ${LIVE_URL&&boardEdit<0?"":`<button class="btn ghost" id="comb">Combine codes</button>`}
  <div class="ok" id="st" role="status" aria-live="polite"></div>
  ${lsFailed?`<div class="warn" role="status">
  <b>This device is not letting the page save your answers.</b> Private browsing or a content
@@ -1828,7 +1858,7 @@ function done(){
  document.getElementById("cp").onclick=()=>copy(code,"Code",true);
  document.getElementById("cl").onclick=()=>copy(location.href,"Link");
  document.getElementById("again").onclick=()=>{rvJump=-1;mode="review";window.scrollTo(0,0);render();};
- document.getElementById("comb").onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;mode="combine";render();};
+ const cmb=document.getElementById("comb"); if(cmb)cmb.onclick=()=>{boardEdit=-1;boardEditKey="";rvJump=-1;mode="combine";render();};
  if(LIVE_URL&&boardEdit<0)liveJoin(code,String(S.n||"").trim());
 }
 /* Joining the live board from the code screen: automatic once the phone knows the password,
@@ -1879,14 +1909,62 @@ function live(){
   liveNote=[bad?`${bad} ${bad===1?"answer on the live board could":"answers on the live board could"} not be read and ${bad===1?"is":"are"} left out.`:"",
    twice.length?`${twice.map(n=>esc(n)).join(", ")} ${twice.length===1?"appears":"appear"} more than once, from different phones; both are shown.`:""].filter(Boolean).join(" ");
   if(!got.length){app.innerHTML=`<div class="kicker">The live board</div><h2>Nobody yet</h2>
-    <p class="lede">The live board is empty so far.</p><button class="btn ghost" id="hm">Home</button>`;
+    <p class="lede">The live board is empty so far.</p>
+    <button class="btn ghost" id="ladd2">Add codes</button><button class="btn ghost" id="hm">Home</button>`;
+   document.getElementById("ladd2").onclick=()=>{mode="liveadd";render();};
    document.getElementById("hm").onclick=()=>{mode="home";render();};return;}
-  codes=got; mode="result"; window.scrollTo(0,0); render();
+  codes=got; liveView=true; mode="result"; window.scrollTo(0,0); render();
  }).catch(()=>{app.innerHTML=`<div class="kicker">The live board</div><h2>Couldn't reach it</h2>
    <p class="lede">The live board isn't answering just now. The codes and the board on this phone still work.</p>
    <button class="btn" id="lretry">Try again</button><button class="btn ghost" id="hm">Home</button>`;
   document.getElementById("lretry").onclick=()=>render();
   document.getElementById("hm").onclick=()=>{mode="home";render();};});
+}
+/* Moving codes onto the live board - the old board's codes, or one somebody sent. Each person
+   is saved as "import:<name>" (script version 2). Somebody already on the live board is skipped,
+   not replaced: their own phone's answer is the newer one. Returns what happened to whom. */
+async function liveImport(recs){
+ const pw=lsGet(LIVE_PW), res={added:[],skipped:[],failed:[],noname:0};
+ const probe=await liveCall({action:"read",pw});
+ if(probe&&probe.error==="password")throw new Error("password");
+ if(!probe||!probe.ok)throw new Error("refused");
+ if(!(probe.v>=2))throw new Error("old-script");
+ for(const o of recs){const n=String(o.n||"").trim();
+  if(!n){res.noname++;continue;}
+  try{const j=await liveCall({action:"save",mode:"import",pw,name:n,code:encode(o)});
+   if(j&&j.ok)(j.skipped?res.skipped:res.added).push(n); else res.failed.push(n);}
+  catch(e){res.failed.push(n);}}
+ return res;}
+function liveImportSay(r){
+ const L=(a,t)=>a.length?`<b>${a.length}</b> ${t}: ${a.map(esc).join(", ")}.`:"";
+ return [L(r.added,"added"),L(r.skipped,"already on the live board, so left as they are"),
+  L(r.failed,"could not be added - try again"),
+  r.noname?`${r.noname} code${r.noname===1?" has":"s have"} no name and ${r.noname===1?"was":"were"} left out.`:""].filter(Boolean).join(" ")||"Nothing to add.";}
+const liveErr=e=>e&&e.message==="old-script"?
+ "The Google script needs updating first: paste the new Code.gs and deploy a new version (live-board/SETUP.md).":
+ e&&e.message==="password"?"That password didn't work.":"Couldn't reach the live board just now. Try again in a moment.";
+/* "Add codes" on the live board: the one-time move of this phone's old board, and a paste box. */
+function liveAdd(){
+ if(!lsGet(LIVE_PW)){mode="live";return render();}
+ const b=boardGet();
+ app.innerHTML=`<div class="kicker">The live board</div><h2>Add codes</h2>
+  ${b.length?`<button class="btn" id="lmove">Move the ${b.length} code${b.length===1?"":"s"} on this phone to the live board</button>`:""}
+  <p class="hint" style="margin-top:16px">Or paste a code someone sent you.</p>
+  <textarea id="tx" aria-label="Paste codes here" placeholder="Paste a code or a link"></textarea>
+  <button class="btn${b.length?" ghost":""}" id="ladd">Add to the live board</button>
+  <div id="lmsg" role="status" aria-live="polite"></div>
+  <button class="btn ghost" id="lback">Back to the live board</button>`;
+ const say=(h,cls)=>{document.getElementById("lmsg").innerHTML=`<div class="${cls||"ok"}">${h}</div>`;};
+ const run=async(recs,btn)=>{btn.disabled=true;say("Adding&hellip;","note");
+  try{const r=await liveImport(recs);say(liveImportSay(r));}
+  catch(e){if(e.message==="password")lsSet(LIVE_PW,"");say(esc(liveErr(e)),"warn");}
+  btn.disabled=false;};
+ const mv=document.getElementById("lmove"); if(mv)mv.onclick=()=>run(boardGet(),mv);
+ document.getElementById("ladd").onclick=()=>{const raw=document.getElementById("tx").value;
+  const {out}=readPasted(raw);
+  if(!out.length){say("None of that could be read as a code.","warn");return;}
+  run(out,document.getElementById("ladd"));};
+ document.getElementById("lback").onclick=()=>{mode="live";render();};
 }
 /* One collision at a time. Showing what each version actually answered is the only way the
    collector can tell a resend from a namesake - the name alone is what got them here. */
@@ -2005,7 +2083,7 @@ function combine(){
  if(clr)clr.onclick=()=>{undoRow=null;if(clr.dataset.sure){boardSet([]);render();}
   else{clr.dataset.sure="1";clr.textContent="Tap again to clear everything";}};
  const go=document.getElementById("go");
- if(go)go.onclick=()=>{undoRow=null;liveNote="";codes=boardGet();mode="result";window.scrollTo(0,0);render();};
+ if(go)go.onclick=()=>{undoRow=null;liveNote="";liveView=false;codes=boardGet();mode="result";window.scrollTo(0,0);render();};
  const shr=document.getElementById("share");
  if(shr)shr.onclick=async()=>{const pk=packBoard();
   try{await navigator.clipboard.writeText(pk);document.getElementById("ok").textContent=
@@ -2018,22 +2096,7 @@ function combine(){
   const raw=document.getElementById("tx").value;
   if(!raw.trim()){document.getElementById("err").textContent="Nothing pasted yet.";return;}
   undoRow=null;
-  const out=[],bad=[];
-  const tryOne=t=>{const c=String(t).replace(/^.*#c=/,"").replace(/\s+/g,"");
-   if(!c)return null;
-   try{const o=decode(c);const arr=Array.isArray(o)?o:[o];
-    return (arr.length&&arr.every(x=>x&&x.sp))?arr:null;}catch(e){return null;}};
-  /* whole paste as ONE code first \u2014 grouped codes contain spaces by design */
-  const whole=tryOne(raw);
-  if(whole){whole.forEach(x=>out.push(x));}
-  else{
-   raw.split(/[\r\n]+/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
-    const r=tryOne(l); if(r)r.forEach(x=>out.push(x)); else bad.push(l);});
-   if(!out.length){
-    raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).forEach(tok=>{
-     const r=tryOne(tok); if(r)r.forEach(x=>out.push(x));});
-   }
-  }
+  const {out}=readPasted(raw);
   if(!out.length){document.getElementById("err").textContent="None of those could be read as a code.";return;}
   /* Codes with a name nobody on the board is using land straight away. A name already
      there is a question, not an instruction, and waits for an answer. */
@@ -2484,7 +2547,7 @@ function resultNoPlanners(){
   <button class="btn ghost noprint" id="more">Add more codes</button>
   <button class="btn ghost noprint" id="hm">Home</button>`;
  wireInspector();
- document.getElementById("more").onclick=()=>{mode="combine";render();};
+ document.getElementById("more").onclick=()=>{mode=liveView&&LIVE_URL?"liveadd":"combine";render();};
  document.getElementById("hm").onclick=()=>{mode="home";render();};
 }
 /* Only the planning committee answered the questions the results compare, so every chart and
@@ -3202,7 +3265,7 @@ function result(){
    document.querySelectorAll("[data-pp]").forEach(x=>{
     if(x.dataset.pp==="all")x.classList.toggle("on",act===null);
     else x.classList.toggle("on",act===null||act.has(+x.dataset.pp));});});})();
- document.getElementById("more").onclick=()=>{mode="combine";window.scrollTo(0,0);render();};
+ document.getElementById("more").onclick=()=>{mode=liveView&&LIVE_URL?"liveadd":"combine";window.scrollTo(0,0);render();};
  POSTER={score:SCORE,verdict:verdict,names:codes.map((c,i)=>who(i)),
   /* everybody, by role - the one part of the image that is not planners only */
   crowd:crowd.length>codes.length?roleTally(crowd).filter(x=>x[2].length).map(([k,a,l])=>[k,a,l.length]):[],

@@ -24,6 +24,11 @@ Afterwards:
 - To change the password, edit it in the script, then **Deploy > Manage deployments >
   Edit > New version > Deploy**. The web address stays the same. Everyone types the new one
   once.
+- **Updating the script** (when `Code.gs` here changes, as it did on 2 Nov 2026 for moving
+  codes in from the old board): in the Apps Script editor, select everything, paste the new
+  `Code.gs`, put your password back on the `PASSWORD` line, save, then **Deploy > Manage
+  deployments > Edit (pencil) > Version: New version > Deploy**. Same web address. The page
+  says so if it needs a newer script than the one deployed.
 - "Anyone" access means anyone can reach the script's address, but without the password it
   refuses to read or save anything. The address is visible in the page's source; the
   password is not.
