@@ -591,7 +591,7 @@ const BEGIN=[["shared","Look for a shared place to live"],["town","Move to the s
    phone. Saving again from the same phone replaces that phone's earlier answer; two phones
    under one name are both kept and the results say so. Empty LIVE_URL means the feature is
    off and nothing is shown or sent. The codes and the board keep working regardless. */
-const LIVE_URL="";
+const LIVE_URL="https://script.google.com/macros/s/AKfycby5xz3S7FIZN-FYMpYmEiZY5GvRpkJ-BOq-O5c0w42zzBdGkb7SIgf88lQqkzYI-n3l/exec";
 const LIVE_DEV="__commons_device", LIVE_PW="__commons_livepw";
 const liveDev=()=>{let v=lsGet(LIVE_DEV);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);lsSet(LIVE_DEV,v);}return v;};
 /* text/plain, the default for a string body, keeps the request simple: no CORS preflight,

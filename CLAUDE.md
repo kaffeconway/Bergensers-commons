@@ -479,7 +479,10 @@ knowingly; the codes and the board still work exactly as before, as the fallback
 - **Where the answers go**: a Google Sheet the organiser owns, through a small Apps Script
   published as a web app. The script is `live-board/Code.gs` in this repo and the setup steps
   are `live-board/SETUP.md`. The page talks to it at `LIVE_URL`; **empty means the whole
-  feature is off** — nothing shown, nothing sent.
+  feature is off** — nothing shown, nothing sent. Set on 2 Nov 2026 to the organiser's
+  deployment; a wrong password was refused from the page itself before it went live. If he
+  redeploys as a *new* deployment the address changes and must be updated here; *Manage
+  deployments > Edit > New version* keeps it.
 - **The password lives only in the script**, never in this public page. The page asks for it
   once per phone and remembers it on that phone (`__commons_livepw`, deliberately outside the
   `commons:` prefix so it is not mistaken for somebody's draft). The script refuses every read
