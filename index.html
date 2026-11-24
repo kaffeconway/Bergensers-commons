@@ -1475,7 +1475,7 @@ function home(){
  <h1>A life with friends</h1>
  <p class="lede">${nword(STEPS.length).replace(/^./,c=>c.toUpperCase())} steps on where and how we might
  live together. ${lsFailed?`Nothing saves on this device, so do it in one sitting.`:`It saves as you go.`}
- At the end you get a short code to send back.</p>
+ ${LIVE_URL?`At the end your answers go to the live board.`:`At the end you get a short code to send back.`}</p>
  ${msg?`<div class="ok">${esc(msg)}</div>`:""}
  ${storeWarn()}
  <button class="btn" id="start">Start building</button>
