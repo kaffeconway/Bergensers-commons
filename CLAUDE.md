@@ -494,6 +494,13 @@ knowingly; the codes and the board still work exactly as before, as the fallback
   that phone replaces its row. Two phones under one name are **both kept** and the results say
   so — the same rule as the board's namesake question, since a first name is all this asks
   for. A row whose code cannot be read is left out and the results say how many.
+- **"Is that you?"** (24 Nov 2026, the organiser's decision, on trust): a save also returns
+  anybody else of that name (`same`, script **version 3**), and the code screen asks whether
+  it is them, answered earlier on another phone or computer. Yes sends `claim`, which moves
+  that row to the sheet's *Replaced* tab — never deletes it — and only a phone that has
+  itself saved under the name can claim. No is remembered on that phone
+  (`__commons_livenotme`) so it is not asked again about that row. With an older script
+  nothing is asked and both rows stay.
 - Every outcome is said on screen: joined, wrong password (asked again), or unreachable (the
   code still works, with a retry). Requests are POST with a plain-text JSON body, which avoids
   the CORS preflight Apps Script cannot answer.

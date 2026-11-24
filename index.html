@@ -1877,14 +1877,45 @@ function liveJoin(code,name,said){
   return;}
  box.innerHTML=`<p class="hint" style="margin-top:18px">Adding you to the live board&hellip;</p>`;
  liveCall({action:"save",pw,id:liveDev(),name,code}).then(j=>{
-  if(j&&j.ok){box.innerHTML=`<div class="ok" role="status">You're on the live board.</div>
-    <button class="btn" id="lsee">See everyone's results</button>`;
-   document.getElementById("lsee").onclick=()=>{mode="live";window.scrollTo(0,0);render();};}
+  if(j&&j.ok){const same=(Array.isArray(j.same)?j.same:[]).filter(o=>o&&o.saved&&!liveNotMe().includes(liveKey(name,o.saved)));
+   box.innerHTML=`<div class="ok" role="status">You're on the live board.</div>
+    <div id="lsame"></div><button class="btn" id="lsee">See everyone's results</button>`;
+   document.getElementById("lsee").onclick=()=>{mode="live";window.scrollTo(0,0);render();};
+   if(same.length)liveSame(name,same);}
   else if(j&&j.error==="password"){lsSet(LIVE_PW,"");liveJoin(code,name,"That password didn't work.");}
   else throw new Error("refused");
  }).catch(()=>{box.innerHTML=`<div class="warn" role="status">Couldn't reach the live board just now. Your code
    above still works &mdash; send it as before.</div><button class="btn ghost" id="lretry">Try the live board again</button>`;
   document.getElementById("lretry").onclick=()=>liveJoin(code,name);});
+}
+/* Somebody else of the same name is already on the live board (script version 3). It may be
+   this person, answered earlier on another phone or computer: one row per phone means that
+   left two of them. The page asks, and takes their word for it. Yes moves the other row to
+   the sheet's "Replaced" tab, where the organiser can move it back; no is remembered on this
+   phone so the question is not asked again about that row. */
+const LIVE_NOTME="__commons_livenotme";
+const liveKey=(n,saved)=>String(n||"").toLowerCase().trim().replace(/\s+/g," ")+"|"+saved;
+const liveNotMe=()=>{try{const v=JSON.parse(lsGet(LIVE_NOTME)||"[]");return Array.isArray(v)?v:[];}catch(e){return [];}};
+function liveSame(name,same){
+ const el=document.getElementById("lsame"); if(!el)return;
+ const when=x=>{const d=new Date(x);return isNaN(d)?"":d.toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});};
+ const one=same.length===1;
+ el.innerHTML=`<p class="hint" style="margin-top:14px"><b>${one?`There's already a ${esc(name)}`:`There are already ${same.length} others called ${esc(name)}`}
+   on the live board</b>, saved from another phone or computer${one&&when(same[0].saved)?` on ${esc(when(same[0].saved))}`:""}.
+   ${one?"Is that you?":"Is one of them you?"}</p>
+  ${same.map((o,i)=>`<button class="btn ghost" data-i="${i}">${one?"Yes, that's me &mdash; keep just this answer":`Yes, the one saved ${esc(when(o.saved))}`}</button>`).join("")}
+  <button class="btn ghost" id="lnot">${one?`No, that's a different ${esc(name)}`:"No, none of them"}</button>`;
+ el.querySelectorAll("button[data-i]").forEach(b=>b.onclick=()=>{
+  const o=same[+b.dataset.i]; el.innerHTML=`<p class="hint">Replacing your earlier answer&hellip;</p>`;
+  liveCall({action:"claim",pw:lsGet(LIVE_PW),id:liveDev(),name,saved:o.saved}).then(j=>{
+   if(!j||!j.ok)throw new Error("refused");
+   el.innerHTML=`<div class="ok" role="status">${j.gone?"That earlier answer had already gone. Only this one is on the live board.":"Done. Only this answer is on the live board now."}</div>`;
+  }).catch(()=>{el.innerHTML=`<div class="warn" role="status">Couldn't replace it just now. Both answers are on the live board for the moment.</div>
+    <button class="btn ghost" id="lsame2">Try again</button>`;
+   document.getElementById("lsame2").onclick=()=>liveSame(name,same);});});
+ document.getElementById("lnot").onclick=()=>{
+  lsSet(LIVE_NOTME,JSON.stringify(liveNotMe().concat(same.map(o=>liveKey(name,o.saved))).slice(-50)));
+  el.innerHTML=`<p class="hint">Both are kept. Adding a last initial to your name helps everyone tell you apart.</p>`;};
 }
 /* The live board screen: password once, then everyone's answers straight into the results. */
 function live(){
@@ -1907,7 +1938,7 @@ function live(){
   const seen={},twice=[];
   got.forEach(o=>{const k=String(o.n||"").toLowerCase().trim();if(!k)return;if(seen[k]===1)twice.push(o.n);seen[k]=(seen[k]||0)+1;});
   liveNote=[bad?`${bad} ${bad===1?"answer on the live board could":"answers on the live board could"} not be read and ${bad===1?"is":"are"} left out.`:"",
-   twice.length?`${twice.map(n=>esc(n)).join(", ")} ${twice.length===1?"appears":"appear"} more than once, from different phones; both are shown.`:""].filter(Boolean).join(" ");
+   twice.length?`${twice.map(n=>esc(n)).join(", ")} ${twice.length===1?"appears":"appear"} more than once, from different phones; both are shown. If that is one person, saving again from either phone asks whether to keep just one.`:""].filter(Boolean).join(" ");
   if(!got.length){app.innerHTML=`<div class="kicker">The live board</div><h2>Nobody yet</h2>
     <p class="lede">The live board is empty so far.</p>
     <button class="btn ghost" id="ladd2">Add codes</button><button class="btn ghost" id="hm">Home</button>`;

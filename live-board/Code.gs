@@ -20,11 +20,22 @@
  * stores a row with id "import:<name>", unless somebody of that name is already
  * on the live board, in which case it is skipped and says so. When that person
  * later saves from their own phone, their answer takes over the imported row.
+ *
+ * Version 3 (24 Nov 2026) lets somebody who answered on two phones or computers
+ * keep just one answer. A save now also says whether anybody else of the same
+ * name is on the board ("same", each with when it was saved), and the page asks
+ * "Is that you?". On yes it sends
+ *   {action:"claim", pw, id, name, saved}
+ * which moves that other row to the "Replaced" tab. Nothing is deleted: to undo,
+ * move the row back to "Answers". It rests on trust, like the rest of the board,
+ * and only a phone that has itself saved under that name can claim it.
  */
 const PASSWORD = "CHANGE-ME";     // the group password - choose your own
 const TAB = "Answers";
-const VERSION = 2;
+const OLD = "Replaced";
+const VERSION = 3;
 const key_ = n => String(n || "").toLowerCase().trim().replace(/\s+/g, " ");
+const iso_ = v => v instanceof Date ? v.toISOString() : String(v || "");
 
 function tab_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -71,6 +82,37 @@ function doPost(e) {
         if (row < 0 && k) for (let i = 1; i < values.length; i++) if (values[i][0] === "import:" + k) { row = i + 1; break; }
       }
       if (row > 0) sh.getRange(row, 1, 1, 4).setValues([rec]); else sh.appendRow(rec);
+      // Anybody else of this name, so the page can ask whether it is the same person.
+      const same = [];
+      if (!imp && k) for (let i = 1; i < values.length; i++)
+        if (i + 1 !== row && values[i][0] !== id && values[i][2] && key_(values[i][1]) === k) same.push({saved: iso_(values[i][3])});
+      return reply_({ok: true, same: same});
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  if (d.action === "claim") {
+    const id = String(d.id || "").slice(0, 64), k = key_(d.name), saved = String(d.saved || "");
+    if (!id || !k || !saved) return reply_({ok: false, error: "bad"});
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const sh = tab_(), values = sh.getDataRange().getValues();
+      // Only a phone that has saved under this name itself can say the other one is theirs.
+      let mine = false, at = -1;
+      for (let i = 1; i < values.length; i++) {
+        if (key_(values[i][1]) !== k) continue;
+        if (values[i][0] === id) mine = true;
+        else if (at < 0 && iso_(values[i][3]) === saved) at = i;
+      }
+      if (!mine) return reply_({ok: false, error: "bad"});
+      if (at < 0) return reply_({ok: true, gone: true});
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const old = ss.getSheetByName(OLD) || ss.insertSheet(OLD);
+      if (old.getLastRow() === 0) old.appendRow(["phone", "name", "code", "saved", "replaced", "replaced by phone"]);
+      old.appendRow(values[at].slice(0, 4).concat([new Date(), id]));
+      sh.deleteRow(at + 1);
     } finally {
       lock.releaseLock();
     }
