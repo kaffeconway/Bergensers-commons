@@ -21,11 +21,16 @@ About ten minutes, once. You need a Google account; nobody else does.
 Afterwards:
 
 - Every answer appears as a row in the *Answers* tab. Delete a row to remove somebody.
+- When somebody who answered on one phone saves again from another, the page asks "Is that
+  you?". On yes, their older row moves to a *Replaced* tab (the script makes it the first
+  time). Nothing is deleted: to undo one, cut the row from *Replaced* and paste it back into
+  *Answers* (its first four columns). This needs script version 3 (24 Nov 2026); with an
+  older one the page doesn't ask and both rows stay, as before.
 - To change the password, edit it in the script, then **Deploy > Manage deployments >
   Edit > New version > Deploy**. The web address stays the same. Everyone types the new one
   once.
 - **Updating the script** (when `Code.gs` here changes, as it did on 2 Nov 2026 for moving
-  codes in from the old board): in the Apps Script editor, select everything, paste the new
+  codes in from the old board and on 24 Nov 2026 for "Is that you?"): in the Apps Script editor, select everything, paste the new
   `Code.gs`, put your password back on the `PASSWORD` line, save, then **Deploy > Manage
   deployments > Edit (pencil) > Version: New version > Deploy**. Same web address. The page
   says so if it needs a newer script than the one deployed.
