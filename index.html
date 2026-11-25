@@ -118,6 +118,8 @@ input[type=range]{width:100%;accent-color:var(--pine);height:44px;background:non
 input[type=text],input[type=password],textarea{width:100%;padding:12px;font-size:16px;font-family:var(--sans);background:rgba(255,255,255,.7);
  border:1px solid var(--edge);border-radius:3px;color:var(--ink)}
 textarea{font-family:var(--mono);font-size:13px;min-height:110px;resize:vertical}
+.count{font-family:var(--mono);font-size:11.5px;color:var(--pine);opacity:.7;text-align:right;margin:4px 0 0}
+.count.near{color:var(--madder);opacity:1}
 .dots{display:flex;gap:5px;margin-bottom:18px}
 .dots i{height:3px;flex:1;background:var(--rule);border-radius:2px}
 .dots i.on{background:var(--pine)}
@@ -1101,9 +1103,16 @@ function wireInspector(){
    let items=[];try{items=JSON.parse(el.dataset.items);}catch(e){}
    showInspector(el.dataset.title||"",items);};});
 }
+/* The two free-text answers on the last page. Raised from 180 and 240 on 25 Nov 2026: the
+   boxes had no visible limit, so longer answers were cut off without anyone knowing. Free text
+   rides in the code's variable-length tail, so a longer limit moves nothing in the format and
+   every earlier answer reads exactly as before. At three bytes a character the longest possible
+   code still stays well under the live board's 8000-character cap. The count under each box
+   shows how close somebody is. */
+const WHY_MAX=500, STOP_MAX=500;
 const payload=()=>({n:cut(S.n,24),s:S.style,sp:S.sp,a:S.act,t:S.tol,u:S.use,hh:S.hh,hz:S.hz,
- st:cut(S.stop,240),
- sk:S.sk,wy:cut(S.why,180),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
+ st:cut(S.stop,STOP_MAX),
+ sk:S.sk,wy:cut(S.why,WHY_MAX),cp:S.cap,rn:S.run,d:S.debt,rg:S.rg,ow:ownList(),
  rw:liveRg().indexOf(OFFLIST)>=0?cut(String(S.rw||"").trim(),60):"",
  cz:cut(String(S.cz||"").trim(),40),lv:cut(String(S.lv||"").trim(),40),
  tr:S.tr||TRIAL[0][0],same:S.same||SAMETOWN[0][0],early:S.early||EARLY[0][0],
@@ -1136,8 +1145,8 @@ function setName(v){
 function grabOwn(){const n=document.getElementById("nm");
  if(n&&n.value.trim())setName(n.value);
  const t=document.getElementById("own"); if(t)S.ow=cut(t.value,400);
- const q=document.getElementById("stop"); if(q)S.stop=cut(q.value,240);
- const w=document.getElementById("why"); if(w)S.why=cut(w.value,180);
+ const q=document.getElementById("stop"); if(q)S.stop=cut(q.value,STOP_MAX);
+ const w=document.getElementById("why"); if(w)S.why=cut(w.value,WHY_MAX);
  const g=document.getElementById("rgw"); if(g)S.rw=cut(g.value,60);
  const cz=document.getElementById("cz"); if(cz)S.cz=cut(cz.value,40);
  const lv=document.getElementById("lv"); if(lv)S.lv=cut(lv.value,40);}
@@ -1261,8 +1270,8 @@ const STEPS=[
   ACTS.map(([g,items])=>`<div class="grp">${esc(g)}</div><div class="chips">`+
    items.map(([k,a])=>chipHTML(k,a)).join("")+`</div>`).join("")+
   `<div class="grp">Something we've missed?</div>
-   <textarea id="own" aria-label="Anything we have missed \u2014 one per line"
-    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>`,
+   <textarea id="own" aria-label="Anything we have missed \u2014 one per line" maxlength="400" data-max="400"
+    aria-describedby="own-n" placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea><p class="count" id="own-n"></p>`,
  save:()=>{grabOwn();return null;}},
 
 {id:"take",t:"How much can you take?",k:"Slide toward whichever end feels true.",
@@ -1319,13 +1328,13 @@ const STEPS=[
  save:()=>null},
 
 {id:"last",t:"Last one, and it's optional",k:"In one line: why do you want this at all?",
- r:()=>`<textarea id="why" aria-label="Why do you want this at all"
-   placeholder="Because...">${esc(S.why||"")}</textarea>
+ r:()=>`<textarea id="why" aria-label="Why do you want this at all" maxlength="${WHY_MAX}" data-max="${WHY_MAX}"
+   aria-describedby="why-n" placeholder="Because...">${esc(S.why||"")}</textarea><p class="count" id="why-n"></p>
   <p class="hint" style="margin-top:20px"><b>What would make you walk away?</b> One line.</p>
-  <textarea id="stop" aria-label="What would make you walk away"
-   placeholder="A job, a person, a number you can't reach... or nothing yet">${esc(S.stop||"")}</textarea>`,
- save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,180);
-  const q=document.getElementById("stop");if(q)S.stop=cut(q.value,240);return null;}}
+  <textarea id="stop" aria-label="What would make you walk away" maxlength="${STOP_MAX}" data-max="${STOP_MAX}"
+   aria-describedby="stop-n" placeholder="A job, a person, a number you can't reach... or nothing yet">${esc(S.stop||"")}</textarea><p class="count" id="stop-n"></p>`,
+ save:()=>{const w=document.getElementById("why");if(w)S.why=cut(w.value,WHY_MAX);
+  const q=document.getElementById("stop");if(q)S.stop=cut(q.value,STOP_MAX);return null;}}
 ].filter(s=>MONEY_ON||s.id!=="money");
 /* Steps are found by name, never by position: the review and its read-back checks used to
    say "step 7", and every step added, moved or hidden silently pointed them elsewhere. */
@@ -1390,6 +1399,10 @@ function paintTokens(){
 function wire(){
  const q=(s,f)=>document.querySelectorAll(s).forEach(f);
  q("[data-more]",d=>d.ontoggle=()=>{moreOpen[d.dataset.more]=d.open;});
+ /* How many characters are left, under each box that has a limit; red in the last tenth. */
+ q("textarea[data-max]",t=>{const n=document.getElementById(t.id+"-n");if(!n)return;
+  const up=()=>{const l=t.value.length,m=+t.dataset.max;n.textContent=`${l} / ${m}`;n.classList.toggle("near",l>=m*.9);};
+  t.oninput=up;up();});
  q("[data-style]",b=>b.onclick=()=>{S.style=b.dataset.style;autosave();render();});
 q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  q("[data-role]",b=>b.onclick=()=>{S.role=b.dataset.role;autosave();render();});
@@ -1398,13 +1411,13 @@ q("[data-use]",b=>b.onclick=()=>{S.use=b.dataset.use;autosave();render();});
  /* aria-pressed already says which way a two-state toggle is, so no live message on top. */
  q("[data-sk]",b=>b.onclick=()=>{const k=b.dataset.sk;S.sk[k]=S.sk[k]?0:1;autosave();
    b.classList.toggle("must",!!S.sk[k]);b.setAttribute("aria-pressed",S.sk[k]?"true":"false");});
- q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+ q("[data-hz]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,STOP_MAX);
    S.hz=b.dataset.hz;autosave();render();});
- q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+ q("[data-tr]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,STOP_MAX);
    S.tr=b.dataset.tr;autosave();render();});
- q("[data-same]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+ q("[data-same]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,STOP_MAX);
    S.same=b.dataset.same;autosave();render();});
- q("[data-early]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,240);
+ q("[data-early]",b=>b.onclick=()=>{const t=document.getElementById("stop");if(t)S.stop=cut(t.value,STOP_MAX);
    S.early=b.dataset.early;autosave();render();});
  q("[data-cap]",b=>b.onclick=()=>{S.cap=+b.dataset.cap;autosave();render();});
  q("[data-run]",b=>b.onclick=()=>{S.run=+b.dataset.run;autosave();render();});
