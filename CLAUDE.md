@@ -549,7 +549,8 @@ yet" it is left out rather than counted as agreement, as is a code that never ha
 **The two last-page answers hold 500 characters each** (25 Nov 2026, the organiser's request:
 "without ruining what is already there"). They were 180 (*why*) and 240 (*walk away*), with no
 limit shown, so longer answers were cut off without anyone knowing. `WHY_MAX` / `STOP_MAX` set
-them, the boxes carry `maxlength`, and a count under each turns red in its last tenth. Free text
+them, the boxes carry `maxlength`, and a count under each turns red in its last tenth. The
+activities page's "Something we've missed?" box got the same count at its existing 400. Free text
 is in the code's variable-length tail, so this moved nothing in the format: older codes read
 exactly as before, today's live page reads a longer answer whole, and the longest possible code
 (three-byte characters throughout) is about 5,100 characters, under the live board's 8000. Text

@@ -1270,8 +1270,8 @@ const STEPS=[
   ACTS.map(([g,items])=>`<div class="grp">${esc(g)}</div><div class="chips">`+
    items.map(([k,a])=>chipHTML(k,a)).join("")+`</div>`).join("")+
   `<div class="grp">Something we've missed?</div>
-   <textarea id="own" aria-label="Anything we have missed \u2014 one per line"
-    placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea>`,
+   <textarea id="own" aria-label="Anything we have missed \u2014 one per line" maxlength="400" data-max="400"
+    aria-describedby="own-n" placeholder="Add your own \u2014 one per line">${esc(S.ow||"")}</textarea><p class="count" id="own-n"></p>`,
  save:()=>{grabOwn();return null;}},
 
 {id:"take",t:"How much can you take?",k:"Slide toward whichever end feels true.",
