@@ -546,6 +546,15 @@ replaced the trial year, the same-town idea and moving early — the organiser's
 it moves scores already given). "Doesn't matter to me" fits either answer, so like "No view
 yet" it is left out rather than counted as agreement, as is a code that never had the question.
 
+**The two last-page answers hold 500 characters each** (25 Nov 2026, the organiser's request:
+"without ruining what is already there"). They were 180 (*why*) and 240 (*walk away*), with no
+limit shown, so longer answers were cut off without anyone knowing. `WHY_MAX` / `STOP_MAX` set
+them, the boxes carry `maxlength`, and a count under each turns red in its last tenth. Free text
+is in the code's variable-length tail, so this moved nothing in the format: older codes read
+exactly as before, today's live page reads a longer answer whole, and the longest possible code
+(three-byte characters throughout) is about 5,100 characters, under the live board's 8000. Text
+already cut off was lost on the phone it was typed on; it cannot be recovered from a code.
+
 **Page 8 is two questions** (31 Oct 2026): "Where should we begin?" — *Look for a shared place
 to live*, *Move to the same town or city first*, *Doesn't matter to me* — and "Realistically,
 when?". "What would make you walk away?" moved to the last page, beside "Why do you want this
